@@ -1,0 +1,630 @@
+### 다배움 API 테스트 (REST Client)
+### Spec: http://<api-host>:8080/openapi/dabaeum-api-v1.yaml
+### Swagger: http://<api-host>:8080/swagger-ui/index.html#/
+### Local copy: apitest/dabaeum-api-v1.yaml
+
+@baseUrl = http://<api-host>:8080/api/v1
+@token = <bearer-token>
+@institutionId = 00000000-0000-0000-0000-000000000001
+@userId = 31b19a98-1982-45a4-96d1-3903856d0c77
+@courseId = 00000000-0000-0000-0000-000000000003
+@sessionId = 00000000-0000-0000-0000-000000000004
+@enrollmentId = 00000000-0000-0000-0000-000000000005
+@attendanceId = 00000000-0000-0000-0000-000000000006
+@completionId = 00000000-0000-0000-0000-000000000007
+@credentialId = 00000000-0000-0000-0000-000000000008
+@identityId = 00000000-0000-0000-0000-000000000009
+@roleId = 00000000-0000-0000-0000-000000000010
+@badgeId = 00000000-0000-0000-0000-000000000011
+@applicationId = 00000000-0000-0000-0000-000000000012
+@idempotencyKey = test-idempotency-key-001
+
+### =========================
+### System
+### =========================
+
+### 시스템 상태 확인 (인증 불필요)
+GET {{baseUrl}}/system/ping
+Accept: application/json
+
+### =========================
+### Institution
+### =========================
+
+### 기관 목록 조회
+GET {{baseUrl}}/institutions?page=0&size=20&sort=createdAt,desc
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 기관 생성
+POST {{baseUrl}}/institutions
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "institutionCode": "SEOUL-LLC-001",
+  "name": "서울평생교육원",
+  "businessNumber": "123-45-67890",
+  "representativeName": "김대표",
+  "address": "서울특별시 중구 세종대로 110",
+  "contactPhone": "02-1234-5678",
+  "contactEmail": "contact@seoul-llc.example",
+  "status": "ACTIVE"
+}
+
+### 기관 상세 조회
+GET {{baseUrl}}/institutions/{{institutionId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 기관 수정
+PUT {{baseUrl}}/institutions/{{institutionId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "서울평생교육원",
+  "contactPhone": "02-1234-5679",
+  "status": "ACTIVE"
+}
+
+### =========================
+### Auth / User
+### =========================
+
+### 현재 인증 세션 조회
+GET {{baseUrl}}/auth/session
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 일반 회원가입
+POST {{baseUrl}}/auth/signup
+Content-Type: application/json
+Accept: application/json
+
+{
+  "email": "learner@example.com",
+  "password": "password12",
+  "name": "홍길동",
+  "phone": "010-1234-5678"
+}
+
+### 일반 로그인
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+Accept: application/json
+
+{
+  "email": "learner@example.com",
+  "password": "password12"
+}
+
+### =========================
+### Instructor Applications
+### =========================
+
+### 기관 강사 신청
+POST {{baseUrl}}/institutions/{{institutionId}}/instructor-applications
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "applicationMessage": "해당 분야 강의 경력이 있습니다."
+}
+
+### 기관 강사 신청 목록
+GET {{baseUrl}}/institutions/{{institutionId}}/instructor-applications?page=0&size=20&status=PENDING
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 내 강사 신청 목록
+GET {{baseUrl}}/instructor-applications/me?page=0&size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 강사 신청 상세
+GET {{baseUrl}}/instructor-applications/{{applicationId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 강사 신청 승인
+POST {{baseUrl}}/instructor-applications/{{applicationId}}/approve
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 강사 신청 거절
+POST {{baseUrl}}/instructor-applications/{{applicationId}}/reject
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "rejectionReason": "서류 미비"
+}
+
+### 사용자 목록 조회
+GET {{baseUrl}}/users?page=0&size=20&status=ACTIVE&sort=createdAt,desc
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 사용자 생성
+POST {{baseUrl}}/users
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "홍길동",
+  "email": "hong@example.com",
+  "phone": "010-1234-5678",
+  "birthDate": "1990-01-15",
+  "status": "ACTIVE"
+}
+
+### 내 사용자 정보 조회
+GET {{baseUrl}}/users/me
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 내 사용자 정보 수정
+PUT {{baseUrl}}/users/me
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "홍길동",
+  "email": "hong@example.com",
+  "phone": "010-1234-5678"
+}
+
+### 사용자 상세 조회
+GET {{baseUrl}}/users/{{userId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 사용자 상태 변경
+PUT {{baseUrl}}/users/{{userId}}/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "status": "ACTIVE"
+}
+
+### =========================
+### Identity & Role
+### =========================
+
+### 사용자 Identity 목록
+GET {{baseUrl}}/users/{{userId}}/identities
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### Identity 연결
+POST {{baseUrl}}/users/{{userId}}/identities
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "provider": "LOCAL",
+  "providerSubject": "hong@example.com",
+  "externalDid": null,
+  "verified": true
+}
+
+### Identity 상세
+GET {{baseUrl}}/users/{{userId}}/identities/{{identityId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 사용자 역할 목록
+GET {{baseUrl}}/users/{{userId}}/roles
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 역할 부여
+POST {{baseUrl}}/users/{{userId}}/roles
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "role": "LEARNER",
+  "institutionId": null
+}
+
+### 역할 상세
+GET {{baseUrl}}/users/{{userId}}/roles/{{roleId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### =========================
+### Course
+### =========================
+
+### 과정 목록 조회
+GET {{baseUrl}}/courses?page=0&size=20&sort=createdAt,desc
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 과정 생성
+POST {{baseUrl}}/courses
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "institutionId": "{{institutionId}}",
+  "courseCode": "DATA-101",
+  "title": "데이터 분석 기초와 실무",
+  "description": "파이썬 기반 데이터 분석 입문 과정",
+  "category": "IT/디지털",
+  "educationType": "ONLINE",
+  "startDate": "2026-09-01",
+  "endDate": "2026-10-31",
+  "recruitStartDate": "2026-08-01",
+  "recruitEndDate": "2026-08-25",
+  "capacity": 30,
+  "location": null,
+  "onlineUrl": "https://learn.example.com/data-101",
+  "creditBankEligible": true,
+  "creditValue": 3
+}
+
+### 과정 상세 조회
+GET {{baseUrl}}/courses/{{courseId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 과정 수정
+PUT {{baseUrl}}/courses/{{courseId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "title": "데이터 분석 기초와 실무",
+  "capacity": 35,
+  "status": "RECRUITING"
+}
+
+### 과정 게시
+POST {{baseUrl}}/courses/{{courseId}}/publish
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 과정 마감
+POST {{baseUrl}}/courses/{{courseId}}/close
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 과정 강사 목록
+GET {{baseUrl}}/courses/{{courseId}}/instructors
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 과정 강사 배정
+POST {{baseUrl}}/courses/{{courseId}}/instructors
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "userId": "{{userId}}",
+  "role": "MAIN"
+}
+
+### 과정 강사 역할 변경
+PUT {{baseUrl}}/courses/{{courseId}}/instructors/{{userId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "role": "ASSISTANT"
+}
+
+### 과정 강사 배정 해제
+DELETE {{baseUrl}}/courses/{{courseId}}/instructors/{{userId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### =========================
+### Course Session
+### =========================
+
+### 회차 목록 조회
+GET {{baseUrl}}/courses/{{courseId}}/sessions?page=0&size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 회차 생성
+POST {{baseUrl}}/courses/{{courseId}}/sessions
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "sessionNo": 1,
+  "startsAt": "2026-09-01T10:00:00+09:00",
+  "endsAt": "2026-09-01T12:00:00+09:00",
+  "location": "온라인",
+  "attendanceOpensAt": "2026-09-01T09:50:00+09:00",
+  "attendanceClosesAt": "2026-09-01T12:10:00+09:00",
+  "status": "SCHEDULED"
+}
+
+### 회차 상세 조회
+GET {{baseUrl}}/sessions/{{sessionId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 회차 수정
+PUT {{baseUrl}}/sessions/{{sessionId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "status": "OPEN"
+}
+
+### =========================
+### Enrollment
+### =========================
+
+### 수강신청 목록
+GET {{baseUrl}}/courses/{{courseId}}/enrollments?page=0&size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 수강신청 (본인)
+POST {{baseUrl}}/courses/{{courseId}}/enrollments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "userId": "{{userId}}",
+  "applicationType": "SELF"
+}
+
+### 대리 수강신청
+POST {{baseUrl}}/courses/{{courseId}}/proxy-enrollments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "userId": "{{userId}}"
+}
+
+### 수강신청 상세
+GET {{baseUrl}}/enrollments/{{enrollmentId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 수강신청 승인
+POST {{baseUrl}}/enrollments/{{enrollmentId}}/approve
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 수강신청 거절
+POST {{baseUrl}}/enrollments/{{enrollmentId}}/reject
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "reason": "정원 초과"
+}
+
+### 수강신청 취소
+POST {{baseUrl}}/enrollments/{{enrollmentId}}/cancel
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 수강 철회
+POST {{baseUrl}}/enrollments/{{enrollmentId}}/withdraw
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### =========================
+### Attendance
+### =========================
+
+### QR 토큰 발급
+POST {{baseUrl}}/sessions/{{sessionId}}/qr-token
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 출결 목록
+GET {{baseUrl}}/sessions/{{sessionId}}/attendance?page=0&size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 출결 등록 (QR)
+POST {{baseUrl}}/sessions/{{sessionId}}/attendance
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "enrollmentId": "{{enrollmentId}}",
+  "attendanceMethod": "QR",
+  "status": "PRESENT",
+  "checkedAt": "2026-09-01T10:05:00+09:00",
+  "source": "APP",
+  "qrToken": "REPLACE_WITH_QR_TOKEN_AT_LEAST_32_CHARS_LONG________"
+}
+
+### 출결 상세
+GET {{baseUrl}}/attendance/{{attendanceId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 출결 보정
+PUT {{baseUrl}}/attendance/{{attendanceId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "status": "LATE",
+  "reason": "교통 지연으로 인한 지각 처리"
+}
+
+### 출결 요약
+GET {{baseUrl}}/enrollments/{{enrollmentId}}/attendance-summary
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### =========================
+### Completion
+### =========================
+
+### 이수 조회
+GET {{baseUrl}}/enrollments/{{enrollmentId}}/completion
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 이수 평가
+POST {{baseUrl}}/enrollments/{{enrollmentId}}/completion/evaluate
+Authorization: Bearer {{token}}
+Idempotency-Key: {{idempotencyKey}}
+Accept: application/json
+
+### 이수 확정
+POST {{baseUrl}}/enrollments/{{enrollmentId}}/completion/confirm
+Authorization: Bearer {{token}}
+Idempotency-Key: {{idempotencyKey}}-confirm
+Accept: application/json
+
+### =========================
+### Credential
+### =========================
+
+### Credential 발급 요청
+POST {{baseUrl}}/completions/{{completionId}}/credentials
+Authorization: Bearer {{token}}
+Idempotency-Key: {{idempotencyKey}}-credential
+Content-Type: application/json
+Accept: application/json
+
+{
+  "validUntil": "2029-12-31T23:59:59+09:00"
+}
+
+### Credential 상세
+GET {{baseUrl}}/credentials/{{credentialId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 내 Credential 목록
+GET {{baseUrl}}/users/me/credentials?page=0&size=20&sort=createdAt,desc
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### VC 문서 다운로드
+GET {{baseUrl}}/credentials/{{credentialId}}/document
+Authorization: Bearer {{token}}
+Accept: application/vc+jwt
+
+### 사용자 Credential 목록
+GET {{baseUrl}}/users/{{userId}}/credentials?page=0&size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### Credential 폐기
+POST {{baseUrl}}/credentials/{{credentialId}}/revoke
+Authorization: Bearer {{token}}
+Idempotency-Key: {{idempotencyKey}}-revoke
+Content-Type: application/json
+Accept: application/json
+
+{
+  "reason": "발급 정보 오류로 재발급 예정"
+}
+
+### Credential 재발급
+POST {{baseUrl}}/credentials/{{credentialId}}/reissue
+Authorization: Bearer {{token}}
+Idempotency-Key: {{idempotencyKey}}-reissue
+Content-Type: application/json
+Accept: application/json
+
+{
+  "reason": "정보 수정 후 재발급",
+  "validUntil": "2029-12-31T23:59:59+09:00"
+}
+
+### Credential 검증
+POST {{baseUrl}}/credentials/verify
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "credentialNo": "VC-2026-000001",
+  "verificationType": "API",
+  "requesterType": "INSTITUTION",
+  "requesterId": "{{institutionId}}"
+}
+
+### Credential 검증 이력
+GET {{baseUrl}}/credentials/{{credentialId}}/verifications?page=0&size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### =========================
+### Badge (향후 구현 예정 계약 포함)
+### =========================
+
+### Badge 발급 요청
+POST {{baseUrl}}/credentials/{{credentialId}}/badges
+Authorization: Bearer {{token}}
+Idempotency-Key: {{idempotencyKey}}-badge
+Content-Type: application/json
+Accept: application/json
+
+{
+  "badgeType": "COMPLETION",
+  "badgeName": "데이터 분석 기초 수료 배지",
+  "courseId": "{{courseId}}"
+}
+
+### 사용자 Badge 목록
+GET {{baseUrl}}/users/{{userId}}/badges?page=0&size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### Badge 상세
+GET {{baseUrl}}/badges/{{badgeId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### =========================
+### VC Public (인증 없음)
+### =========================
+
+### VC Context
+GET {{baseUrl}}/vc/contexts/lifelong-education/v1
+Accept: application/json
+
+### VC Vocabulary
+GET {{baseUrl}}/vc/vocabulary/lifelong-education/v1
+Accept: application/json
+
+### 기관 공개키
+GET {{baseUrl}}/vc/issuers/{{institutionId}}
+Accept: application/json
+
+### Credential 공개 상태
+GET {{baseUrl}}/vc/status/VC-2026-000001
+Accept: application/json

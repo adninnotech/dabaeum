@@ -1,0 +1,49 @@
+.role-shell__header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 12px rgba(21, 61, 122, 0.06);
+}
+
+.role-shell__toolbar {
+  min-height: 64px;
+}
+
+.role-shell__brand {
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--dabaeum-primary);
+}
+
+.role-shell__drawer-title {
+  color: var(--dabaeum-primary);
+}
+
+.role-shell__page {
+  background: #f4f6fb;
+  padding-left: 24px;
+  padding-right: 16px;
+}
+
+.role-shell__item {
+  border-radius: 10px;
+  margin: 2px 8px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.role-shell__item--active {
+  background: var(--dabaeum-primary-soft) !important;
+  color: var(--dabaeum-primary) !important;
+}
+
+.role-shell-drawer {
+  background: #ffffff !important;
+}
+
+.role-shell-drawer .fit {
+  height: 100%;
+}
+
+.role-shell-drawer .role-shell__item--active .q-icon {
+  color: var(--dabaeum-primary) !important;
+}

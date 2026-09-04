@@ -1,0 +1,43 @@
+:root {
+  --dabaeum-primary: #1a479f;
+  --dabaeum-primary-soft: #eef4ff;
+  --dabaeum-surface: #ffffff;
+  --dabaeum-ink: #1f2937;
+}
+
+@import './role-shell.scss';
+
+html,
+body,
+#q-app {
+  min-height: 100%;
+  font-family:
+    'Pretendard',
+    'Noto Sans KR',
+    'Apple SD Gothic Neo',
+    sans-serif;
+  color: var(--dabaeum-ink);
+  background: #f7faff;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.q-page {
+  min-height: inherit;
+}
+
+.app-page-header {
+  &__title {
+    color: var(--dabaeum-ink);
+    letter-spacing: -0.01em;
+  }
+
+  &__subtitle {
+    margin-top: 2px;
+    font-size: 0.875rem;
+    line-height: 1.43;
+  }
+}

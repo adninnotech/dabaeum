@@ -1,0 +1,35 @@
+# 다배움 SPA (Apache DocumentRoot 용)
+# 사용법: dist/spa/ 업로드 후 이 파일을 `.htaccess` 로 복사
+#
+# API 프록시는 .htaccess [P] 대신 VirtualHost 의 ProxyPass 를 권장
+# → deploy/apache-vhost.example.conf 참고
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # /api 는 vhost ProxyPass 가 처리. 여기까지 오면 프록시 미설정이므로 그대로 통과
+  RewriteRule ^api/ - [L]
+
+  # 실제 파일·디렉터리는 그대로 제공 (assets/, icons/, favicon.ico 등)
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # SPA history 폴백
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# MIME (일부 서버에서 SVG가 깨질 때)
+<IfModule mod_mime.c>
+  AddType image/svg+xml .svg
+  AddType image/x-icon .ico
+</IfModule>
+
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType image/svg+xml "access plus 7 days"
+  ExpiresByType image/png "access plus 7 days"
+  ExpiresByType image/x-icon "access plus 7 days"
+  ExpiresByType text/css "access plus 7 days"
+  ExpiresByType application/javascript "access plus 7 days"
+</IfModule>
