@@ -1,0 +1,286 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.course.infrastructure.mybatis.CourseMapper">
+
+    <resultMap
+        id="courseRowResultMap"
+        type="com.adn.dabaeum.course.infrastructure.mybatis.CourseRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg
+                column="institution_id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_code" javaType="java.lang.String"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="description" javaType="java.lang.String"/>
+            <arg column="category" javaType="java.lang.String"/>
+            <arg column="education_type" javaType="java.lang.String"/>
+            <arg column="start_date" javaType="java.time.LocalDate"/>
+            <arg column="end_date" javaType="java.time.LocalDate"/>
+            <arg column="recruit_start_date" javaType="java.time.LocalDate"/>
+            <arg column="recruit_end_date" javaType="java.time.LocalDate"/>
+            <arg column="capacity" javaType="java.lang.Integer"/>
+            <arg column="location" javaType="java.lang.String"/>
+            <arg column="online_url" javaType="java.lang.String"/>
+            <arg column="credit_bank_eligible" javaType="java.lang.Boolean"/>
+            <arg column="credit_value" javaType="java.math.BigDecimal"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+            <arg column="deleted_at" javaType="java.time.Instant"/>
+            <arg column="thumbnail_file_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+        </constructor>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO tb_courses (
+            id,
+            institution_id,
+            course_code,
+            title,
+            description,
+            category,
+            education_type,
+            start_date,
+            end_date,
+            recruit_start_date,
+            recruit_end_date,
+            capacity,
+            location,
+            online_url,
+            credit_bank_eligible,
+            credit_value,
+            status,
+            created_at,
+            updated_at,
+            deleted_at,
+            thumbnail_file_id
+        ) VALUES (
+            #{id},
+            #{institutionId},
+            #{courseCode},
+            #{title},
+            #{description, jdbcType=VARCHAR},
+            #{category, jdbcType=VARCHAR},
+            #{educationType},
+            #{startDate},
+            #{endDate},
+            #{recruitStartDate, jdbcType=DATE},
+            #{recruitEndDate, jdbcType=DATE},
+            #{capacity},
+            #{location, jdbcType=VARCHAR},
+            #{onlineUrl, jdbcType=VARCHAR},
+            #{creditBankEligible},
+            #{creditValue, jdbcType=DECIMAL},
+            #{status},
+            #{createdAt},
+            #{updatedAt},
+            #{deletedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{thumbnailFileId, jdbcType=OTHER}
+        )
+    </insert>
+
+    <select
+        id="selectById"
+        flushCache="true"
+        resultMap="courseRowResultMap">
+        SELECT
+            id,
+            institution_id,
+            course_code,
+            title,
+            description,
+            category,
+            education_type,
+            start_date,
+            end_date,
+            recruit_start_date,
+            recruit_end_date,
+            capacity,
+            location,
+            online_url,
+            credit_bank_eligible,
+            credit_value,
+            status,
+            created_at,
+            updated_at,
+            deleted_at,
+            thumbnail_file_id
+        FROM tb_courses
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectActiveById" resultMap="courseRowResultMap">
+        SELECT
+            id,
+            institution_id,
+            course_code,
+            title,
+            description,
+            category,
+            education_type,
+            start_date,
+            end_date,
+            recruit_start_date,
+            recruit_end_date,
+            capacity,
+            location,
+            online_url,
+            credit_bank_eligible,
+            credit_value,
+            status,
+            created_at,
+            updated_at,
+            deleted_at,
+            thumbnail_file_id
+        FROM tb_courses
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+    </select>
+
+    <select
+        id="selectActiveByIdForUpdate"
+        flushCache="true"
+        resultMap="courseRowResultMap">
+        SELECT
+            id,
+            institution_id,
+            course_code,
+            title,
+            description,
+            category,
+            education_type,
+            start_date,
+            end_date,
+            recruit_start_date,
+            recruit_end_date,
+            capacity,
+            location,
+            online_url,
+            credit_bank_eligible,
+            credit_value,
+            status,
+            created_at,
+            updated_at,
+            deleted_at,
+            thumbnail_file_id
+        FROM tb_courses
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+        FOR UPDATE
+    </select>
+
+    <select
+        id="selectActiveByInstitutionAndCode"
+        resultMap="courseRowResultMap">
+        SELECT
+            id,
+            institution_id,
+            course_code,
+            title,
+            description,
+            category,
+            education_type,
+            start_date,
+            end_date,
+            recruit_start_date,
+            recruit_end_date,
+            capacity,
+            location,
+            online_url,
+            credit_bank_eligible,
+            credit_value,
+            status,
+            created_at,
+            updated_at,
+            deleted_at,
+            thumbnail_file_id
+        FROM tb_courses
+        WHERE institution_id = #{institutionId}
+          AND course_code = #{courseCode}
+          AND deleted_at IS NULL
+    </select>
+
+    <select
+        id="selectActivePage"
+        resultMap="courseRowResultMap">
+        SELECT
+            id,
+            institution_id,
+            course_code,
+            title,
+            description,
+            category,
+            education_type,
+            start_date,
+            end_date,
+            recruit_start_date,
+            recruit_end_date,
+            capacity,
+            location,
+            online_url,
+            credit_bank_eligible,
+            credit_value,
+            status,
+            created_at,
+            updated_at,
+            deleted_at,
+            thumbnail_file_id
+        FROM tb_courses
+        WHERE deleted_at IS NULL
+        ORDER BY
+        <choose>
+            <when test="criteria.sort.name() == 'UPDATED_AT'">updated_at</when>
+            <when test="criteria.sort.name() == 'COURSE_CODE'">course_code</when>
+            <when test="criteria.sort.name() == 'TITLE'">title</when>
+            <when test="criteria.sort.name() == 'STATUS'">status</when>
+            <when test="criteria.sort.name() == 'START_DATE'">start_date</when>
+            <when test="criteria.sort.name() == 'END_DATE'">end_date</when>
+            <otherwise>created_at</otherwise>
+        </choose>
+        <choose>
+            <when test="criteria.direction.name() == 'ASC'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>, id ASC
+        LIMIT #{criteria.limit} OFFSET #{criteria.offset}
+    </select>
+
+    <select id="countActive" resultType="long">
+        SELECT COUNT(*)
+        FROM tb_courses
+        WHERE deleted_at IS NULL
+    </select>
+
+    <update id="updateActive">
+        UPDATE tb_courses
+           SET course_code = #{courseCode},
+               title = #{title},
+               description = #{description, jdbcType=VARCHAR},
+               category = #{category, jdbcType=VARCHAR},
+               education_type = #{educationType},
+               start_date = #{startDate},
+               end_date = #{endDate},
+               recruit_start_date = #{recruitStartDate, jdbcType=DATE},
+               recruit_end_date = #{recruitEndDate, jdbcType=DATE},
+               capacity = #{capacity},
+               location = #{location, jdbcType=VARCHAR},
+               online_url = #{onlineUrl, jdbcType=VARCHAR},
+               credit_bank_eligible = #{creditBankEligible},
+               credit_value = #{creditValue, jdbcType=DECIMAL},
+               status = #{status},
+               thumbnail_file_id = #{thumbnailFileId, jdbcType=OTHER},
+               updated_at = #{updatedAt}
+         WHERE id = #{id}
+           AND deleted_at IS NULL
+    </update>
+
+</mapper>

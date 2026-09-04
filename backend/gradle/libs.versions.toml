@@ -1,0 +1,22 @@
+[versions]
+mybatis = "4.0.1"
+jasypt = "4.0.4"
+sshd = "2.16.0"
+archunit = "1.4.1"
+swaggerParser = "2.1.41"
+openapiValidator = "3.0.0"
+springdoc = "3.0.2"
+jaxbApi = "2.3.1"
+
+[libraries]
+mybatis-starter = { module = "org.mybatis.spring.boot:mybatis-spring-boot-starter", version.ref = "mybatis" }
+jasypt-spring-boot-starter = { module = "com.github.ulisesbocchio:jasypt-spring-boot-starter", version.ref = "jasypt" }
+sshd-core = { module = "org.apache.sshd:sshd-core", version.ref = "sshd" }
+archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
+swagger-parser = { module = "io.swagger.parser.v3:swagger-parser", version.ref = "swaggerParser" }
+openapi-mockmvc = { module = "com.atlassian.oai:openapi-request-validator-mockmvc", version.ref = "openapiValidator" }
+springdoc-ui = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
+jaxb-api = { module = "javax.xml.bind:jaxb-api", version.ref = "jaxbApi" }
+
+restdocs-mockmvc = { module = "org.springframework.restdocs:spring-restdocs-mockmvc" }
+restdocs-asciidoctor = { module = "org.springframework.restdocs:spring-restdocs-asciidoctor" }

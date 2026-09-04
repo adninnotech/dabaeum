@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.inquiry.infrastructure.mybatis.InquiryMapper">
+
+    <resultMap
+        id="inquiryRowResultMap"
+        type="com.adn.dabaeum.inquiry.infrastructure.mybatis.InquiryRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="user_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="content" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="answer" javaType="java.lang.String"/>
+            <arg column="answered_by" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="answered_at" javaType="java.time.Instant"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap
+        id="inquiryViewRowResultMap"
+        type="com.adn.dabaeum.inquiry.infrastructure.mybatis.InquiryViewRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="user_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="course_title" javaType="java.lang.String"/>
+            <arg column="user_name" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="viewColumns">
+        i.id, i.user_id, i.course_id, i.title, i.status, i.created_at,
+        c.title AS course_title, u.name AS user_name
+    </sql>
+
+    <insert id="insert">
+        INSERT INTO tb_inquiries (
+            id, user_id, course_id, title, content, status, answer,
+            answered_by, answered_at, created_at, updated_at
+        ) VALUES (
+            #{id}, #{userId},
+            #{courseId, jdbcType=OTHER},
+            #{title}, #{content}, #{status},
+            #{answer, jdbcType=VARCHAR},
+            #{answeredBy, jdbcType=OTHER},
+            #{answeredAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <select id="selectById" resultMap="inquiryRowResultMap">
+        SELECT id, user_id, course_id, title, content, status, answer,
+               answered_by, answered_at, created_at, updated_at
+        FROM tb_inquiries
+        WHERE id = #{id}
+    </select>
+
+    <update id="updateAnswer">
+        UPDATE tb_inquiries
+           SET status = #{status},
+               answer = #{answer},
+               answered_by = #{answeredBy},
+               answered_at = #{answeredAt},
+               updated_at = #{updatedAt}
+         WHERE id = #{id}
+           AND status = 'PENDING'
+    </update>
+
+    <select id="selectByUserId" resultMap="inquiryViewRowResultMap">
+        SELECT <include refid="viewColumns"/>
+          FROM tb_inquiries i
+          LEFT JOIN tb_courses c ON c.id = i.course_id
+          JOIN tb_users u ON u.id = i.user_id
+         WHERE i.user_id = #{userId}
+        <if test="status != null">
+           AND i.status = #{status}
+        </if>
+        ORDER BY i.created_at DESC, i.id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countByUserId" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_inquiries i
+         WHERE i.user_id = #{userId}
+        <if test="status != null">
+           AND i.status = #{status}
+        </if>
+    </select>
+
+    <select id="selectByInstructorUserId" resultMap="inquiryViewRowResultMap">
+        SELECT <include refid="viewColumns"/>
+          FROM tb_inquiries i
+          JOIN tb_courses c ON c.id = i.course_id
+          JOIN tb_course_instructors ci ON ci.course_id = c.id
+          JOIN tb_users u ON u.id = i.user_id
+         WHERE ci.user_id = #{instructorUserId}
+        <if test="status != null">
+           AND i.status = #{status}
+        </if>
+        <if test="courseId != null">
+           AND i.course_id = #{courseId}
+        </if>
+        ORDER BY i.created_at DESC, i.id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countByInstructorUserId" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_inquiries i
+          JOIN tb_course_instructors ci ON ci.course_id = i.course_id
+         WHERE ci.user_id = #{instructorUserId}
+        <if test="status != null">
+           AND i.status = #{status}
+        </if>
+        <if test="courseId != null">
+           AND i.course_id = #{courseId}
+        </if>
+    </select>
+
+    <select id="selectByInstitutionId" resultMap="inquiryViewRowResultMap">
+        SELECT <include refid="viewColumns"/>
+          FROM tb_inquiries i
+          JOIN tb_courses c ON c.id = i.course_id
+          JOIN tb_users u ON u.id = i.user_id
+         WHERE c.institution_id = #{institutionId}
+        <if test="status != null">
+           AND i.status = #{status}
+        </if>
+        <if test="courseId != null">
+           AND i.course_id = #{courseId}
+        </if>
+        ORDER BY i.created_at DESC, i.id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countByInstitutionId" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_inquiries i
+          JOIN tb_courses c ON c.id = i.course_id
+         WHERE c.institution_id = #{institutionId}
+        <if test="status != null">
+           AND i.status = #{status}
+        </if>
+        <if test="courseId != null">
+           AND i.course_id = #{courseId}
+        </if>
+    </select>
+
+</mapper>

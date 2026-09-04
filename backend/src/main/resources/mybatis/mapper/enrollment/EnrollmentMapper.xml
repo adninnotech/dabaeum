@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.enrollment.infrastructure.mybatis.EnrollmentMapper">
+
+    <resultMap id="enrollmentRowResultMap"
+        type="com.adn.dabaeum.enrollment.infrastructure.mybatis.EnrollmentRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="user_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="applied_by" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="application_type" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="applied_at" javaType="java.time.Instant"/>
+            <arg column="approved_at" javaType="java.time.Instant"/>
+            <arg column="rejected_at" javaType="java.time.Instant"/>
+            <arg column="cancelled_at" javaType="java.time.Instant"/>
+            <arg column="withdrawn_at" javaType="java.time.Instant"/>
+            <arg column="rejection_reason" javaType="java.lang.String"/>
+            <arg column="cancellation_reason" javaType="java.lang.String"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO tb_enrollments (
+            id,
+            course_id,
+            user_id,
+            applied_by,
+            application_type,
+            status,
+            applied_at,
+            approved_at,
+            rejected_at,
+            cancelled_at,
+            withdrawn_at,
+            rejection_reason,
+            cancellation_reason,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{id},
+            #{courseId},
+            #{userId},
+            #{appliedBy, jdbcType=OTHER},
+            #{applicationType},
+            #{status},
+            #{appliedAt},
+            #{approvedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{rejectedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{cancelledAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{withdrawnAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{rejectionReason, jdbcType=VARCHAR},
+            #{cancellationReason, jdbcType=VARCHAR},
+            #{createdAt},
+            #{updatedAt}
+        )
+    </insert>
+
+    <select id="selectById" resultMap="enrollmentRowResultMap">
+        SELECT
+            id, course_id, user_id, applied_by, application_type, status,
+            applied_at, approved_at, rejected_at, cancelled_at, withdrawn_at,
+            rejection_reason, cancellation_reason, created_at, updated_at
+        FROM tb_enrollments
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByIdForUpdate" flushCache="true" resultMap="enrollmentRowResultMap">
+        SELECT
+            id, course_id, user_id, applied_by, application_type, status,
+            applied_at, approved_at, rejected_at, cancelled_at, withdrawn_at,
+            rejection_reason, cancellation_reason, created_at, updated_at
+        FROM tb_enrollments
+        WHERE id = #{id}
+        FOR UPDATE
+    </select>
+
+    <!-- MyBatis 에는 java.util.UUID 용 TypeHandler 가 없어 resultType 으로 직접 쓸 수 없다.
+         POJO 로 간주해 private UUID(byte[]) 생성자를 리플렉션으로 호출하려다
+         JDK 16+ 의 모듈 캡슐화에 막힌다. text 로 받아 리포지토리에서 변환한다. -->
+    <select id="selectInstitutionIdsByUserId" resultType="java.lang.String">
+        SELECT DISTINCT c.institution_id::text
+          FROM tb_enrollments e
+          JOIN tb_courses c ON c.id = e.course_id
+         WHERE e.user_id = #{userId}
+           AND c.deleted_at IS NULL
+         ORDER BY c.institution_id::text
+    </select>
+
+    <select id="selectActiveByCourseIdAndUserId" resultMap="enrollmentRowResultMap">
+        SELECT
+            id, course_id, user_id, applied_by, application_type, status,
+            applied_at, approved_at, rejected_at, cancelled_at, withdrawn_at,
+            rejection_reason, cancellation_reason, created_at, updated_at
+        FROM tb_enrollments
+        WHERE course_id = #{courseId}
+          AND user_id = #{userId}
+          AND status IN ('APPLIED', 'WAITLISTED', 'APPROVED')
+    </select>
+
+    <select id="selectPage" resultMap="enrollmentRowResultMap">
+        SELECT
+            id, course_id, user_id, applied_by, application_type, status,
+            applied_at, approved_at, rejected_at, cancelled_at, withdrawn_at,
+            rejection_reason, cancellation_reason, created_at, updated_at
+        FROM tb_enrollments
+        WHERE course_id = #{criteria.courseId}
+        ORDER BY
+        <choose>
+            <when test="criteria.sort.name() == 'UPDATED_AT'">updated_at</when>
+            <when test="criteria.sort.name() == 'APPLIED_AT'">applied_at</when>
+            <when test="criteria.sort.name() == 'STATUS'">status</when>
+            <when test="criteria.sort.name() == 'USER_ID'">user_id</when>
+            <otherwise>created_at</otherwise>
+        </choose>
+        <choose>
+            <when test="criteria.direction.name() == 'ASC'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>, id ASC
+        LIMIT #{criteria.limit} OFFSET #{criteria.offset}
+    </select>
+
+    <select id="countByCourseId" resultType="long">
+        SELECT COUNT(*)
+        FROM tb_enrollments
+        WHERE course_id = #{courseId}
+    </select>
+
+    <select id="countApprovedByCourseId" resultType="long">
+        SELECT COUNT(*)
+        FROM tb_enrollments
+        WHERE course_id = #{courseId}
+          AND status = 'APPROVED'
+    </select>
+
+    <update id="updateState">
+        UPDATE tb_enrollments
+           SET status = #{row.status},
+               approved_at = #{row.approvedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+               rejected_at = #{row.rejectedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+               cancelled_at = #{row.cancelledAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+               withdrawn_at = #{row.withdrawnAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+               rejection_reason = #{row.rejectionReason, jdbcType=VARCHAR},
+               cancellation_reason = #{row.cancellationReason, jdbcType=VARCHAR},
+               updated_at = #{row.updatedAt}
+         WHERE id = #{row.id}
+           AND status = #{expectedStatus}
+    </update>
+
+</mapper>

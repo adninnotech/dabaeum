@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.course.infrastructure.mybatis.CourseInstructorMapper">
+
+    <resultMap
+        id="courseInstructorRowResultMap"
+        type="com.adn.dabaeum.course.infrastructure.mybatis.CourseInstructorRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="user_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="instructor_role" javaType="java.lang.String"/>
+            <arg column="assigned_at" javaType="java.time.Instant"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO tb_course_instructors (
+            id, course_id, user_id, instructor_role, assigned_at, created_at
+        ) VALUES (
+            #{id}, #{courseId}, #{userId}, #{role}, #{assignedAt}, #{createdAt}
+        )
+    </insert>
+
+    <select id="selectByCourseIdAndUserId" resultMap="courseInstructorRowResultMap">
+        SELECT id, course_id, user_id, instructor_role, assigned_at, created_at
+          FROM tb_course_instructors
+         WHERE course_id = #{courseId}
+           AND user_id = #{userId}
+    </select>
+
+    <select id="selectByCourseId" resultMap="courseInstructorRowResultMap">
+        SELECT id, course_id, user_id, instructor_role, assigned_at, created_at
+          FROM tb_course_instructors
+         WHERE course_id = #{courseId}
+         ORDER BY CASE instructor_role WHEN 'MAIN' THEN 0 ELSE 1 END,
+                  assigned_at ASC,
+                  id ASC
+    </select>
+
+    <select id="existsByCourseIdAndUserId" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1
+              FROM tb_course_instructors
+             WHERE course_id = #{courseId}
+               AND user_id = #{userId}
+        )
+    </select>
+
+    <select id="existsByCourseIdAndUserIdAndRole" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1
+              FROM tb_course_instructors
+             WHERE course_id = #{courseId}
+               AND user_id = #{userId}
+               AND instructor_role = #{role}
+        )
+    </select>
+
+    <select id="existsByUserIdAndInstitutionId" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1
+              FROM tb_course_instructors ci
+              JOIN tb_courses c ON c.id = ci.course_id
+             WHERE ci.user_id = #{userId}
+               AND c.institution_id = #{institutionId}
+        )
+    </select>
+
+    <update id="updateRole">
+        UPDATE tb_course_instructors
+           SET instructor_role = #{instructor.role},
+               assigned_at = #{instructor.assignedAt}
+         WHERE course_id = #{instructor.courseId}
+           AND user_id = #{instructor.userId}
+           AND instructor_role = #{expectedRole}
+    </update>
+
+    <delete id="deleteByCourseIdAndUserId">
+        DELETE FROM tb_course_instructors
+         WHERE course_id = #{courseId}
+           AND user_id = #{userId}
+    </delete>
+</mapper>

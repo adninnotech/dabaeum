@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.attendance.infrastructure.mybatis.AttendanceQrTokenMapper">
+
+    <resultMap id="attendanceQrTokenRowResultMap"
+               type="com.adn.dabaeum.attendance.infrastructure.mybatis.AttendanceQrTokenRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID"
+                   typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="session_id" javaType="java.util.UUID"
+                 typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="token_hash" javaType="java.lang.String"/>
+            <arg column="issued_by" javaType="java.util.UUID"
+                 typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="issued_at" javaType="java.time.Instant"/>
+            <arg column="expires_at" javaType="java.time.Instant"/>
+            <arg column="revoked_at" javaType="java.time.Instant"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO tb_attendance_qr_tokens (
+            id,
+            session_id,
+            token_hash,
+            issued_by,
+            issued_at,
+            expires_at,
+            revoked_at,
+            created_at
+        ) VALUES (
+            #{id},
+            #{sessionId},
+            #{tokenHash},
+            #{issuedBy},
+            #{issuedAt},
+            #{expiresAt},
+            #{revokedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{createdAt}
+        )
+    </insert>
+
+    <update id="revokeActiveBySession">
+        UPDATE tb_attendance_qr_tokens
+           SET revoked_at = #{revokedAt}
+         WHERE session_id = #{sessionId}
+           AND revoked_at IS NULL
+    </update>
+
+    <select id="selectByHash" resultMap="attendanceQrTokenRowResultMap">
+        SELECT
+            id,
+            session_id,
+            token_hash,
+            issued_by,
+            issued_at,
+            expires_at,
+            revoked_at,
+            created_at
+        FROM tb_attendance_qr_tokens
+        WHERE token_hash = #{tokenHash}
+    </select>
+
+</mapper>

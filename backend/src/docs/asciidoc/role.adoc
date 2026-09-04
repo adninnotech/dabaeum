@@ -1,0 +1,17 @@
+== Role API
+
+=== List user roles
+include::{snippets}/role-list/http-request.adoc[]
+include::{snippets}/role-list/http-response.adoc[]
+include::{snippets}/role-list/response-fields.adoc[]
+
+=== Assign user role
+include::{snippets}/role-assignment/http-request.adoc[]
+include::{snippets}/role-assignment/request-fields.adoc[]
+include::{snippets}/role-assignment/http-response.adoc[]
+include::{snippets}/role-assignment/response-fields.adoc[]
+
+=== Revoke user role
+include::{snippets}/role-revocation/http-request.adoc[]
+include::{snippets}/role-revocation/http-response.adoc[]
+include::{snippets}/role-revocation/response-fields.adoc[]

@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.support.infrastructure.mybatis.SupportMapper">
+
+    <resultMap
+        id="noticeRowResultMap"
+        type="com.adn.dabaeum.support.infrastructure.mybatis.NoticeRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="body" javaType="java.lang.String"/>
+            <arg column="audience" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="published_at" javaType="java.time.Instant"/>
+            <arg column="created_by" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap
+        id="faqRowResultMap"
+        type="com.adn.dabaeum.support.infrastructure.mybatis.FaqRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="question" javaType="java.lang.String"/>
+            <arg column="answer" javaType="java.lang.String"/>
+            <arg column="sort_order" javaType="java.lang.Integer"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap
+        id="termsContentRowResultMap"
+        type="com.adn.dabaeum.support.infrastructure.mybatis.TermsContentRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="type" javaType="java.lang.String"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="body" javaType="java.lang.String"/>
+            <arg column="version" javaType="java.lang.String"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap
+        id="commonCodeRowResultMap"
+        type="com.adn.dabaeum.support.infrastructure.mybatis.CommonCodeRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="code_group" javaType="java.lang.String"/>
+            <arg column="code" javaType="java.lang.String"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="sort_order" javaType="java.lang.Integer"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="noticeColumns">
+        id, title, body, audience, status, published_at, created_by,
+        created_at, updated_at
+    </sql>
+
+    <insert id="insertNotice">
+        INSERT INTO tb_notices (
+            id, title, body, audience, status, published_at, created_by,
+            created_at, updated_at
+        ) VALUES (
+            #{id}, #{title}, #{body}, #{audience}, #{status},
+            #{publishedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{createdBy, jdbcType=OTHER},
+            #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <select id="selectNoticeById" resultMap="noticeRowResultMap">
+        SELECT <include refid="noticeColumns"/>
+        FROM tb_notices
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectPublishedNotices" resultMap="noticeRowResultMap">
+        SELECT <include refid="noticeColumns"/>
+        FROM tb_notices
+        WHERE status = 'PUBLISHED'
+        <if test="audience != null">
+          AND audience = #{audience}
+        </if>
+        ORDER BY published_at DESC, id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countPublishedNotices" resultType="long">
+        SELECT COUNT(*)
+        FROM tb_notices
+        WHERE status = 'PUBLISHED'
+        <if test="audience != null">
+          AND audience = #{audience}
+        </if>
+    </select>
+
+    <select id="selectAdminNotices" resultMap="noticeRowResultMap">
+        SELECT <include refid="noticeColumns"/>
+        FROM tb_notices
+        ORDER BY created_at DESC, id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countAllNotices" resultType="long">
+        SELECT COUNT(*)
+        FROM tb_notices
+    </select>
+
+    <update id="updateNotice">
+        UPDATE tb_notices
+           SET title = #{title},
+               body = #{body},
+               audience = #{audience},
+               status = #{status},
+               published_at = #{publishedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+               updated_at = #{updatedAt}
+         WHERE id = #{id}
+    </update>
+
+    <delete id="deleteNotice">
+        DELETE FROM tb_notices
+        WHERE id = #{id}
+    </delete>
+
+    <select id="selectFaqs" resultMap="faqRowResultMap">
+        SELECT id, question, answer, sort_order, created_at, updated_at
+        FROM tb_faqs
+        ORDER BY sort_order ASC, created_at ASC, id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countFaqs" resultType="long">
+        SELECT COUNT(*)
+        FROM tb_faqs
+    </select>
+
+    <select id="selectLatestTermsByType" resultMap="termsContentRowResultMap">
+        SELECT id, type, title, body, version, created_at, updated_at
+        FROM tb_terms_contents
+        WHERE type = #{type}
+        ORDER BY created_at DESC, id ASC
+        LIMIT 1
+    </select>
+
+    <select id="selectCodesByGroup" resultMap="commonCodeRowResultMap">
+        SELECT id, code_group, code, name, sort_order
+        FROM tb_common_codes
+        WHERE code_group = #{codeGroup}
+        ORDER BY sort_order ASC, code ASC
+    </select>
+
+</mapper>

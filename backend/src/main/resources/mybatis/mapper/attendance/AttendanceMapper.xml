@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.attendance.infrastructure.mybatis.AttendanceMapper">
+
+    <resultMap id="attendanceRowResultMap"
+               type="com.adn.dabaeum.attendance.infrastructure.mybatis.AttendanceRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID"
+                   typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_id" javaType="java.util.UUID"
+                 typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="session_id" javaType="java.util.UUID"
+                 typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="enrollment_id" javaType="java.util.UUID"
+                 typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="qr_token_id" javaType="java.util.UUID"
+                 typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="attendance_method" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="checked_at" javaType="java.time.Instant"/>
+            <arg column="source" javaType="java.lang.String"/>
+            <arg column="created_by" javaType="java.util.UUID"
+                 typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="attendanceColumns">
+        id, course_id, session_id, enrollment_id, qr_token_id,
+        attendance_method, status, checked_at, source, created_by,
+        created_at, updated_at
+    </sql>
+
+    <insert id="insert">
+        INSERT INTO tb_attendance_records (
+            id, course_id, session_id, enrollment_id, qr_token_id,
+            attendance_method, status, checked_at, source, created_by,
+            created_at, updated_at
+        ) VALUES (
+            #{id}, #{courseId}, #{sessionId}, #{enrollmentId},
+            #{qrTokenId, jdbcType=OTHER}, #{attendanceMethod}, #{status},
+            #{checkedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE}, #{source},
+            #{createdBy, jdbcType=OTHER}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <select id="selectById" resultMap="attendanceRowResultMap">
+        SELECT <include refid="attendanceColumns"/>
+          FROM tb_attendance_records
+         WHERE id = #{id}
+    </select>
+
+    <select id="selectByIdForUpdate" resultMap="attendanceRowResultMap">
+        SELECT <include refid="attendanceColumns"/>
+          FROM tb_attendance_records
+         WHERE id = #{id}
+         FOR UPDATE
+    </select>
+
+    <select id="selectBySessionAndEnrollment" resultMap="attendanceRowResultMap">
+        SELECT <include refid="attendanceColumns"/>
+          FROM tb_attendance_records
+         WHERE session_id = #{sessionId}
+           AND enrollment_id = #{enrollmentId}
+    </select>
+
+    <select id="selectBySession" resultMap="attendanceRowResultMap">
+        SELECT <include refid="attendanceColumns"/>
+          FROM tb_attendance_records
+         WHERE session_id = #{criteria.sessionId}
+         ORDER BY
+         <choose>
+             <when test="criteria.sort.name() == 'CREATED_AT'">created_at</when>
+             <when test="criteria.sort.name() == 'STATUS'">status</when>
+             <otherwise>checked_at</otherwise>
+         </choose>
+         <choose>
+             <when test="criteria.direction.name() == 'DESC'">DESC</when>
+             <otherwise>ASC</otherwise>
+         </choose>, id ASC
+         LIMIT #{criteria.limit} OFFSET #{criteria.offset}
+    </select>
+
+    <select id="countBySession" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_attendance_records
+         WHERE session_id = #{sessionId}
+    </select>
+
+    <select id="selectByEnrollment" resultMap="attendanceRowResultMap">
+        SELECT <include refid="attendanceColumns"/>
+          FROM tb_attendance_records
+         WHERE enrollment_id = #{enrollmentId}
+         ORDER BY created_at ASC, id ASC
+    </select>
+
+    <update id="updateStatus">
+        UPDATE tb_attendance_records
+           SET status = #{nextStatus},
+               updated_at = #{updatedAt}
+         WHERE id = #{id}
+           AND status = #{expectedStatus}
+    </update>
+
+</mapper>

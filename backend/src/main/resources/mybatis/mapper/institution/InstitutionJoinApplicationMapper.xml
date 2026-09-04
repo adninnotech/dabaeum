@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.institution.infrastructure.mybatis.InstitutionJoinApplicationMapper">
+
+    <resultMap
+        id="institutionJoinApplicationRowResultMap"
+        type="com.adn.dabaeum.institution.infrastructure.mybatis.InstitutionJoinApplicationRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="institution_name" javaType="java.lang.String"/>
+            <arg column="institution_code" javaType="java.lang.String"/>
+            <arg column="representative_name" javaType="java.lang.String"/>
+            <arg column="contact_email" javaType="java.lang.String"/>
+            <arg column="contact_phone" javaType="java.lang.String"/>
+            <arg column="address" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="rejection_reason" javaType="java.lang.String"/>
+            <arg column="applicant_user_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="decided_by" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="decided_at" javaType="java.time.Instant"/>
+            <arg column="created_institution_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="columns">
+        id, institution_name, institution_code, representative_name,
+        contact_email, contact_phone, address, status, rejection_reason,
+        applicant_user_id, decided_by, decided_at, created_institution_id,
+        created_at, updated_at
+    </sql>
+
+    <insert id="insert">
+        INSERT INTO tb_institution_applications (
+            id, institution_name, institution_code, representative_name,
+            contact_email, contact_phone, address, status, rejection_reason,
+            applicant_user_id, decided_by, decided_at, created_institution_id,
+            created_at, updated_at
+        ) VALUES (
+            #{id}, #{institutionName},
+            #{institutionCode, jdbcType=VARCHAR},
+            #{representativeName}, #{contactEmail}, #{contactPhone},
+            #{address, jdbcType=VARCHAR},
+            #{status},
+            #{rejectionReason, jdbcType=VARCHAR},
+            #{applicantUserId, jdbcType=OTHER},
+            #{decidedBy, jdbcType=OTHER},
+            #{decidedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{createdInstitutionId, jdbcType=OTHER},
+            #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <select id="selectById" resultMap="institutionJoinApplicationRowResultMap">
+        SELECT <include refid="columns"/>
+        FROM tb_institution_applications
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByIdForUpdate" resultMap="institutionJoinApplicationRowResultMap">
+        SELECT <include refid="columns"/>
+        FROM tb_institution_applications
+        WHERE id = #{id}
+        FOR UPDATE
+    </select>
+
+    <select id="selectPage" resultMap="institutionJoinApplicationRowResultMap">
+        SELECT <include refid="columns"/>
+        FROM tb_institution_applications
+        <where>
+            <if test="status != null">
+                status = #{status}
+            </if>
+        </where>
+        ORDER BY created_at DESC, id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*)
+        FROM tb_institution_applications
+        <where>
+            <if test="status != null">
+                status = #{status}
+            </if>
+        </where>
+    </select>
+
+    <update id="updateDecision">
+        UPDATE tb_institution_applications
+           SET status = #{row.status},
+               rejection_reason = #{row.rejectionReason, jdbcType=VARCHAR},
+               decided_by = #{row.decidedBy, jdbcType=OTHER},
+               decided_at = #{row.decidedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+               created_institution_id = #{row.createdInstitutionId, jdbcType=OTHER},
+               updated_at = #{row.updatedAt}
+         WHERE id = #{row.id}
+           AND status = #{expectedStatus}
+    </update>
+
+</mapper>

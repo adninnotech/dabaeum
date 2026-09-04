@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.identity.infrastructure.mybatis.UserIdentityMapper">
+
+    <resultMap
+        id="userIdentityRowResultMap"
+        type="com.adn.dabaeum.identity.infrastructure.mybatis.UserIdentityRow">
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg
+                column="user_id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="provider" javaType="java.lang.String"/>
+            <arg column="provider_subject" javaType="java.lang.String"/>
+            <arg column="external_did" javaType="java.lang.String"/>
+            <arg column="verified_at" javaType="java.time.Instant"/>
+            <arg column="metadata" javaType="java.lang.String"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO tb_user_identities (
+            id,
+            user_id,
+            provider,
+            provider_subject,
+            external_did,
+            verified_at,
+            metadata,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{id},
+            #{userId},
+            #{provider},
+            #{providerSubject},
+            #{externalDid},
+            #{verifiedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            CAST(#{metadata, jdbcType=VARCHAR} AS jsonb),
+            #{createdAt},
+            #{updatedAt}
+        )
+    </insert>
+
+    <select id="selectById" resultMap="userIdentityRowResultMap">
+        SELECT
+            id,
+            user_id,
+            provider,
+            provider_subject,
+            external_did,
+            verified_at,
+            metadata::text AS metadata,
+            created_at,
+            updated_at
+        FROM tb_user_identities
+        WHERE id = #{id}
+    </select>
+
+    <select
+        id="selectByProviderSubject"
+        resultMap="userIdentityRowResultMap">
+        SELECT
+            id,
+            user_id,
+            provider,
+            provider_subject,
+            external_did,
+            verified_at,
+            metadata::text AS metadata,
+            created_at,
+            updated_at
+        FROM tb_user_identities
+        WHERE provider = #{provider}
+          AND provider_subject = #{providerSubject}
+    </select>
+
+    <select id="selectByUserId" resultMap="userIdentityRowResultMap">
+        SELECT
+            id,
+            user_id,
+            provider,
+            provider_subject,
+            external_did,
+            verified_at,
+            metadata::text AS metadata,
+            created_at,
+            updated_at
+        FROM tb_user_identities
+        WHERE user_id = #{userId}
+        ORDER BY created_at ASC, id ASC
+    </select>
+
+    <delete id="deleteByIdAndUserId">
+        DELETE FROM tb_user_identities
+        WHERE id = #{identityId}
+          AND user_id = #{userId}
+    </delete>
+
+</mapper>

@@ -1,0 +1,284 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.enrollment.infrastructure.mybatis.EnrollmentQueryMapper">
+
+    <resultMap
+        id="myEnrollmentViewRowResultMap"
+        type="com.adn.dabaeum.enrollment.infrastructure.mybatis.MyEnrollmentViewRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="user_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="applied_at" javaType="java.time.Instant"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="course_title" javaType="java.lang.String"/>
+            <arg column="course_code" javaType="java.lang.String"/>
+            <arg column="course_status" javaType="java.lang.String"/>
+            <arg column="institution_name" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap
+        id="institutionEnrollmentViewRowResultMap"
+        type="com.adn.dabaeum.enrollment.infrastructure.mybatis.InstitutionEnrollmentViewRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="user_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="applied_at" javaType="java.time.Instant"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="course_title" javaType="java.lang.String"/>
+            <arg column="user_name" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="orderBy">
+        ORDER BY
+        <choose>
+            <when test="sortField == 'created_at'">e.created_at</when>
+            <otherwise>e.applied_at</otherwise>
+        </choose>
+        <choose>
+            <when test="sortDirection == 'ASC'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>, e.id ASC
+    </sql>
+
+    <select id="selectMyEnrollments" resultMap="myEnrollmentViewRowResultMap">
+        SELECT e.id, e.course_id, e.user_id, e.status, e.applied_at, e.created_at,
+               c.title AS course_title, c.course_code AS course_code,
+               c.status AS course_status, i.name AS institution_name
+          FROM tb_enrollments e
+          JOIN tb_courses c ON c.id = e.course_id
+          JOIN tb_institutions i ON i.id = c.institution_id
+         WHERE e.user_id = #{userId}
+        <if test="status != null">
+           AND e.status = #{status}
+        </if>
+        <include refid="orderBy"/>
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countMyEnrollments" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_enrollments e
+         WHERE e.user_id = #{userId}
+        <if test="status != null">
+           AND e.status = #{status}
+        </if>
+    </select>
+
+    <select id="selectInstitutionEnrollments" resultMap="institutionEnrollmentViewRowResultMap">
+        SELECT e.id, e.course_id, e.user_id, e.status, e.applied_at, e.created_at,
+               c.title AS course_title, u.name AS user_name
+          FROM tb_enrollments e
+          JOIN tb_courses c ON c.id = e.course_id
+          JOIN tb_users u ON u.id = e.user_id
+         WHERE c.institution_id = #{institutionId}
+        <if test="status != null">
+           AND e.status = #{status}
+        </if>
+        <include refid="orderBy"/>
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countInstitutionEnrollments" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_enrollments e
+          JOIN tb_courses c ON c.id = e.course_id
+         WHERE c.institution_id = #{institutionId}
+        <if test="status != null">
+           AND e.status = #{status}
+        </if>
+    </select>
+
+    <resultMap
+        id="learningSummaryRowResultMap"
+        type="com.adn.dabaeum.enrollment.infrastructure.mybatis.LearningSummaryRow">
+
+        <constructor>
+            <arg column="applying" javaType="java.lang.Long"/>
+            <arg column="in_progress" javaType="java.lang.Long"/>
+            <arg column="finished" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap
+        id="learningCourseViewRowResultMap"
+        type="com.adn.dabaeum.enrollment.infrastructure.mybatis.LearningCourseViewRow">
+
+        <constructor>
+            <idArg
+                column="enrollment_id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="institution_name" javaType="java.lang.String"/>
+            <arg column="learning_status" javaType="java.lang.String"/>
+            <arg column="education_type" javaType="java.lang.String"/>
+            <arg column="start_date" javaType="java.time.LocalDate"/>
+            <arg column="end_date" javaType="java.time.LocalDate"/>
+            <arg column="applied_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap
+        id="enrollmentProgressViewRowResultMap"
+        type="com.adn.dabaeum.enrollment.infrastructure.mybatis.EnrollmentProgressViewRow">
+
+        <constructor>
+            <idArg
+                column="enrollment_id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="user_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="user_name" javaType="java.lang.String"/>
+            <arg column="course_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_title" javaType="java.lang.String"/>
+            <arg column="attended_count" javaType="java.lang.Long"/>
+            <arg column="session_count" javaType="java.lang.Long"/>
+            <arg column="status" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="learningStatusCase">
+        CASE
+            WHEN e.status IN ('APPLIED', 'WAITLISTED') THEN 'APPLIED'
+            WHEN e.status = 'APPROVED' AND (
+                c.status = 'COMPLETED'
+                OR EXISTS (
+                    SELECT 1 FROM tb_completions cp
+                    WHERE cp.enrollment_id = e.id
+                      AND cp.status = 'COMPLETED'
+                      AND cp.confirmed_at IS NOT NULL
+                )
+            ) THEN 'COMPLETED'
+            ELSE 'IN_PROGRESS'
+        END
+    </sql>
+
+    <select id="selectLearningSummary" resultMap="learningSummaryRowResultMap">
+        SELECT
+            COUNT(*) FILTER (
+                WHERE e.status IN ('APPLIED', 'WAITLISTED')) AS applying,
+            COUNT(*) FILTER (
+                WHERE e.status = 'APPROVED'
+                  AND c.status != 'COMPLETED'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM tb_completions cp
+                      WHERE cp.enrollment_id = e.id
+                        AND cp.status = 'COMPLETED'
+                        AND cp.confirmed_at IS NOT NULL
+                  )) AS in_progress,
+            COUNT(*) FILTER (
+                WHERE e.status = 'APPROVED'
+                  AND (c.status = 'COMPLETED'
+                    OR EXISTS (
+                        SELECT 1 FROM tb_completions cp
+                        WHERE cp.enrollment_id = e.id
+                          AND cp.status = 'COMPLETED'
+                          AND cp.confirmed_at IS NOT NULL
+                    ))) AS finished
+          FROM tb_enrollments e
+          JOIN tb_courses c ON c.id = e.course_id
+         WHERE e.user_id = #{userId}
+    </select>
+
+    <select id="selectLearningCourses" resultMap="learningCourseViewRowResultMap">
+        SELECT e.id AS enrollment_id, c.id AS course_id, c.title,
+               i.name AS institution_name,
+               <include refid="learningStatusCase"/> AS learning_status,
+               c.education_type, c.start_date, c.end_date, e.applied_at
+          FROM tb_enrollments e
+          JOIN tb_courses c ON c.id = e.course_id
+          JOIN tb_institutions i ON i.id = c.institution_id
+         WHERE e.user_id = #{userId}
+           AND e.status IN ('APPLIED', 'WAITLISTED', 'APPROVED')
+        <if test="learningStatus != null">
+           AND <include refid="learningStatusCase"/> = #{learningStatus}
+        </if>
+        ORDER BY e.applied_at DESC, e.id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countLearningCourses" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_enrollments e
+          JOIN tb_courses c ON c.id = e.course_id
+         WHERE e.user_id = #{userId}
+           AND e.status IN ('APPLIED', 'WAITLISTED', 'APPROVED')
+        <if test="learningStatus != null">
+           AND <include refid="learningStatusCase"/> = #{learningStatus}
+        </if>
+    </select>
+
+    <sql id="progressColumns">
+        e.id AS enrollment_id, e.user_id, u.name AS user_name,
+        c.id AS course_id, c.title AS course_title,
+        (SELECT COUNT(*) FROM tb_attendance_records ar
+           JOIN tb_course_sessions cs ON cs.id = ar.session_id
+          WHERE ar.enrollment_id = e.id
+            AND ar.status IN ('PRESENT', 'LATE')) AS attended_count,
+        (SELECT COUNT(*) FROM tb_course_sessions cs
+          WHERE cs.course_id = c.id) AS session_count,
+        e.status
+    </sql>
+
+    <select id="selectInstructorEnrollmentProgress"
+        resultMap="enrollmentProgressViewRowResultMap">
+        SELECT <include refid="progressColumns"/>
+          FROM tb_enrollments e
+          JOIN tb_courses c ON c.id = e.course_id
+          JOIN tb_users u ON u.id = e.user_id
+          JOIN tb_course_instructors ci ON ci.course_id = c.id
+         WHERE ci.user_id = #{instructorUserId}
+           AND e.status = 'APPROVED'
+        <if test="courseId != null">
+           AND c.id = #{courseId}
+        </if>
+        ORDER BY c.title ASC, u.name ASC, e.id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countInstructorEnrollmentProgress" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_enrollments e
+          JOIN tb_course_instructors ci ON ci.course_id = e.course_id
+         WHERE ci.user_id = #{instructorUserId}
+           AND e.status = 'APPROVED'
+        <if test="courseId != null">
+           AND e.course_id = #{courseId}
+        </if>
+    </select>
+
+    <select id="selectEnrollmentProgress"
+        resultMap="enrollmentProgressViewRowResultMap">
+        SELECT <include refid="progressColumns"/>
+          FROM tb_enrollments e
+          JOIN tb_courses c ON c.id = e.course_id
+          JOIN tb_users u ON u.id = e.user_id
+         WHERE e.id = #{enrollmentId}
+    </select>
+
+</mapper>

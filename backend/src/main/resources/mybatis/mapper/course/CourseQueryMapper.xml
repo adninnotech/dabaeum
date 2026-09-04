@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.course.infrastructure.mybatis.CourseQueryMapper">
+
+    <resultMap
+        id="instructorCourseViewRowResultMap"
+        type="com.adn.dabaeum.course.infrastructure.mybatis.InstructorCourseViewRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg
+                column="institution_id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_code" javaType="java.lang.String"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="description" javaType="java.lang.String"/>
+            <arg column="category" javaType="java.lang.String"/>
+            <arg column="education_type" javaType="java.lang.String"/>
+            <arg column="start_date" javaType="java.time.LocalDate"/>
+            <arg column="end_date" javaType="java.time.LocalDate"/>
+            <arg column="recruit_start_date" javaType="java.time.LocalDate"/>
+            <arg column="recruit_end_date" javaType="java.time.LocalDate"/>
+            <arg column="capacity" javaType="java.lang.Integer"/>
+            <arg column="location" javaType="java.lang.String"/>
+            <arg column="online_url" javaType="java.lang.String"/>
+            <arg column="credit_bank_eligible" javaType="java.lang.Boolean"/>
+            <arg column="credit_value" javaType="java.math.BigDecimal"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+            <arg column="deleted_at" javaType="java.time.Instant"/>
+            <arg column="thumbnail_file_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="instructor_role" javaType="java.lang.String"/>
+            <arg column="enrolled_count" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap
+        id="institutionInstructorViewRowResultMap"
+        type="com.adn.dabaeum.course.infrastructure.mybatis.InstitutionInstructorViewRow">
+
+        <constructor>
+            <idArg
+                column="user_id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="email" javaType="java.lang.String"/>
+            <arg column="phone" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="joined_at" javaType="java.time.Instant"/>
+            <arg column="course_count" javaType="java.lang.Long"/>
+            <arg column="memo" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap
+        id="instructorCourseStatsRowResultMap"
+        type="com.adn.dabaeum.course.infrastructure.mybatis.InstructorCourseStatsRow">
+
+        <constructor>
+            <arg column="total" javaType="java.lang.Long"/>
+            <arg column="recruiting" javaType="java.lang.Long"/>
+            <arg column="in_progress" javaType="java.lang.Long"/>
+            <arg column="completed" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="courseColumns">
+        c.id, c.institution_id, c.course_code, c.title, c.description, c.category,
+        c.education_type, c.start_date, c.end_date, c.recruit_start_date,
+        c.recruit_end_date, c.capacity, c.location, c.online_url,
+        c.credit_bank_eligible, c.credit_value, c.status, c.created_at,
+        c.updated_at, c.deleted_at, c.thumbnail_file_id
+    </sql>
+
+    <sql id="courseOrderBy">
+        ORDER BY
+        <choose>
+            <when test="sortField == 'title'">c.title</when>
+            <when test="sortField == 'start_date'">c.start_date</when>
+            <otherwise>c.created_at</otherwise>
+        </choose>
+        <choose>
+            <when test="sortDirection == 'ASC'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>, c.id ASC
+    </sql>
+
+    <select id="selectInstructorCourses" resultMap="instructorCourseViewRowResultMap">
+        SELECT <include refid="courseColumns"/>,
+               ci.instructor_role AS instructor_role,
+               (SELECT COUNT(*) FROM tb_enrollments e
+                 WHERE e.course_id = c.id AND e.status = 'APPROVED') AS enrolled_count
+          FROM tb_course_instructors ci
+          JOIN tb_courses c ON c.id = ci.course_id
+         WHERE ci.user_id = #{instructorUserId}
+           AND c.deleted_at IS NULL
+        <if test="status != null">
+           AND c.status = #{status}
+        </if>
+        <include refid="courseOrderBy"/>
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countInstructorCourses" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_course_instructors ci
+          JOIN tb_courses c ON c.id = ci.course_id
+         WHERE ci.user_id = #{instructorUserId}
+           AND c.deleted_at IS NULL
+        <if test="status != null">
+           AND c.status = #{status}
+        </if>
+    </select>
+
+    <select id="selectInstructorCourseStats" resultMap="instructorCourseStatsRowResultMap">
+        SELECT COUNT(*) AS total,
+               COUNT(*) FILTER (WHERE c.status = 'RECRUITING') AS recruiting,
+               COUNT(*) FILTER (WHERE c.status = 'IN_PROGRESS') AS in_progress,
+               COUNT(*) FILTER (WHERE c.status = 'COMPLETED') AS completed
+          FROM tb_course_instructors ci
+          JOIN tb_courses c ON c.id = ci.course_id
+         WHERE ci.user_id = #{instructorUserId}
+           AND c.deleted_at IS NULL
+    </select>
+
+    <select
+        id="selectInstitutionCourses"
+        resultMap="com.adn.dabaeum.course.infrastructure.mybatis.CourseMapper.courseRowResultMap">
+        SELECT <include refid="courseColumns"/>
+          FROM tb_courses c
+         WHERE c.institution_id = #{institutionId}
+           AND c.deleted_at IS NULL
+        <if test="status != null">
+           AND c.status = #{status}
+        </if>
+        <include refid="courseOrderBy"/>
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countInstitutionCourses" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_courses c
+         WHERE c.institution_id = #{institutionId}
+           AND c.deleted_at IS NULL
+        <if test="status != null">
+           AND c.status = #{status}
+        </if>
+    </select>
+
+    <select id="selectInstitutionInstructors" resultMap="institutionInstructorViewRowResultMap">
+        SELECT u.id AS user_id, u.name, u.email, u.phone, u.status,
+               r.created_at AS joined_at, r.memo,
+               (SELECT COUNT(*) FROM tb_course_instructors ci
+                  JOIN tb_courses c ON c.id = ci.course_id
+                 WHERE ci.user_id = u.id
+                   AND c.institution_id = #{institutionId}
+                   AND c.deleted_at IS NULL) AS course_count
+          FROM tb_user_roles r
+          JOIN tb_users u ON u.id = r.user_id
+         WHERE r.institution_id = #{institutionId}
+           AND r.role = 'INSTRUCTOR'
+        <if test="status != null">
+           AND u.status = #{status}
+        </if>
+        ORDER BY
+        <choose>
+            <when test="sortField == 'name'">u.name</when>
+            <otherwise>r.created_at</otherwise>
+        </choose>
+        <choose>
+            <when test="sortDirection == 'ASC'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>, u.id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countInstitutionInstructors" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_user_roles r
+          JOIN tb_users u ON u.id = r.user_id
+         WHERE r.institution_id = #{institutionId}
+           AND r.role = 'INSTRUCTOR'
+        <if test="status != null">
+           AND u.status = #{status}
+        </if>
+    </select>
+
+</mapper>

@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.authentication.infrastructure.mybatis.LocalAccountMapper">
+
+    <resultMap
+        id="localAccountRowResultMap"
+        type="com.adn.dabaeum.authentication.infrastructure.mybatis.LocalAccountRow">
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg
+                column="user_id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="provider_subject" javaType="java.lang.String"/>
+            <arg column="password_hash" javaType="java.lang.String"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO tb_user_identities (
+            id,
+            user_id,
+            provider,
+            provider_subject,
+            external_did,
+            verified_at,
+            metadata,
+            password_hash,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{identityId},
+            #{userId},
+            'LOCAL',
+            #{normalizedEmail},
+            NULL,
+            #{createdAt},
+            NULL,
+            #{passwordHash},
+            #{createdAt},
+            #{updatedAt}
+        )
+    </insert>
+
+    <select
+        id="selectByNormalizedEmail"
+        resultMap="localAccountRowResultMap">
+        SELECT
+            id,
+            user_id,
+            provider_subject,
+            password_hash,
+            created_at,
+            updated_at
+        FROM tb_user_identities
+        WHERE provider = 'LOCAL'
+          AND provider_subject = #{normalizedEmail}
+          AND password_hash IS NOT NULL
+    </select>
+
+    <select
+        id="selectByUserId"
+        resultMap="localAccountRowResultMap">
+        SELECT
+            id,
+            user_id,
+            provider_subject,
+            password_hash,
+            created_at,
+            updated_at
+        FROM tb_user_identities
+        WHERE provider = 'LOCAL'
+          AND user_id = #{userId}
+          AND password_hash IS NOT NULL
+    </select>
+
+    <update id="updatePasswordHash">
+        UPDATE tb_user_identities
+           SET password_hash = #{passwordHash},
+               updated_at = #{updatedAt}
+         WHERE provider = 'LOCAL'
+           AND user_id = #{userId}
+           AND password_hash IS NOT NULL
+    </update>
+
+</mapper>

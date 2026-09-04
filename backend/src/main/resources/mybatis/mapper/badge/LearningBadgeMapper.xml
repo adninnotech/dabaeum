@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.badge.infrastructure.mybatis.LearningBadgeMapper">
+
+    <resultMap
+        id="learningBadgeRowResultMap"
+        type="com.adn.dabaeum.badge.infrastructure.mybatis.LearningBadgeRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="user_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="credential_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="badge_type" javaType="java.lang.String"/>
+            <arg column="badge_name" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="nft_token_id" javaType="java.lang.String"/>
+            <arg column="issued_at" javaType="java.time.Instant"/>
+            <arg column="revoked_at" javaType="java.time.Instant"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="columns">
+        id, user_id, course_id, credential_id, badge_type, badge_name,
+        status, nft_token_id, issued_at, revoked_at, created_at, updated_at
+    </sql>
+
+    <insert id="insert">
+        INSERT INTO tb_learning_badges (
+            id, user_id, course_id, credential_id, badge_type, badge_name,
+            status, nft_token_id, issued_at, revoked_at, created_at, updated_at
+        ) VALUES (
+            #{id}, #{userId},
+            #{courseId, jdbcType=OTHER},
+            #{credentialId, jdbcType=OTHER},
+            #{badgeType}, #{badgeName}, #{status},
+            #{nftTokenId, jdbcType=VARCHAR},
+            #{issuedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{revokedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <select id="selectById" resultMap="learningBadgeRowResultMap">
+        SELECT <include refid="columns"/>
+        FROM tb_learning_badges
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByCredentialIdAndTypeAndName" resultMap="learningBadgeRowResultMap">
+        SELECT <include refid="columns"/>
+        FROM tb_learning_badges
+        WHERE credential_id = #{credentialId}
+          AND badge_type = #{badgeType}
+          AND badge_name = #{badgeName}
+        ORDER BY created_at ASC, id ASC
+        LIMIT 1
+    </select>
+
+    <select id="selectByUserId" resultMap="learningBadgeRowResultMap">
+        SELECT <include refid="columns"/>
+        FROM tb_learning_badges
+        WHERE user_id = #{userId}
+        ORDER BY
+        <choose>
+            <when test="sortField == 'issued_at'">issued_at</when>
+            <when test="sortField == 'updated_at'">updated_at</when>
+            <otherwise>created_at</otherwise>
+        </choose>
+        <choose>
+            <when test="sortDirection == 'ASC'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>, id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countByUserId" resultType="long">
+        SELECT COUNT(*)
+        FROM tb_learning_badges
+        WHERE user_id = #{userId}
+    </select>
+
+</mapper>

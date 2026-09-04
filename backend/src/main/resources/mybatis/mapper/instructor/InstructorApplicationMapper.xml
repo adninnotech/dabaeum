@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.instructor.infrastructure.mybatis.InstructorApplicationMapper">
+
+    <resultMap id="instructorApplicationRowResultMap"
+        type="com.adn.dabaeum.instructor.infrastructure.mybatis.InstructorApplicationRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="user_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="institution_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="application_message" javaType="java.lang.String"/>
+            <arg column="rejection_reason" javaType="java.lang.String"/>
+            <arg column="reviewed_by" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="applied_at" javaType="java.time.Instant"/>
+            <arg column="reviewed_at" javaType="java.time.Instant"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="columns">
+        id, user_id, institution_id, status, application_message,
+        rejection_reason, reviewed_by, applied_at, reviewed_at, created_at, updated_at
+    </sql>
+
+    <insert id="insert">
+        INSERT INTO tb_instructor_applications (
+            id, user_id, institution_id, status, application_message,
+            rejection_reason, reviewed_by, applied_at, reviewed_at, created_at, updated_at
+        ) VALUES (
+            #{id}, #{userId}, #{institutionId}, #{status},
+            #{applicationMessage, jdbcType=VARCHAR}, #{rejectionReason, jdbcType=VARCHAR},
+            #{reviewedBy, jdbcType=OTHER}, #{appliedAt},
+            #{reviewedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <select id="selectById" resultMap="instructorApplicationRowResultMap">
+        SELECT <include refid="columns"/>
+          FROM tb_instructor_applications
+         WHERE id = #{id}
+    </select>
+
+    <select id="selectByIdForUpdate" flushCache="true"
+        resultMap="instructorApplicationRowResultMap">
+        SELECT <include refid="columns"/>
+          FROM tb_instructor_applications
+         WHERE id = #{id}
+         FOR UPDATE
+    </select>
+
+    <select id="selectPending" resultMap="instructorApplicationRowResultMap">
+        SELECT <include refid="columns"/>
+          FROM tb_instructor_applications
+         WHERE user_id = #{userId}
+           AND institution_id = #{institutionId}
+           AND status = 'PENDING'
+    </select>
+
+    <sql id="pageWhere">
+        <where>
+            <if test="criteria.userId != null">user_id = #{criteria.userId}</if>
+            <if test="criteria.institutionId != null">
+                AND institution_id = #{criteria.institutionId}
+            </if>
+            <if test="criteria.status != null">AND status = #{criteria.status}</if>
+        </where>
+    </sql>
+
+    <select id="selectPage" resultMap="instructorApplicationRowResultMap">
+        SELECT <include refid="columns"/>
+          FROM tb_instructor_applications
+        <include refid="pageWhere"/>
+         ORDER BY
+        <choose>
+            <when test="criteria.sort == 'REVIEWED_AT'">reviewed_at</when>
+            <when test="criteria.sort == 'STATUS'">status</when>
+            <otherwise>applied_at</otherwise>
+        </choose>
+        <choose>
+            <when test="criteria.direction == 'ASC'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>, id ASC
+         LIMIT #{criteria.limit} OFFSET #{criteria.offset}
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*) FROM tb_instructor_applications
+        <include refid="pageWhere"/>
+    </select>
+
+    <update id="updateReview">
+        UPDATE tb_instructor_applications
+           SET status = #{row.status},
+               rejection_reason = #{row.rejectionReason, jdbcType=VARCHAR},
+               reviewed_by = #{row.reviewedBy, jdbcType=OTHER},
+               reviewed_at = #{row.reviewedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+               updated_at = #{row.updatedAt}
+         WHERE id = #{row.id}
+           AND status = #{expectedStatus}
+    </update>
+
+</mapper>

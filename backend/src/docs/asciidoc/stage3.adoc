@@ -1,0 +1,22 @@
+== Stage 3 Identity, Role, and Authentication Acceptance
+
+Stage 3 adds the authenticated session view while preserving the existing User,
+Identity, and Role response contracts. The session response contains only public
+identity and authorization context; bearer tokens, provider subjects, and raw
+metadata are never returned.
+
+=== Authentication session
+include::auth-session.adoc[]
+
+=== Identity operations
+include::identity.adoc[]
+
+=== Role operations
+include::role.adoc[]
+
+=== Frontend compatibility
+
+The seven existing User operations remain unchanged. `GET /api/v1/auth/session`
+is additive and uses the common `data`/`meta` envelope. Unauthenticated requests
+receive `401`; authorization failures remain `403` and use the existing error
+contract.

@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.blockchain.infrastructure.mybatis.BlockchainMonitoringMapper">
+
+    <resultMap
+        id="blockchainMetricsRowResultMap"
+        type="com.adn.dabaeum.blockchain.infrastructure.mybatis.BlockchainMetricsRow">
+
+        <constructor>
+            <arg column="transaction_total" javaType="java.lang.Long"/>
+            <arg column="transaction_confirmed" javaType="java.lang.Long"/>
+            <arg column="transaction_failed" javaType="java.lang.Long"/>
+            <arg column="credential_issued_count" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap
+        id="blockchainTransactionSummaryRowResultMap"
+        type="com.adn.dabaeum.blockchain.infrastructure.mybatis.BlockchainTransactionSummaryRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="tx_hash" javaType="java.lang.String"/>
+            <arg column="type" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="occurred_at" javaType="java.time.Instant"/>
+            <arg column="requested_at" javaType="java.time.Instant"/>
+            <arg column="confirmed_at" javaType="java.time.Instant"/>
+            <arg column="block_number" javaType="java.lang.Long"/>
+            <arg column="reconciled" javaType="java.lang.Boolean"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap
+        id="blockchainAlertRowResultMap"
+        type="com.adn.dabaeum.blockchain.infrastructure.mybatis.BlockchainAlertRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="severity" javaType="java.lang.String"/>
+            <arg column="message" javaType="java.lang.String"/>
+            <arg column="occurred_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <select id="selectMetrics" resultMap="blockchainMetricsRowResultMap">
+        SELECT
+            (SELECT COUNT(*) FROM tb_blockchain_transactions) AS transaction_total,
+            (SELECT COUNT(*) FROM tb_blockchain_transactions
+              WHERE status = 'CONFIRMED') AS transaction_confirmed,
+            (SELECT COUNT(*) FROM tb_blockchain_transactions
+              WHERE status = 'FAILED') AS transaction_failed,
+            (SELECT COUNT(*) FROM tb_credentials
+              WHERE status = 'ISSUED') AS credential_issued_count
+    </select>
+
+    <select id="selectTransactions" resultMap="blockchainTransactionSummaryRowResultMap">
+        <!-- 재조정 시 이력을 못 읽어 합성한 ID(reconciled-…)는 실제 원장 ID 가 아니므로 숨긴다. -->
+        SELECT id,
+               CASE WHEN transaction_id LIKE 'reconciled-%' THEN NULL ELSE transaction_id END AS tx_hash,
+               transaction_type AS type,
+               status, COALESCE(confirmed_at, requested_at, created_at) AS occurred_at,
+               requested_at, confirmed_at,
+               (response_metadata ->> 'blockNumber')::bigint AS block_number,
+               COALESCE(response_metadata ->> 'commitCode', '') LIKE 'RECONCILED%' AS reconciled
+          FROM tb_blockchain_transactions
+        ORDER BY created_at DESC, id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countTransactions" resultType="long">
+        SELECT COUNT(*)
+        FROM tb_blockchain_transactions
+    </select>
+
+    <select id="selectAlerts" resultMap="blockchainAlertRowResultMap">
+        SELECT id, 'ERROR' AS severity,
+               COALESCE(error_code, 'FAILED') || ': '
+                   || COALESCE(error_message, 'Blockchain transaction failed')
+                   AS message,
+               COALESCE(confirmed_at, requested_at, created_at) AS occurred_at
+          FROM tb_blockchain_transactions
+         WHERE status = 'FAILED'
+        ORDER BY created_at DESC, id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countAlerts" resultType="long">
+        SELECT COUNT(*)
+        FROM tb_blockchain_transactions
+        WHERE status = 'FAILED'
+    </select>
+
+</mapper>

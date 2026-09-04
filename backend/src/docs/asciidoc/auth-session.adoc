@@ -1,0 +1,7 @@
+== Authentication Session API
+
+=== Get authenticated session
+
+include::{snippets}/auth-session/http-request.adoc[]
+include::{snippets}/auth-session/http-response.adoc[]
+include::{snippets}/auth-session/response-fields.adoc[]

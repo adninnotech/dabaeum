@@ -1,0 +1,18 @@
+= Dabaeum API
+:doctype: book
+:source-highlighter: highlightjs
+:toc: left
+:sectlinks:
+:snippets: {docdir}/../../../build/generated-snippets
+
+include::system-ping.adoc[]
+include::institution.adoc[]
+include::user.adoc[]
+include::identity.adoc[]
+include::role.adoc[]
+include::auth-session.adoc[]
+include::stage3.adoc[]
+include::stage4.adoc[]
+include::stage5.adoc[]
+include::credential.adoc[]
+include::credential-vc-fabric.adoc[]

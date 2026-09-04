@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.completion.infrastructure.mybatis.CompletionMapper">
+
+    <resultMap id="completionRowResultMap"
+        type="com.adn.dabaeum.completion.infrastructure.mybatis.CompletionRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="enrollment_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="attendance_rate" javaType="java.math.BigDecimal"/>
+            <arg column="completed_minutes" javaType="java.lang.Integer"/>
+            <arg column="credit_value" javaType="java.math.BigDecimal"/>
+            <arg column="evaluated_at" javaType="java.time.Instant"/>
+            <arg column="completed_at" javaType="java.time.Instant"/>
+            <arg column="confirmed_by" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="confirmed_at" javaType="java.time.Instant"/>
+            <arg column="failure_reason" javaType="java.lang.String"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="completionColumns">
+        id, enrollment_id, status, attendance_rate, completed_minutes,
+        credit_value, evaluated_at, completed_at, confirmed_by, confirmed_at,
+        failure_reason, created_at, updated_at
+    </sql>
+
+    <insert id="insert">
+        INSERT INTO tb_completions (
+            id, enrollment_id, status, attendance_rate, completed_minutes,
+            credit_value, evaluated_at, completed_at, confirmed_by, confirmed_at,
+            failure_reason, created_at, updated_at
+        ) VALUES (
+            #{id}, #{enrollmentId}, #{status}, #{attendanceRate}, #{completedMinutes},
+            #{creditValue, jdbcType=DECIMAL},
+            #{evaluatedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{completedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{confirmedBy, jdbcType=OTHER},
+            #{confirmedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{failureReason, jdbcType=VARCHAR}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <select id="selectById" resultMap="completionRowResultMap">
+        SELECT <include refid="completionColumns"/>
+          FROM tb_completions
+         WHERE id = #{completionId}
+    </select>
+
+    <select id="selectByIdForUpdate" flushCache="true"
+        resultMap="completionRowResultMap">
+        SELECT <include refid="completionColumns"/>
+          FROM tb_completions
+         WHERE id = #{completionId}
+         FOR UPDATE
+    </select>
+
+    <select id="selectByEnrollmentId" resultMap="completionRowResultMap">
+        SELECT <include refid="completionColumns"/>
+          FROM tb_completions
+         WHERE enrollment_id = #{enrollmentId}
+    </select>
+
+    <select id="selectByEnrollmentIdForUpdate" flushCache="true"
+        resultMap="completionRowResultMap">
+        SELECT <include refid="completionColumns"/>
+          FROM tb_completions
+         WHERE enrollment_id = #{enrollmentId}
+         FOR UPDATE
+    </select>
+
+    <update id="updateEvaluation">
+        UPDATE tb_completions
+           SET status = #{row.status},
+               attendance_rate = #{row.attendanceRate},
+               completed_minutes = #{row.completedMinutes},
+               credit_value = #{row.creditValue, jdbcType=DECIMAL},
+               evaluated_at = #{row.evaluatedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+               completed_at = NULL,
+               confirmed_by = NULL,
+               confirmed_at = NULL,
+               failure_reason = #{row.failureReason, jdbcType=VARCHAR},
+               updated_at = #{row.updatedAt}
+         WHERE enrollment_id = #{row.enrollmentId}
+           AND status = #{expectedStatus}
+    </update>
+
+    <update id="confirm">
+        UPDATE tb_completions
+           SET status = #{row.status},
+               completed_at = #{row.completedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+               confirmed_by = #{row.confirmedBy, jdbcType=OTHER},
+               confirmed_at = #{row.confirmedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+               updated_at = #{row.updatedAt}
+         WHERE enrollment_id = #{row.enrollmentId}
+           AND status = #{expectedStatus}
+    </update>
+
+
+    <!-- 관리자 정정: 확정을 취소해 평가 상태로 되돌린다. 지표는 그대로 두고 확정 흔적만 지운다. -->
+    <update id="revertConfirmation">
+        UPDATE tb_completions
+           SET status = #{row.status},
+               completed_at = NULL,
+               confirmed_by = NULL,
+               confirmed_at = NULL,
+               updated_at = #{row.updatedAt}
+         WHERE enrollment_id = #{row.enrollmentId}
+           AND status = #{expectedStatus}
+    </update>
+
+</mapper>

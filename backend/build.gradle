@@ -1,0 +1,142 @@
+plugins {
+    id 'java'
+    id 'jacoco'
+    id 'org.springframework.boot' version '4.0.7'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'org.asciidoctor.jvm.convert' version '4.0.4'
+}
+
+group = 'com.adn'
+version = '0.1.0-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+asciidoctorj {
+    version = '3.0.0'
+}
+
+repositories {
+    mavenCentral()
+}
+
+sourceSets {
+    integrationTest {
+        java.setSrcDirs(['src/integrationTest/java'])
+        resources.setSrcDirs(['src/integrationTest/resources'])
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+configurations {
+    asciidoctorExt
+    integrationTestImplementation.extendsFrom testImplementation
+    integrationTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+    implementation libs.mybatis.starter
+    implementation libs.jasypt.spring.boot.starter
+    implementation libs.sshd.core
+    implementation libs.springdoc.ui
+
+    implementation 'org.springframework.boot:spring-boot-starter-flyway'
+    runtimeOnly 'org.flywaydb:flyway-database-postgresql'
+    runtimeOnly 'org.postgresql:postgresql'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-restdocs'
+    testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+    testImplementation libs.restdocs.mockmvc
+    testImplementation libs.archunit.junit5
+    testImplementation libs.swagger.parser
+    testImplementation libs.openapi.mockmvc
+    testRuntimeOnly libs.jaxb.api
+    asciidoctorExt libs.restdocs.asciidoctor
+
+}
+
+tasks.named('processResources') {
+    from('docs/api') {
+        include 'dabaeum-api-v1.yaml'
+        into 'META-INF/dabaeum/openapi'
+    }
+    from('docs/api') {
+        include 'dabaeum-frontend-api-flow.md'
+        into 'META-INF/dabaeum/api-guide'
+    }
+    from('docs/api/guide') {
+        include 'index.html', 'api-guide.css', 'api-guide.js'
+        into 'META-INF/dabaeum/api-guide'
+    }
+}
+
+// 프로젝트 볼륨은 생성 파일 옆에 AppleDouble 메타데이터를 만들 수 있다.
+// Java/Spring classpath 스캔 전에 해당 메타데이터 파일만 제거한다.
+def removeAppleDoubleFiles = {
+    java.nio.file.Files.walk(projectDir.toPath()).withCloseable { paths ->
+        paths.filter { path -> path.fileName?.toString()?.startsWith('._') }
+            .sorted(java.util.Comparator.reverseOrder())
+            .forEach { path -> java.nio.file.Files.deleteIfExists(path) }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    doLast { removeAppleDoubleFiles() }
+}
+
+tasks.withType(ProcessResources).configureEach {
+    doLast { removeAppleDoubleFiles() }
+}
+
+tasks.withType(Test).configureEach {
+    doFirst { removeAppleDoubleFiles() }
+}
+
+def snippetsDir = file('build/generated-snippets')
+
+tasks.named('test') {
+    useJUnitPlatform()
+    outputs.dir snippetsDir
+}
+
+tasks.register('integrationTest', Test) {
+    description = 'Runs PostgreSQL integration tests.'
+    group = 'verification'
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
+    useJUnitPlatform()
+    shouldRunAfter tasks.test
+    maxParallelForks = 1
+}
+
+tasks.named('asciidoctor') {
+    configurations 'asciidoctorExt'
+    inputs.dir snippetsDir
+    dependsOn tasks.test
+    baseDirFollowsSourceFile()
+}
+
+tasks.named('jacocoTestReport') {
+    dependsOn tasks.test
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.integrationTest
+    dependsOn tasks.asciidoctor
+    dependsOn tasks.jacocoTestReport
+}

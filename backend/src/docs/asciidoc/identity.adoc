@@ -1,0 +1,17 @@
+== Identity API
+
+=== List user identities
+include::{snippets}/identity-list/http-request.adoc[]
+include::{snippets}/identity-list/http-response.adoc[]
+include::{snippets}/identity-list/response-fields.adoc[]
+
+=== Link user identity
+include::{snippets}/identity-link/http-request.adoc[]
+include::{snippets}/identity-link/request-fields.adoc[]
+include::{snippets}/identity-link/http-response.adoc[]
+include::{snippets}/identity-link/response-fields.adoc[]
+
+=== Unlink user identity
+include::{snippets}/identity-unlink/http-request.adoc[]
+include::{snippets}/identity-unlink/http-response.adoc[]
+include::{snippets}/identity-unlink/response-fields.adoc[]

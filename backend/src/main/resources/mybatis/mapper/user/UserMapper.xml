@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.user.infrastructure.mybatis.UserMapper">
+
+    <resultMap
+        id="userRowResultMap"
+        type="com.adn.dabaeum.user.infrastructure.mybatis.UserRow">
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="email" javaType="java.lang.String"/>
+            <arg column="phone" javaType="java.lang.String"/>
+            <arg column="birth_date" javaType="java.time.LocalDate"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="withdrawn_at" javaType="java.time.Instant"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+            <arg column="career" javaType="java.lang.String"/>
+            <arg column="introduction" javaType="java.lang.String"/>
+            <arg column="profile_image_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="columns">
+        id, name, email, phone, birth_date, status,
+        withdrawn_at, created_at, updated_at,
+        career, introduction, profile_image_id
+    </sql>
+
+    <insert id="insert">
+        INSERT INTO tb_users (
+            id,
+            name,
+            email,
+            phone,
+            birth_date,
+            status,
+            withdrawn_at,
+            created_at,
+            updated_at,
+            career,
+            introduction,
+            profile_image_id
+        ) VALUES (
+            #{id},
+            #{name},
+            #{email},
+            #{phone},
+            #{birthDate},
+            #{status},
+            #{withdrawnAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{createdAt},
+            #{updatedAt},
+            #{career, jdbcType=VARCHAR},
+            #{introduction, jdbcType=VARCHAR},
+            #{profileImageId, jdbcType=OTHER}
+        )
+    </insert>
+
+    <select id="selectById" resultMap="userRowResultMap">
+        SELECT <include refid="columns"/>
+          FROM tb_users
+         WHERE id = #{id}
+    </select>
+
+    <select id="selectPage" resultMap="userRowResultMap">
+        SELECT <include refid="columns"/>
+          FROM tb_users
+         WHERE 1 = 1
+        <if test="criteria.status != null">
+           AND status = #{criteria.status}
+        </if>
+         ORDER BY
+        <choose>
+            <when test="criteria.sort.name() == 'UPDATED_AT'">updated_at</when>
+            <when test="criteria.sort.name() == 'NAME'">name</when>
+            <when test="criteria.sort.name() == 'EMAIL'">email</when>
+            <when test="criteria.sort.name() == 'STATUS'">status</when>
+            <otherwise>created_at</otherwise>
+        </choose>
+        <choose>
+            <when test="criteria.direction.name() == 'ASC'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>, id ASC
+         LIMIT #{criteria.limit} OFFSET #{criteria.offset}
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_users
+        <where>
+            <if test="status != null">
+                status = #{status}
+            </if>
+        </where>
+    </select>
+
+    <update id="updateProfile">
+        UPDATE tb_users
+           SET name = #{name},
+               email = #{email},
+               phone = #{phone},
+               birth_date = #{birthDate},
+               career = #{career, jdbcType=VARCHAR},
+               introduction = #{introduction, jdbcType=VARCHAR},
+               profile_image_id = #{profileImageId, jdbcType=OTHER},
+               updated_at = #{updatedAt}
+         WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE tb_users
+           SET status = #{status},
+               withdrawn_at = #{withdrawnAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+               updated_at = #{updatedAt}
+         WHERE id = #{id}
+    </update>
+
+    <select id="selectAuthInvalidatedAt" resultType="java.time.Instant">
+        SELECT auth_invalidated_at
+          FROM tb_users
+         WHERE id = #{id}
+    </select>
+
+    <!-- 발급 시각이 이 값보다 이르거나 같은 토큰을 거부한다. 뒤로 가지 않도록 GREATEST 로 보호한다. -->
+    <update id="updateAuthInvalidatedAt">
+        UPDATE tb_users
+           SET auth_invalidated_at = GREATEST(COALESCE(auth_invalidated_at, #{at}), #{at}),
+               updated_at = #{at}
+         WHERE id = #{id}
+    </update>
+
+</mapper>

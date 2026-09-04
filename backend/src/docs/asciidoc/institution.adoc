@@ -1,0 +1,24 @@
+== Institution API
+
+=== List institutions
+include::{snippets}/institution-list/http-request.adoc[]
+include::{snippets}/institution-list/query-parameters.adoc[]
+include::{snippets}/institution-list/http-response.adoc[]
+include::{snippets}/institution-list/response-fields.adoc[]
+
+=== Create institution
+include::{snippets}/institution-create/http-request.adoc[]
+include::{snippets}/institution-create/request-fields.adoc[]
+include::{snippets}/institution-create/http-response.adoc[]
+include::{snippets}/institution-create/response-fields.adoc[]
+
+=== Get institution
+include::{snippets}/institution-get/http-request.adoc[]
+include::{snippets}/institution-get/http-response.adoc[]
+include::{snippets}/institution-get/response-fields.adoc[]
+
+=== Update institution
+include::{snippets}/institution-update/http-request.adoc[]
+include::{snippets}/institution-update/request-fields.adoc[]
+include::{snippets}/institution-update/http-response.adoc[]
+include::{snippets}/institution-update/response-fields.adoc[]

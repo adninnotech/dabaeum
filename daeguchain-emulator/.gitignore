@@ -1,0 +1,15 @@
+node_modules/
+dist/
+# 에뮬레이터 프로젝트 목록. 서버마다 다르다.
+data/
+*.log
+
+# 비밀값. 예시 파일만 저장소에 둔다.
+.env
+*.env
+!.env.example
+
+# Fabric 인증 자료는 절대 저장소에 넣지 않는다.
+*.pem
+*_sk
+ca.crt

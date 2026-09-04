@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.completion.infrastructure.mybatis.CompletionOutboxMapper">
+
+    <insert id="insert">
+        INSERT INTO tb_outbox_events (
+            id, aggregate_type, aggregate_id, event_type, payload, status,
+            occurred_at, created_at
+        ) VALUES (
+            #{event.id}, 'COMPLETION', #{event.completionId}, 'COMPLETION_CONFIRMED',
+            CAST(#{payloadJson} AS JSONB), 'PENDING',
+            #{event.occurredAt}, #{event.occurredAt}
+        )
+    </insert>
+
+</mapper>

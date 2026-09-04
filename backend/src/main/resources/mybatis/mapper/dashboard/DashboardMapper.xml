@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.dashboard.infrastructure.mybatis.DashboardMapper">
+
+    <resultMap
+        id="platformCountsRowResultMap"
+        type="com.adn.dabaeum.dashboard.infrastructure.mybatis.PlatformCountsRow">
+
+        <constructor>
+            <arg column="user_count" javaType="java.lang.Long"/>
+            <arg column="instructor_count" javaType="java.lang.Long"/>
+            <arg column="institution_count" javaType="java.lang.Long"/>
+            <arg column="course_count" javaType="java.lang.Long"/>
+            <arg column="course_in_progress_count" javaType="java.lang.Long"/>
+            <arg column="course_recruiting_count" javaType="java.lang.Long"/>
+            <arg column="course_completed_count" javaType="java.lang.Long"/>
+            <arg column="enrollment_count" javaType="java.lang.Long"/>
+            <arg column="learner_count" javaType="java.lang.Long"/>
+            <arg column="institution_admin_count" javaType="java.lang.Long"/>
+            <arg column="withdrawn_count" javaType="java.lang.Long"/>
+            <arg column="instructor_application_pending" javaType="java.lang.Long"/>
+            <arg column="institution_application_pending" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap
+        id="recentMemberRowResultMap"
+        type="com.adn.dabaeum.dashboard.infrastructure.mybatis.RecentMemberRow">
+
+        <constructor>
+            <idArg
+                column="user_id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="role" javaType="java.lang.String"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap
+        id="institutionCountsRowResultMap"
+        type="com.adn.dabaeum.dashboard.infrastructure.mybatis.InstitutionCountsRow">
+
+        <constructor>
+            <arg column="instructor_total" javaType="java.lang.Long"/>
+            <arg column="instructor_active" javaType="java.lang.Long"/>
+            <arg column="instructor_inactive" javaType="java.lang.Long"/>
+            <arg column="instructor_withdrawn" javaType="java.lang.Long"/>
+            <arg column="course_count" javaType="java.lang.Long"/>
+            <arg column="enrollment_count" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <select id="selectPlatformCounts" resultMap="platformCountsRowResultMap">
+        SELECT
+            (SELECT COUNT(*) FROM tb_users) AS user_count,
+            (SELECT COUNT(DISTINCT user_id) FROM tb_user_roles
+              WHERE role = 'INSTRUCTOR') AS instructor_count,
+            (SELECT COUNT(*) FROM tb_institutions
+              WHERE deleted_at IS NULL) AS institution_count,
+            (SELECT COUNT(*) FROM tb_courses
+              WHERE deleted_at IS NULL) AS course_count,
+            (SELECT COUNT(*) FROM tb_courses
+              WHERE deleted_at IS NULL
+                AND status = 'IN_PROGRESS') AS course_in_progress_count,
+            (SELECT COUNT(*) FROM tb_courses
+              WHERE deleted_at IS NULL
+                AND status = 'RECRUITING') AS course_recruiting_count,
+            (SELECT COUNT(*) FROM tb_courses
+              WHERE deleted_at IS NULL
+                AND status = 'COMPLETED') AS course_completed_count,
+            (SELECT COUNT(*) FROM tb_enrollments) AS enrollment_count,
+            (SELECT COUNT(DISTINCT user_id) FROM tb_user_roles
+              WHERE role = 'LEARNER') AS learner_count,
+            (SELECT COUNT(DISTINCT user_id) FROM tb_user_roles
+              WHERE role = 'INSTITUTION_ADMIN') AS institution_admin_count,
+            (SELECT COUNT(*) FROM tb_users
+              WHERE status = 'WITHDRAWN') AS withdrawn_count,
+            (SELECT COUNT(*) FROM tb_instructor_applications
+              WHERE status = 'PENDING') AS instructor_application_pending,
+            (SELECT COUNT(*) FROM tb_institution_applications
+              WHERE status = 'PENDING') AS institution_application_pending
+    </select>
+
+    <select id="selectRecentMembers" resultMap="recentMemberRowResultMap">
+        SELECT u.id AS user_id, u.name,
+               COALESCE(
+                   (SELECT r.role FROM tb_user_roles r
+                     WHERE r.user_id = u.id
+                     ORDER BY r.created_at ASC
+                     LIMIT 1),
+                   'LEARNER') AS role,
+               u.created_at
+          FROM tb_users u
+        ORDER BY u.created_at DESC, u.id ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectInstitutionCounts" resultMap="institutionCountsRowResultMap">
+        SELECT
+            (SELECT COUNT(DISTINCT r.user_id) FROM tb_user_roles r
+              WHERE r.institution_id = #{institutionId}
+                AND r.role = 'INSTRUCTOR') AS instructor_total,
+            (SELECT COUNT(DISTINCT r.user_id) FROM tb_user_roles r
+              JOIN tb_users u ON u.id = r.user_id
+             WHERE r.institution_id = #{institutionId}
+               AND r.role = 'INSTRUCTOR'
+               AND u.status = 'ACTIVE') AS instructor_active,
+            (SELECT COUNT(DISTINCT r.user_id) FROM tb_user_roles r
+              JOIN tb_users u ON u.id = r.user_id
+             WHERE r.institution_id = #{institutionId}
+               AND r.role = 'INSTRUCTOR'
+               AND u.status IN ('DORMANT', 'SUSPENDED')) AS instructor_inactive,
+            (SELECT COUNT(DISTINCT r.user_id) FROM tb_user_roles r
+              JOIN tb_users u ON u.id = r.user_id
+             WHERE r.institution_id = #{institutionId}
+               AND r.role = 'INSTRUCTOR'
+               AND u.status = 'WITHDRAWN') AS instructor_withdrawn,
+            (SELECT COUNT(*) FROM tb_courses c
+              WHERE c.institution_id = #{institutionId}
+                AND c.deleted_at IS NULL) AS course_count,
+            (SELECT COUNT(*) FROM tb_enrollments e
+              JOIN tb_courses c ON c.id = e.course_id
+             WHERE c.institution_id = #{institutionId}) AS enrollment_count
+    </select>
+
+</mapper>

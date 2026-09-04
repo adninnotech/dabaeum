@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.review.infrastructure.mybatis.CourseReviewMapper">
+
+    <resultMap
+        id="courseReviewViewRowResultMap"
+        type="com.adn.dabaeum.review.infrastructure.mybatis.CourseReviewViewRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="user_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="rating" javaType="java.lang.Integer"/>
+            <arg column="content" javaType="java.lang.String"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="course_title" javaType="java.lang.String"/>
+            <arg column="user_name" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO tb_course_reviews (
+            id, user_id, course_id, rating, content, created_at, updated_at
+        ) VALUES (
+            #{id}, #{userId}, #{courseId}, #{rating},
+            #{content, jdbcType=VARCHAR},
+            #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <select id="existsByUserIdAndCourseId" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1
+            FROM tb_course_reviews
+            WHERE user_id = #{userId}
+              AND course_id = #{courseId}
+        )
+    </select>
+
+    <select id="hasConfirmedCompletion" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1
+            FROM tb_completions cp
+            JOIN tb_enrollments e ON e.id = cp.enrollment_id
+            WHERE e.user_id = #{userId}
+              AND e.course_id = #{courseId}
+              AND cp.status = 'COMPLETED'
+              AND cp.confirmed_at IS NOT NULL
+        )
+    </select>
+
+    <select id="selectByUserId" resultMap="courseReviewViewRowResultMap">
+        SELECT r.id, r.user_id, r.course_id, r.rating, r.content, r.created_at,
+               c.title AS course_title, u.name AS user_name
+          FROM tb_course_reviews r
+          JOIN tb_courses c ON c.id = r.course_id
+          JOIN tb_users u ON u.id = r.user_id
+         WHERE r.user_id = #{userId}
+        ORDER BY r.created_at DESC, r.id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countByUserId" resultType="long">
+        SELECT COUNT(*)
+        FROM tb_course_reviews
+        WHERE user_id = #{userId}
+    </select>
+
+    <select id="selectByCourseId" resultMap="courseReviewViewRowResultMap">
+        SELECT r.id, r.user_id, r.course_id, r.rating, r.content, r.created_at,
+               c.title AS course_title, u.name AS user_name
+          FROM tb_course_reviews r
+          JOIN tb_courses c ON c.id = r.course_id
+          JOIN tb_users u ON u.id = r.user_id
+         WHERE r.course_id = #{courseId}
+        ORDER BY r.created_at DESC, r.id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countByCourseId" resultType="long">
+        SELECT COUNT(*)
+        FROM tb_course_reviews
+        WHERE course_id = #{courseId}
+    </select>
+
+</mapper>

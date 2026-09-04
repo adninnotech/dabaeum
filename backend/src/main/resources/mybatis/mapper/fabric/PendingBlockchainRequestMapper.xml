@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.fabric.infrastructure.mybatis.PendingBlockchainRequestMapper">
+
+    <resultMap id="pendingBlockchainRequestRowResultMap"
+        type="com.adn.dabaeum.fabric.infrastructure.mybatis.PendingBlockchainRequestRow">
+        <constructor>
+            <idArg column="transaction_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="credential_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="transaction_type" javaType="java.lang.String"/>
+            <arg column="network" javaType="java.lang.String"/>
+            <arg column="idempotency_key" javaType="java.lang.String"/>
+            <arg column="request_hash" javaType="java.lang.String"/>
+            <arg column="requested_at" javaType="java.time.Instant"/>
+            <arg column="operation_reason" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <select id="selectByNetworkAndIdempotencyKey"
+        resultMap="pendingBlockchainRequestRowResultMap">
+        SELECT id AS transaction_id, reference_id AS credential_id, transaction_type,
+               network, idempotency_key, request_hash, requested_at, operation_reason
+          FROM tb_blockchain_transactions
+         WHERE network = #{network}
+           AND idempotency_key = #{idempotencyKey}
+    </select>
+
+    <insert id="insert">
+        INSERT INTO tb_blockchain_transactions (
+            id, reference_type, reference_id, network, transaction_type,
+            idempotency_key, request_hash, operation_reason, status, requested_at, created_at, updated_at
+        ) VALUES (
+            #{transactionId}, 'CREDENTIAL', #{credentialId}, #{network}, #{transactionType},
+            #{idempotencyKey}, #{requestHash}, #{operationReason, jdbcType=VARCHAR}, 'PENDING', #{requestedAt},
+            #{requestedAt}, #{requestedAt}
+        )
+    </insert>
+    <select id="existsPendingOperationForGroup" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1
+              FROM tb_blockchain_transactions transaction
+              JOIN tb_credentials credential ON credential.id = transaction.reference_id
+             WHERE transaction.network IN ('DABAEUM_FABRIC', 'FABRIC_POC', 'DAEGUCHAIN')
+               AND credential.credential_group_id = #{credentialGroupId}
+               AND transaction.transaction_type IN ('VC_REVOKE', 'VC_REISSUE')
+               AND transaction.status IN ('PENDING', 'PROCESSING')
+        )
+    </select>
+</mapper>

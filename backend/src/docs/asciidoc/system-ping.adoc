@@ -1,0 +1,10 @@
+== System Ping
+
+=== Request
+include::{snippets}/system-ping/http-request.adoc[]
+
+=== Response
+include::{snippets}/system-ping/http-response.adoc[]
+
+=== Response Fields
+include::{snippets}/system-ping/response-fields.adoc[]

@@ -1,0 +1,63 @@
+dabaeum:
+  http-logging:
+    # 개발에서는 요청·응답 본문을 마스킹 없이 그대로 남긴다. 운영 프로필에는 이 필터 자체가 없다.
+    mask-sensitive: false
+  ssh-tunnel:
+    enabled: true
+    host: ${DABAEUM_SSH_HOST}
+    port: ${DABAEUM_SSH_PORT:22}
+    username: ${DABAEUM_SSH_USERNAME}
+    password: ${DABAEUM_SSH_PASSWORD}
+    local-host: 127.0.0.1
+    local-port: 15432
+    remote-host: 127.0.0.1
+    remote-port: 15432
+    known-hosts-path: ${DABAEUM_SSH_KNOWN_HOSTS:${user.home}/.ssh/known_hosts}
+    connect-timeout: 10s
+    auth-timeout: 10s
+  security:
+    dev:
+      bearer-token: ${DABAEUM_DEV_BEARER_TOKEN}
+
+spring:
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:15432/dabaeum_dev
+    username: ${DABAEUM_DB_USERNAME}
+    password: ${DABAEUM_DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: 5000
+      validation-timeout: 3000
+      maximum-pool-size: 5
+      minimum-idle: 1
+      initialization-fail-timeout: 1
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+
+springdoc:
+  api-docs:
+    enabled: true
+  enable-default-api-docs: false
+  swagger-ui:
+    enabled: true
+    disable-swagger-default-url: true
+    config-url: /openapi/swagger-config
+    url: /openapi/dabaeum-api-v1.yaml
+
+mybatis:
+  configuration:
+    log-impl: com.adn.dabaeum.common.logging.SanitizedMyBatisLog
+
+logging:
+  level:
+    com.adn.dabaeum.common.web.HttpTrafficLoggingFilter: INFO
+    com.adn.dabaeum.attendance.infrastructure.mybatis: DEBUG
+    com.adn.dabaeum.completion.infrastructure.mybatis: DEBUG
+    com.adn.dabaeum.course.infrastructure.mybatis: DEBUG
+    com.adn.dabaeum.enrollment.infrastructure.mybatis: DEBUG
+    com.adn.dabaeum.identity.infrastructure.mybatis: DEBUG
+    com.adn.dabaeum.institution.infrastructure.mybatis: DEBUG
+    com.adn.dabaeum.role.infrastructure.mybatis: DEBUG
+    com.adn.dabaeum.user.infrastructure.mybatis: DEBUG

@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.institution.infrastructure.mybatis.InstitutionMapper">
+
+    <resultMap
+        id="institutionRowResultMap"
+        type="com.adn.dabaeum.institution.infrastructure.mybatis.InstitutionRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="institution_code" javaType="java.lang.String"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="business_number" javaType="java.lang.String"/>
+            <arg column="representative_name" javaType="java.lang.String"/>
+            <arg column="address" javaType="java.lang.String"/>
+            <arg column="contact_phone" javaType="java.lang.String"/>
+            <arg column="contact_email" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+            <arg column="deleted_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO tb_institutions (
+            id,
+            institution_code,
+            name,
+            business_number,
+            representative_name,
+            address,
+            contact_phone,
+            contact_email,
+            status,
+            created_at,
+            updated_at,
+            deleted_at
+        ) VALUES (
+            #{id},
+            #{institutionCode},
+            #{name},
+            #{businessNumber},
+            #{representativeName},
+            #{address},
+            #{contactPhone},
+            #{contactEmail},
+            #{status},
+            #{createdAt},
+            #{updatedAt},
+            #{deletedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE}
+        )
+    </insert>
+
+    <select
+        id="selectById"
+        flushCache="true"
+        resultMap="institutionRowResultMap">
+        SELECT
+            id,
+            institution_code,
+            name,
+            business_number,
+            representative_name,
+            address,
+            contact_phone,
+            contact_email,
+            status,
+            created_at,
+            updated_at,
+            deleted_at
+        FROM tb_institutions
+        WHERE id = #{id}
+    </select>
+
+    <select
+        id="selectActiveByCode"
+        resultMap="institutionRowResultMap">
+        SELECT
+            id,
+            institution_code,
+            name,
+            business_number,
+            representative_name,
+            address,
+            contact_phone,
+            contact_email,
+            status,
+            created_at,
+            updated_at,
+            deleted_at
+        FROM tb_institutions
+        WHERE institution_code = #{institutionCode}
+          AND deleted_at IS NULL
+    </select>
+
+    <select
+        id="selectActiveById"
+        resultMap="institutionRowResultMap">
+        SELECT
+            id,
+            institution_code,
+            name,
+            business_number,
+            representative_name,
+            address,
+            contact_phone,
+            contact_email,
+            status,
+            created_at,
+            updated_at,
+            deleted_at
+        FROM tb_institutions
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+    </select>
+
+    <select
+        id="selectActivePage"
+        resultMap="institutionRowResultMap">
+        SELECT
+            id,
+            institution_code,
+            name,
+            business_number,
+            representative_name,
+            address,
+            contact_phone,
+            contact_email,
+            status,
+            created_at,
+            updated_at,
+            deleted_at
+        FROM tb_institutions
+        WHERE deleted_at IS NULL
+        ORDER BY
+        <choose>
+            <when test="criteria.sort.name() == 'UPDATED_AT'">updated_at</when>
+            <when test="criteria.sort.name() == 'INSTITUTION_CODE'">institution_code</when>
+            <when test="criteria.sort.name() == 'NAME'">name</when>
+            <when test="criteria.sort.name() == 'STATUS'">status</when>
+            <otherwise>created_at</otherwise>
+        </choose>
+        <choose>
+            <when test="criteria.direction.name() == 'ASC'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>, id ASC
+        LIMIT #{criteria.limit} OFFSET #{criteria.offset}
+    </select>
+
+    <select id="countActive" resultType="long">
+        SELECT COUNT(*)
+        FROM tb_institutions
+        WHERE deleted_at IS NULL
+    </select>
+
+    <update id="updateActive">
+        UPDATE tb_institutions
+           SET institution_code = #{institutionCode},
+               name = #{name},
+               business_number = #{businessNumber},
+               representative_name = #{representativeName},
+               address = #{address},
+               contact_phone = #{contactPhone},
+               contact_email = #{contactEmail},
+               status = #{status},
+               updated_at = #{updatedAt}
+         WHERE id = #{id}
+           AND deleted_at IS NULL
+    </update>
+
+</mapper>

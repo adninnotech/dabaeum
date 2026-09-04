@@ -1,0 +1,1275 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>다배움 프론트엔드 API 호출 흐름</title>
+<style>
+:root{
+  color-scheme: light;
+  font-family: Pretendard, "Noto Sans KR", system-ui, sans-serif;
+  --ink:#14261f; --muted:#5f6f66; --faint:#8c9a92;
+  --line:#dce5df; --line-soft:#eaf0ec;
+  --paper:#fff; --canvas:#f4f7f5;
+  --accent:#0f7150; --accent-soft:#dff3e9;
+  --learner:#0f7150;   --learner-soft:#dff3e9;
+  --instructor:#1d5aa8; --instructor-soft:#dde8f7;
+  --admin:#9a5410;      --admin-soft:#fbe9d5;
+  --public:#5a6470;     --public-soft:#e6e9ed;
+  --warn:#b4341f;       --warn-soft:#fde4de;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--canvas);color:var(--ink);line-height:1.6}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+/* ── header ─────────────────────────────── */
+.hero{padding:30px max(20px,calc((100vw - 1240px)/2)) 26px;color:#fff;background:linear-gradient(135deg,#123f31,#0f7150)}
+.eyebrow{margin:0 0 6px;font-size:11px;font-weight:800;letter-spacing:.16em;opacity:.7}
+.hero h1{margin:0;font-size:clamp(24px,3.4vw,36px);letter-spacing:-.035em}
+.hero .sub{max-width:760px;margin:8px 0 18px;color:#cfe9dd;font-size:14px}
+.hero-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.button{border:1px solid rgba(255,255,255,.4);border-radius:9px;padding:9px 13px;color:#fff;background:rgba(255,255,255,.1);font:inherit;font-size:13px;font-weight:700;text-decoration:none;cursor:pointer;white-space:nowrap}
+.button.primary{border-color:#fff;color:#164c39;background:#fff}
+.field{display:grid;gap:5px;font-size:11px;font-weight:700;letter-spacing:.04em;opacity:.9}
+.field input{width:280px;border:1px solid rgba(255,255,255,.4);border-radius:9px;padding:9px 11px;color:#fff;background:rgba(0,0,0,.2);font:500 13px ui-monospace,monospace}
+
+.wrap{max-width:1240px;margin:0 auto;padding:26px 20px 90px}
+
+/* ── section shell ──────────────────────── */
+.panel{margin:0 0 26px;border:1px solid var(--line);border-radius:16px;background:var(--paper);box-shadow:0 6px 22px rgba(20,38,31,.04)}
+.panel-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line-soft)}
+.panel-head h2{margin:0;font-size:17px;letter-spacing:-.02em}
+.panel-head p{margin:2px 0 0;color:var(--muted);font-size:13px}
+.panel-body{padding:18px 20px}
+
+/* ── legend ─────────────────────────────── */
+.legend{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 10px;font-size:11.5px;font-weight:700;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%}
+.chip.learner{color:var(--learner);background:var(--learner-soft)} .chip.learner .dot{background:var(--learner)}
+.chip.instructor{color:var(--instructor);background:var(--instructor-soft)} .chip.instructor .dot{background:var(--instructor)}
+.chip.admin{color:var(--admin);background:var(--admin-soft)} .chip.admin .dot{background:var(--admin)}
+.chip.public{color:var(--public);background:var(--public-soft)} .chip.public .dot{background:var(--public)}
+
+/* ── flow map ───────────────────────────── */
+.map{position:relative;overflow-x:auto}
+.map-inner{position:relative;min-width:820px}
+#wires{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
+.lane-head{display:grid;grid-template-columns:112px 1fr 1fr 1fr .62fr;gap:8px;position:sticky;top:0;z-index:3;padding:0 0 8px;background:var(--paper)}
+.lane-head div{padding:7px 9px;border-radius:8px;font-size:12px;font-weight:800;text-align:center}
+.lane-head .spacer{background:none}
+.lh-learner{color:var(--learner);background:var(--learner-soft)}
+.lh-instructor{color:var(--instructor);background:var(--instructor-soft)}
+.lh-admin{color:var(--admin);background:var(--admin-soft)}
+.lh-public{color:var(--public);background:var(--public-soft)}
+
+.prow{display:grid;grid-template-columns:112px 1fr 1fr 1fr .62fr;gap:7px 8px;position:relative;z-index:1;padding:9px 0;border-top:1px dashed var(--line)}
+.prow:first-of-type{border-top:none}
+.pmeta{grid-column:1;grid-row:1/-1;padding-top:3px}
+.pnum{display:inline-block;min-width:19px;border-radius:6px;padding:1px 5px;color:#fff;background:var(--ink);font:800 11px ui-monospace,monospace;text-align:center}
+.pname{margin-top:4px;font-size:12.5px;font-weight:750;line-height:1.35}
+.cell{display:grid;gap:7px;align-content:start}
+
+.node{position:relative;display:grid;gap:2px;border:1.5px solid var(--line);border-left-width:4px;border-radius:10px;padding:6px 9px;background:var(--paper);text-align:left;font:inherit;cursor:pointer;transition:transform .12s,box-shadow .12s}
+.node .nl{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.node:hover{transform:translateY(-1px);box-shadow:0 6px 16px rgba(20,38,31,.11)}
+.node:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.node .nm{display:flex;gap:5px;align-items:center;font:800 9.5px ui-monospace,monospace;letter-spacing:.03em}
+.seq{display:inline-grid;place-items:center;width:15px;height:15px;margin-right:1px;border-radius:50%;color:#fff;background:#3d4f47;font:800 9px ui-monospace,monospace}
+.node.is-warn .seq{background:var(--warn)}
+.node .nt{font-size:12.5px;font-weight:700;line-height:1.3}
+.node.learner{border-left-color:var(--learner)} .node.learner .nm{color:var(--learner)}
+.node.instructor{border-left-color:var(--instructor)} .node.instructor .nm{color:var(--instructor)}
+.node.admin{border-left-color:var(--admin)} .node.admin .nm{color:var(--admin)}
+.node.public{border-left-color:var(--public)} .node.public .nm{color:var(--public)}
+.node.is-warn{border-color:var(--warn);background:var(--warn-soft)}
+.node.is-alt{border-style:dashed;background:#fbfcfb;opacity:.92}
+.seq.alt{width:auto;height:auto;padding:1px 5px;border-radius:5px;background:#8c9a92;font-size:8.5px}
+.seq.opt{background:#6b7a90}
+.card.is-alt{border-style:dashed;border-left-style:solid;background:#fcfdfc}
+.card.is-alt .card-head .seq{width:auto;height:auto;padding:2px 6px;border-radius:5px;background:#8c9a92;font-size:9.5px}
+.flags{display:flex;flex-wrap:wrap;gap:3px;margin-top:1px}
+.flag{border-radius:4px;padding:1px 5px;font:700 9.5px ui-monospace,monospace}
+.f-async{color:#7a4a00;background:#fdefd4}
+.f-poll{color:#1d5aa8;background:#dde8f7}
+.f-gate{color:#6b3fa0;background:#ece3f9}
+.f-branch{color:#5a6470;background:#e6e9ed}
+.f-fork{color:#8a3fa0;background:#f6e3fa}
+.f-warn{color:var(--warn);background:#fbd3ca}
+.out{display:flex;flex-wrap:wrap;gap:3px}
+.var{border-radius:4px;padding:1px 5px;font:700 9.5px ui-monospace,monospace;color:#0b5f42;background:#d6efe3;white-space:nowrap}
+.var.in{color:#5f6f66;background:#eef2ef}
+.alsoc{border-radius:4px;padding:1px 5px;color:#6b7a72;background:#eef2ef;font:700 9.5px ui-monospace,monospace;white-space:nowrap}
+
+/* ── variable dictionary ────────────────── */
+table.vars{width:100%;border-collapse:collapse;font-size:13px}
+table.vars th{padding:8px 10px;border-bottom:1.5px solid var(--line);color:var(--muted);font-size:11.5px;font-weight:800;letter-spacing:.05em;text-align:left}
+table.vars td{padding:9px 10px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+table.vars td:first-child{white-space:nowrap}
+table.vars tr:last-child td{border-bottom:none}
+.mono{font:700 12px ui-monospace,monospace;color:#0b5f42}
+
+/* ── state diagrams ─────────────────────── */
+.states{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.state{border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--canvas)}
+.state h3{margin:0 0 4px;font-size:13.5px}
+.state p{margin:0 0 10px;color:var(--muted);font-size:12px}
+.track{display:flex;flex-wrap:wrap;gap:5px;align-items:center;font:700 11px ui-monospace,monospace}
+.st{border-radius:6px;padding:3px 8px;background:#e6e9ed;color:#41505c}
+.st.ok{background:#d6efe3;color:#0b5f42}
+.st.bad{background:#fbd3ca;color:var(--warn)}
+.st.wait{background:#fdefd4;color:#7a4a00}
+.arw{color:var(--faint)}
+
+/* ── detail cards ───────────────────────── */
+.filters{display:flex;flex-wrap:wrap;gap:6px}
+.filters button{border:1px solid var(--line);border-radius:999px;padding:5px 12px;background:#fff;color:var(--muted);font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.filters button[aria-pressed="true"]{border-color:var(--accent);color:#fff;background:var(--accent)}
+
+.phase-title{margin:26px 0 10px;display:flex;gap:8px;align-items:baseline}
+.phase-title h2{margin:0;font-size:19px;letter-spacing:-.025em}
+.phase-title span{color:var(--faint);font-size:12px}
+
+.card{margin:0 0 10px;border:1px solid var(--line);border-left:4px solid var(--line);border-radius:13px;background:var(--paper);box-shadow:0 5px 18px rgba(20,38,31,.04);scroll-margin-top:16px}
+.card.learner{border-left-color:var(--learner)}
+.card.instructor{border-left-color:var(--instructor)}
+.card.admin{border-left-color:var(--admin)}
+.card.public{border-left-color:var(--public)}
+.card.flash{animation:flash 1.4s ease}
+@keyframes flash{0%,45%{background:#fffbe8;box-shadow:0 0 0 3px #ffe9a8}100%{background:#fff}}
+.card-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:13px 16px 0}
+.method{border-radius:6px;padding:3px 7px;font:800 10.5px ui-monospace,monospace}
+.m-GET{color:#41505c;background:#e6e9ed}
+.m-POST{color:#0b5f42;background:#d6efe3}
+.m-PATCH{color:#7a4a00;background:#fdefd4}
+.m-PUT{color:#1d5aa8;background:#dde8f7}
+.m-DELETE{color:#b4341f;background:#fbd3ca}
+
+/* ── layer 2: 전체 API 인덱스 ───────────── */
+.idx-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.idx-tools input{width:230px;border:1px solid var(--line);border-radius:9px;padding:7px 11px;font:inherit;font-size:13px}
+.idx-tools input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.idx-count{color:var(--faint);font-size:12px;font-weight:700}
+.tagbar{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px}
+.tagbar button{border:1px solid var(--line);border-radius:999px;padding:4px 11px;background:#fff;color:var(--muted);font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.tagbar button[aria-pressed="true"]{border-color:var(--accent);color:#fff;background:var(--accent)}
+.idx-group{margin:0 0 20px}
+.idx-group h3{display:flex;gap:8px;align-items:baseline;margin:0 0 7px;font-size:14px}
+.idx-group h3 small{color:var(--faint);font-weight:600;font-size:11.5px}
+table.idx{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
+table.idx th{padding:6px 8px;border-bottom:1.5px solid var(--line);color:var(--muted);font-size:11px;font-weight:800;letter-spacing:.04em;text-align:left}
+table.idx td{padding:7px 8px;border-bottom:1px solid var(--line-soft);vertical-align:top;word-break:break-word}
+table.idx tr:hover td{background:#fafcfb}
+table.idx .c-m{width:62px}
+table.idx .c-p{width:33%}
+table.idx .c-s{width:22%}
+table.idx .c-a{width:74px}
+table.idx .c-r{width:auto}
+table.idx code{font-size:11.5px;color:#2c3f37}
+.pill{display:inline-block;border-radius:5px;padding:1px 6px;font:700 10px ui-monospace,monospace;white-space:nowrap}
+.p-map{color:#0b5f42;background:#d6efe3;cursor:pointer;border:none;font-family:ui-monospace,monospace}
+.p-map:hover{background:#b9e5d1}
+.p-open{color:#5a6470;background:#e6e9ed}
+.p-todo{color:#7a4a00;background:#fdefd4}
+.reqf{color:var(--muted);font:600 11px ui-monospace,monospace}
+.idx-empty{padding:22px;color:var(--faint);font-size:13px;text-align:center}
+.card-head h3{flex:1;min-width:180px;margin:0;font-size:15.5px}
+.card-head .code{color:var(--faint);font:700 11.5px ui-monospace,monospace}
+.card-head .seq{width:19px;height:19px;font-size:10.5px}
+.toggle{border:1px solid var(--line);border-radius:7px;padding:3px 9px;background:var(--canvas);color:var(--muted);font:inherit;font-size:11.5px;font-weight:750;cursor:pointer}
+.toggle:hover{border-color:var(--accent);color:var(--accent)}
+.card.collapsed .tabs,.card.collapsed .snip,.card.collapsed .swag{display:none}
+.card.collapsed{padding-bottom:13px}
+.route{margin:8px 16px 0;padding:7px 10px;border-radius:8px;background:var(--canvas);font:600 12.5px ui-monospace,monospace;color:#2c3f37;overflow-x:auto;white-space:nowrap}
+.io{display:flex;flex-wrap:wrap;gap:14px;margin:10px 16px 0;padding:9px 11px;border:1px dashed var(--line);border-radius:9px}
+.io > div{display:flex;flex-wrap:wrap;gap:5px;align-items:center;min-width:0}
+.io b{color:var(--faint);font-size:10.5px;font-weight:800;letter-spacing:.06em}
+.auth{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:9px 16px 0;font-size:12.5px;color:var(--muted)}
+.tok{border-radius:6px;padding:2px 8px;font:700 11.5px ui-monospace,monospace}
+.tok.learner{color:var(--learner);background:var(--learner-soft)}
+.tok.instructor{color:var(--instructor);background:var(--instructor-soft)}
+.tok.admin{color:var(--admin);background:var(--admin-soft)}
+.tok.public{color:var(--public);background:var(--public-soft)}
+.alsotag{color:var(--faint);font-size:10.5px;font-weight:800;letter-spacing:.05em}
+.policy{margin-left:auto;color:var(--faint);font:600 10.5px ui-monospace,monospace}
+.card > .note{margin:9px 16px 0;color:var(--muted);font-size:13px}
+.card > .gotcha{display:flex;gap:8px;margin:10px 16px 0;padding:9px 11px;border-left:3px solid var(--warn);border-radius:7px;background:var(--warn-soft);color:#6d2415;font-size:12.5px}
+.tabs{display:flex;gap:5px;margin:12px 16px 0}
+.tabs button{border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;padding:5px 12px;background:var(--canvas);color:var(--muted);font:inherit;font-size:12px;font-weight:750;cursor:pointer}
+.tabs button[aria-selected="true"]{color:var(--accent);background:#fff;border-color:var(--line)}
+.snip{position:relative;margin:0 16px 14px;border:1px solid var(--line);border-radius:0 9px 9px 9px;overflow:hidden}
+.snip pre{overflow-x:auto;margin:0;padding:13px 13px 13px;background:#11261f;color:#d9f2e6;font-size:12.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word}
+.snip[hidden]{display:none}
+.copy{position:absolute;top:8px;right:8px;border:1px solid rgba(255,255,255,.28);border-radius:7px;padding:4px 9px;color:#d9f2e6;background:rgba(255,255,255,.1);font:inherit;font-size:11.5px;font-weight:700;cursor:pointer}
+.copy:hover{background:rgba(255,255,255,.2)}
+.swag{display:inline-block;margin:0 16px 14px;color:var(--accent);font-size:12.5px;font-weight:750}
+
+.footnote{margin:26px 0 0;padding:14px 16px;border-left:4px solid var(--accent);border-radius:9px;background:var(--accent-soft);color:#38524a;font-size:13px}
+
+@media print{
+  @page{ size: A4 landscape; margin: 11mm 9mm 13mm; }
+  html{ scroll-behavior:auto }
+  body{ background:#fff; font-size:9.5pt; line-height:1.5 }
+
+  /* 조작용 UI는 종이에 필요 없다 */
+  .hero-bar, .field, .button, #pdfBtn,
+  .idx-tools, .tagbar, .filters, .tabs,
+  .copy, .toggle, .swag, #wires { display:none !important; }
+
+  .hero{ padding:0 0 6mm; color:var(--ink); background:none;
+         border-bottom:2.5pt solid var(--accent) }
+  .hero .eyebrow{ color:var(--accent); opacity:1 }
+  .hero h1{ font-size:22pt }
+  .hero .sub{ max-width:none; margin:4mm 0 0; color:#3c5148; font-size:9.5pt }
+
+  .wrap{ max-width:none; padding:6mm 0 0 }
+  .panel{ margin:0 0 5mm; border-color:#c9d5cd; border-radius:5pt; box-shadow:none;
+          break-before:page; break-inside:auto }
+  .panel:first-of-type{ break-before:auto }
+  .panel-head{ padding:3mm 4mm; break-after:avoid }
+  .panel-head h2{ font-size:13pt }
+  .panel-body{ padding:4mm }
+
+  /* 지도: 화면 밖으로 잘리지 않게 폭 해제 */
+  .map{ overflow:visible }
+  .map-inner{ min-width:0 }
+  .lane-head{ position:static; break-after:avoid }
+  .prow{ break-inside:avoid; padding:2mm 0 }
+  .node{ box-shadow:none; break-inside:avoid }
+  .node:hover{ transform:none }
+
+  .state, .idx-group{ break-inside:avoid }
+  .states{ grid-template-columns:repeat(3,1fr); gap:4mm }
+
+  table.vars, table.idx{ font-size:8.5pt }
+  table.idx tr, table.vars tr{ break-inside:avoid }
+  table.idx thead, table.vars thead{ display:table-header-group }
+
+  /* 카드는 접힘 상태여도 코드까지 인쇄한다 (curl만) */
+  .card{ box-shadow:none; break-inside:avoid; margin-bottom:3mm }
+  .card.collapsed .snip[data-pane="curl"]{ display:block !important }
+  .snip[data-pane="fetch"]{ display:none !important }
+  .snip{ margin:2mm 4mm 3mm }
+  .snip pre{ padding:2.5mm; color:#14261f; background:#f1f5f2;
+             border:0.4pt solid #dce5df; font-size:8pt }
+  .phase-title{ margin:5mm 0 2mm; break-after:avoid }
+  .footnote{ break-inside:avoid }
+  a{ text-decoration:none; color:inherit }
+}
+
+@media(max-width:820px){
+  .field input{width:100%}
+  .io{gap:8px}
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <p class="eyebrow">DABAEUM · FRONTEND INTEGRATION</p>
+  <h1>API 호출 흐름</h1>
+  <p class="sub"><b>1층</b> 회원가입부터 Credential 폐기까지 <b>31단계 기본 흐름 + 7개 곁가지</b>를 순서·호출 주체·변수 전달로 정리한 지도. <b>2층</b> 맨 아래 <b>전체 74개 operation 인덱스</b> — 흐름도에 없는 API는 여기서 찾습니다.</p>
+  <div class="hero-bar">
+    <label class="field">API BASE URL
+      <input id="baseUrl" value="http://localhost:8080" inputmode="url" spellcheck="false">
+    </label>
+    <a class="button" href="/swagger-ui/index.html" target="_blank" rel="noopener">Swagger 명세</a>
+    <a class="button primary" href="/api-guide/dabaeum-frontend-api-flow.md" download>Markdown</a>
+    <button class="button" type="button" id="pdfBtn" title="브라우저 인쇄 대화상자에서 '대상: PDF로 저장'을 선택하세요">PDF</button>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <aside class="footnote" style="margin:0 0 22px">
+    <b>토큰은 두 종류뿐입니다.</b> <code>{accessToken}</code>(학습자 계정 — 강사 승인을 받아도 같은 토큰)과
+    <code>{adminAccessToken}</code>(별도 기관관리자 계정). <b>역할은 JWT에 들어 있지 않고 요청마다 DB에서 읽습니다</b> —
+    권한이 바뀌어도 토큰을 다시 받을 필요가 없습니다. <code>401</code>은 토큰 만료, <code>403</code>은 역할·기관 범위 문제입니다.
+  </aside>
+
+  <!-- ══ 1. FLOW MAP ══ -->
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>흐름 지도 <span style="color:var(--faint);font-size:12px;font-weight:600">1층 · 기본 흐름</span></h2>
+        <p>세로 = 진행 순서 · 가로 = 호출 주체 · 초록 칩 = 이 호출이 만드는 변수 · 점선 = 분기·선택 단계</p>
+      </div>
+      <div class="legend">
+        <span class="chip learner"><i class="dot"></i>학습자</span>
+        <span class="chip instructor"><i class="dot"></i>강사</span>
+        <span class="chip admin"><i class="dot"></i>기관관리자</span>
+        <span class="chip public"><i class="dot"></i>제3자</span>
+      </div>
+    </div>
+    <div class="panel-body map">
+      <div class="map-inner">
+        <svg id="wires" aria-hidden="true"></svg>
+        <div class="lane-head">
+          <div class="spacer"></div>
+          <div class="lh-learner">학습자</div>
+          <div class="lh-instructor">강사</div>
+          <div class="lh-admin">기관관리자</div>
+          <div class="lh-public">제3자</div>
+        </div>
+        <div id="mapRows"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 2. VARIABLES ══ -->
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>변수 사전</h2>
+        <p>각 변수가 <b>어느 응답에서 나와</b> <b>어느 요청에 쓰이는지</b> — 이 표만 맞추면 흐름은 따라옵니다</p>
+      </div>
+    </div>
+    <div class="panel-body" style="overflow-x:auto">
+      <table class="vars">
+        <thead><tr><th>변수</th><th>생성</th><th>응답 경로</th><th>사용처</th></tr></thead>
+        <tbody id="varRows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══ 3. STATE MACHINES ══ -->
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>순서만으로 안 되는 것들</h2>
+        <p>상태 조건 · 비동기 대기 · 권한 반전 — 카드를 순서대로 호출해도 여기서 막힙니다. 모두 서버 코드에서 확인한 규칙입니다.</p>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="states">
+
+        <div class="state">
+          <h3>토큰에는 역할이 없다</h3>
+          <p>JWT payload는 <code>iss/aud/sub/provider/iat/exp</code>뿐입니다. 인가에 쓰는 역할은 <b>요청마다 DB에서 조회</b>합니다.</p>
+          <div class="track">
+            <span class="st">강사 승인</span><span class="arw">→</span>
+            <span class="st ok">기존 토큰 그대로 INSTRUCTOR 적용</span>
+          </div>
+          <div class="track" style="margin-top:6px">
+            <span class="st bad">재로그인 필요 없음</span><span class="arw">·</span>
+            <span class="st">토큰 갱신은 만료 때만</span>
+          </div>
+        </div>
+
+        <div class="state">
+          <h3>⚠ 회차는 SCHEDULED로 태어난다</h3>
+          <p>생성만으로는 출결을 못 엽니다. <code>PUT /sessions/{sessionId}</code>로 <code>OPEN</code> 전환이 별도로 필요합니다.</p>
+          <div class="track">
+            <span class="st">SCHEDULED</span><span class="arw">→ PUT status=OPEN →</span>
+            <span class="st ok">OPEN</span><span class="arw">→ QR 발급 가능</span>
+          </div>
+          <div class="track" style="margin-top:6px">
+            <span class="st bad">OPEN 아님</span><span class="arw">→</span>
+            <span class="st bad">409 ATTENDANCE_CONFLICT</span>
+          </div>
+          <div class="track" style="margin-top:6px">
+            <span class="st bad">출결창 밖</span><span class="arw">→</span>
+            <span class="st bad">409 ATTENDANCE_WINDOW_CLOSED</span>
+            <span class="arw">· TTL 30초</span>
+          </div>
+        </div>
+
+        <div class="state">
+          <h3>⚠ completedMinutes는 받아올 곳이 없다</h3>
+          <p>이수 평가가 요구하는데 어떤 응답에도 없습니다. 클라이언트가 서버 계산식을 재현해야 합니다.</p>
+          <div class="track">
+            <span class="st">회차 목록</span><span class="arw">+</span>
+            <span class="st">회차별 출결</span><span class="arw">→ PRESENT·LATE 회차의 →</span>
+            <span class="st">(endsAt − startsAt) 합</span>
+          </div>
+          <div class="track" style="margin-top:6px">
+            <span class="st bad">출결 요약 응답에 없음</span><span class="arw">·</span>
+            <span class="st bad">서버 로직 중복 구현 필요</span>
+          </div>
+        </div>
+
+        <div class="state">
+          <h3>⚠ 이수 평가 값은 지어낼 수 없다</h3>
+          <p>서버가 출결 요약을 자체 계산해 요청 body와 대조합니다. 예시 숫자를 그대로 넣으면 실패합니다.</p>
+          <div class="track">
+            <span class="st">출결 요약 조회</span><span class="arw">→ 그 값 그대로 →</span>
+            <span class="st ok">평가 통과</span>
+          </div>
+          <div class="track" style="margin-top:6px">
+            <span class="st bad">임의 값</span><span class="arw">→</span>
+            <span class="st bad">409 COMPLETION_METRICS_CONFLICT</span>
+          </div>
+          <div class="track" style="margin-top:6px">
+            <span class="st">전제</span><span class="arw">→</span>
+            <span class="st">모든 회차 종료 또는 출결 마감 경과</span>
+          </div>
+        </div>
+
+        <div class="state">
+          <h3>⚠ 재발급은 폐기보다 먼저</h3>
+          <p>재발급은 <code>ISSUED</code>에만 됩니다. 폐기한 뒤에 정정 발급하려 하면 막힙니다.</p>
+          <div class="track">
+            <span class="st ok">ISSUED</span><span class="arw">→ reissue →</span>
+            <span class="st ok">새 credentialId</span>
+          </div>
+          <div class="track" style="margin-top:6px">
+            <span class="st">REVOKED</span><span class="arw">→ reissue →</span>
+            <span class="st bad">409 CREDENTIAL_STATE_CONFLICT</span>
+          </div>
+          <div class="track" style="margin-top:6px">
+            <span class="st wait">202 PENDING</span><span class="arw">→ polling →</span>
+            <span class="st ok">ISSUED</span><span class="arw">/</span><span class="st bad">FAILED</span>
+          </div>
+        </div>
+
+        <div class="state">
+          <h3>Completion — ELIGIBLE 게이트</h3>
+          <p><code>confirm</code>은 평가가 <code>ELIGIBLE</code>이고 수강이 <code>APPROVED</code>일 때만 통과합니다.</p>
+          <div class="track">
+            <span class="st">평가</span><span class="arw">→</span>
+            <span class="st ok">ELIGIBLE</span><span class="arw">→ confirm →</span>
+            <span class="st ok">COMPLETED</span>
+          </div>
+          <div class="track" style="margin-top:6px">
+            <span class="st bad">평가 전 조회</span><span class="arw">→</span>
+            <span class="st bad">404 COMPLETION_NOT_FOUND</span>
+          </div>
+        </div>
+
+        <div class="state">
+          <h3>Enrollment — 취소와 철회는 시점이 다르다</h3>
+          <p><code>cancel</code>은 승인 <b>전</b>, <code>withdraw</code>는 승인 <b>후</b>에만 통과합니다.</p>
+          <div class="track">
+            <span class="st">APPLIED</span><span class="arw">/</span><span class="st wait">WAITLISTED</span>
+            <span class="arw">→</span>
+            <span class="st ok">approve</span><span class="arw">·</span>
+            <span class="st bad">reject</span><span class="arw">·</span>
+            <span class="st">cancel</span>
+          </div>
+          <div class="track" style="margin-top:6px">
+            <span class="st ok">APPROVED</span><span class="arw">→ withdraw만 →</span>
+            <span class="st">WITHDRAWN</span>
+          </div>
+        </div>
+
+        <div class="state">
+          <h3>⚠ 정원이 차도 신청은 성공한다</h3>
+          <p>정원 초과는 오류가 아닙니다. <code>WAITLISTED</code>로 접수되고 <b>201</b>이 돌아옵니다.</p>
+          <div class="track">
+            <span class="st">승인 수 &lt; 정원</span><span class="arw">→</span>
+            <span class="st ok">201 APPLIED</span>
+          </div>
+          <div class="track" style="margin-top:6px">
+            <span class="st">승인 수 ≥ 정원</span><span class="arw">→</span>
+            <span class="st wait">201 WAITLISTED</span><span class="arw">← 성공 응답</span>
+          </div>
+        </div>
+
+        <div class="state">
+          <h3>Course — RECRUITING에서만 신청을 받는다</h3>
+          <p>모집 공개 전(<code>DRAFT</code>)이나 종료 후에는 수강신청이 <code>409</code>로 막힙니다.</p>
+          <div class="track">
+            <span class="st">DRAFT</span><span class="arw">→ publish →</span>
+            <span class="st ok">RECRUITING</span><span class="arw">→ close →</span>
+            <span class="st">RECRUITMENT_CLOSED</span>
+          </div>
+          <div class="track" style="margin-top:6px">
+            <span class="st bad">RECRUITING 아님</span><span class="arw">→</span>
+            <span class="st bad">409 COURSE_STATUS_CONFLICT</span>
+          </div>
+        </div>
+
+        <div class="state">
+          <h3>⚠ 출결은 방식에 따라 호출 주체가 뒤바뀐다</h3>
+          <p>같은 엔드포인트인데 <code>attendanceMethod</code>가 권한을 정합니다.</p>
+          <div class="track">
+            <span class="st">QR</span><span class="arw">→</span>
+            <span class="st ok">본인만</span><span class="arw">·</span>
+            <span class="st bad">강사·관리자 403</span>
+          </div>
+          <div class="track" style="margin-top:6px">
+            <span class="st">수동</span><span class="arw">→</span>
+            <span class="st ok">관리자·MAIN 강사만</span><span class="arw">·</span>
+            <span class="st bad">학습자 403</span>
+          </div>
+          <div class="track" style="margin-top:6px">
+            <span class="st">전제</span><span class="arw">→</span>
+            <span class="st">같은 과정 APPROVED 수강</span><span class="arw">·</span>
+            <span class="st">회차당 1건</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 4. DETAILS ══ -->
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>호출 상세</h2>
+        <p>역할로 걸러서 볼 수 있습니다</p>
+      </div>
+      <div class="filters" id="filters">
+        <button data-role="all" aria-pressed="true">전체</button>
+        <button data-role="learner" aria-pressed="false">학습자</button>
+        <button data-role="instructor" aria-pressed="false">강사</button>
+        <button data-role="admin" aria-pressed="false">기관관리자</button>
+        <button data-role="public" aria-pressed="false">제3자</button>
+        <button id="toggleCode" data-role="__code" aria-pressed="false" style="margin-left:6px">코드 모두 펼치기</button>
+      </div>
+    </div>
+    <div class="panel-body" id="details"></div>
+  </section>
+
+  <!-- ══ 5. FULL API INDEX (layer 2) ══ -->
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>전체 API 인덱스 <span style="color:var(--faint);font-size:12px;font-weight:600">2층 · 사전</span></h2>
+        <p><code>dabaeum-api-v1.yaml</code>의 <b id="idxTotal">–</b>개 operation 전부 — 흐름도에 없는 것까지 포함</p>
+      </div>
+      <div class="idx-tools">
+        <input id="idxSearch" type="search" placeholder="경로 · 이름 · 설명 검색" spellcheck="false">
+        <span class="idx-count" id="idxCount"></span>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="tagbar" id="tagbar"></div>
+      <div id="idxBody"></div>
+    </div>
+  </section>
+
+  <p class="footnote"><b>범위</b> local·dev 프로파일 전용 가이드입니다. Badge 관련 API는 향후 계약이며 현재 흐름에서 제외합니다. 모든 경로·필수 필드는 <code>docs/api/dabaeum-api-v1.yaml</code>을 단일 기준으로 합니다.</p>
+</div>
+
+<script>
+"use strict";
+
+/* ────────────────────────────────────────────────
+   단일 데이터 소스 — 흐름도 · 변수표 · 상세 카드가
+   모두 이 배열 하나에서 생성된다.
+   ──────────────────────────────────────────────── */
+const ROLES = {
+  learner:    { label: "학습자",   col: 1 },
+  instructor: { label: "강사",     col: 2 },
+  admin:      { label: "기관관리자", col: 3 },
+  public:     { label: "제3자",    col: 4 }
+};
+
+const PHASES = [
+  { key:"auth",                n:1, name:"인증" },
+  { key:"institution",         n:2, name:"기관" },
+  { key:"instructor",          n:3, name:"강사 권한" },
+  { key:"course-session",      n:4, name:"과정·회차" },
+  { key:"enrollment",          n:5, name:"수강신청" },
+  { key:"attendance",          n:6, name:"출결" },
+  { key:"completion",          n:7, name:"이수" },
+  { key:"credential",          n:8, name:"Credential" },
+  { key:"credential-lifecycle",n:9, name:"폐기·재발급" }
+];
+
+const STEPS = [
+  { key:"signup", op:"signupLocalAccount", swagger:"Auth", phase:"auth", role:"learner",
+    method:"POST", path:"/auth/signup", success:201, title:"회원가입",
+    token:null, body:{email:"learner@example.com",password:"{password}",name:"홍길동"},
+    needs:[], produces:["userId","accessToken"], storePath:"data.session.userId",
+    policy:"공개", also:[],
+    note:"응답이 login과 같은 AuthTokenResponse입니다 — data.accessToken이 이미 들어 있어 가입 직후 바로 보호 API를 호출할 수 있습니다." },
+
+  { key:"login", op:"loginLocalAccount", swagger:"Auth", phase:"auth", role:"learner",
+    method:"POST", path:"/auth/login", success:200, title:"로그인",
+    token:null, body:{email:"learner@example.com",password:"{password}"},
+    needs:[], produces:["accessToken"], storePath:"data.accessToken",
+    policy:"공개", also:[],
+    note:"가입 직후에는 필요 없습니다. 토큰 만료(TTL 1시간) 후 재발급용입니다." },
+
+  { key:"authSession", op:"getAuthSession", swagger:"Auth", phase:"auth", role:"learner",
+    method:"GET", path:"/auth/session", success:200, title:"인증 세션 확인",
+    token:"accessToken", needs:["accessToken"], produces:[], storePath:"-",
+    policy:"authenticated", also:["instructor","admin"],
+    note:"역할은 토큰이 아니라 요청마다 DB에서 읽습니다. 권한이 바뀌면 이 응답이 즉시 따라옵니다." },
+
+  { key:"me", op:"getCurrentUser", swagger:"User", phase:"auth", role:"learner",
+    method:"GET", path:"/users/me", success:200, title:"내 정보 조회",
+    token:"accessToken", needs:["accessToken"], produces:["userId"], storePath:"data.id",
+    policy:"authenticated", also:["instructor","admin"],
+    note:"userId를 놓쳤을 때 다시 얻는 경로입니다." },
+
+  { key:"listInstitutions", op:"listInstitutions", swagger:"Institution", phase:"institution", role:"learner",
+    method:"GET", path:"/institutions", query:"page=0&size=20&sort=createdAt,desc", success:200,
+    title:"기관 목록", token:"accessToken",
+    needs:["accessToken"], produces:["institutionId"], storePath:"data[].id",
+    policy:"authenticated", also:["instructor","admin"],
+    note:"인증만 되면 누구나 호출합니다. 관리자도 과정 생성 전에 institutionId를 여기서 얻습니다." },
+
+  { key:"applyInstructor", op:"applyInstructor", swagger:"Instructor", phase:"instructor", role:"learner",
+    method:"POST", path:"/institutions/{institutionId}/instructor-applications", success:201,
+    token:"accessToken", body:{applicationMessage:"강사 신청 사유"}, title:"강사 신청",
+    needs:["institutionId","accessToken"], produces:["applicationId"], storePath:"data.id",
+    policy:"requireActiveContextUser", also:[],
+    note:"본인 계정이 ACTIVE여야 신청됩니다." },
+
+  { key:"myApplications", op:"listMyInstructorApplications", swagger:"Instructor", phase:"instructor", role:"learner",
+    method:"GET", path:"/instructor-applications/me", query:"page=0&size=20", success:200,
+    title:"내 신청 상태", token:"accessToken",
+    needs:["accessToken"], produces:[], storePath:"-",
+    policy:"본인", also:[],
+    note:"data[].status — PENDING / APPROVED / REJECTED." },
+
+  { key:"approveInstructor", op:"approveInstructorApplication", swagger:"Instructor", phase:"instructor", role:"admin",
+    method:"POST", path:"/instructor-applications/{applicationId}/approve", success:200,
+    title:"관리자 승인", token:"adminAccessToken",
+    needs:["applicationId","adminAccessToken"], produces:[], storePath:"-",
+    policy:"requireCourseManager", also:[], flags:["gate"],
+    note:"PENDING 신청만 승인됩니다. 이미 처리된 신청은 409, 신청자가 ACTIVE가 아니어도 실패합니다. 승인 즉시 그 사람의 기존 토큰에 강사 권한이 적용됩니다." },
+
+  { key:"createCourse", op:"createCourse", swagger:"Course", phase:"course-session", role:"admin",
+    method:"POST", path:"/courses", success:201, title:"과정 생성", token:"adminAccessToken",
+    body:{institutionId:"{institutionId}",courseCode:"WEB-2026-01",title:"웹 개발 과정",
+          educationType:"OFFLINE",startDate:"2026-09-01",endDate:"2026-09-30",capacity:20},
+    needs:["institutionId","adminAccessToken"], produces:["courseId"], storePath:"data.id",
+    policy:"requireCourseManager", also:[],
+    note:"body의 institutionId가 본인이 관리하는 기관과 다르면 403 INSTITUTION_SCOPE_FORBIDDEN입니다." },
+
+  { key:"assignInstructor", op:"assignCourseInstructor", swagger:"Instructor", phase:"course-session", role:"admin",
+    method:"POST", path:"/courses/{courseId}/instructors", success:201, title:"강사 배정",
+    token:"adminAccessToken", body:{userId:"{userId}",role:"MAIN"},
+    needs:["courseId","userId","adminAccessToken"], produces:[], storePath:"-",
+    policy:"requireCourseManager", also:[],
+    note:"승인된 기관 강사만 배정됩니다. 회차·출결·이수를 다루려면 MAIN이어야 합니다(ASSISTANT 불가)." },
+
+  { key:"publishCourse", op:"publishCourse", swagger:"Course", phase:"course-session", role:"admin",
+    method:"POST", path:"/courses/{courseId}/publish", success:200, title:"모집 공개",
+    token:"adminAccessToken", needs:["courseId","adminAccessToken"], produces:[], storePath:"-",
+    flags:["gate"], policy:"requireCourseManager", also:[],
+    note:"DRAFT → RECRUITING. 수강신청은 RECRUITING에서만 받습니다 — 공개 전 신청은 409 COURSE_STATUS_CONFLICT." },
+
+  { key:"createSession", op:"createCourseSession", swagger:"Course Session", phase:"course-session", role:"instructor",
+    method:"POST", path:"/courses/{courseId}/sessions", success:201, title:"회차 생성",
+    token:"accessToken",
+    body:{sessionNo:1,startsAt:"2026-09-01T09:00:00+09:00",endsAt:"2026-09-01T12:00:00+09:00"},
+    needs:["courseId","accessToken"], produces:["sessionId"], storePath:"data.id",
+    policy:"requireCourseSessionManager", also:["admin"],
+    note:"MAIN 강사 또는 기관관리자만 가능합니다. 생성 직후 상태는 SCHEDULED입니다 — 이대로는 출결을 못 엽니다." },
+
+  { key:"openSession", op:"updateCourseSession", swagger:"Course Session", phase:"course-session", role:"instructor",
+    method:"PUT", path:"/sessions/{sessionId}", success:200, title:"회차 OPEN 전환",
+    token:"accessToken", body:{status:"OPEN"},
+    needs:["sessionId","accessToken"], produces:[], storePath:"-",
+    flags:["gate"], policy:"requireCourseSessionManager", also:["admin"],
+    note:"SCHEDULED → OPEN. 이 단계를 빠뜨리면 QR 토큰 발급이 409 ATTENDANCE_CONFLICT로 막힙니다." },
+
+  { key:"createEnrollment", op:"createEnrollment", swagger:"Enrollment", phase:"enrollment", role:"learner",
+    method:"POST", path:"/courses/{courseId}/enrollments", success:201, title:"수강신청",
+    token:"accessToken", body:{userId:"{userId}",applicationType:"SELF"},
+    needs:["courseId","userId","accessToken"], produces:["enrollmentId"], storePath:"data.id",
+    policy:"requireContextUser", also:[],
+    note:"본인만 신청합니다. 정원이 차면 실패가 아니라 WAITLISTED로 접수되고 201이 나갑니다 — data.status를 반드시 확인하세요." },
+
+  { key:"getEnrollment", op:"getEnrollment", swagger:"Enrollment", phase:"enrollment", role:"learner",
+    method:"GET", path:"/enrollments/{enrollmentId}", success:200, title:"신청 조회",
+    token:"accessToken", needs:["enrollmentId","accessToken"], produces:[], storePath:"-",
+    policy:"requireEnrollmentSubjectOrReader", also:["instructor","admin"],
+    note:"본인 외에 관리자와 그 과정에 배정된 강사도 조회합니다(MAIN 아니어도 됨)." },
+
+  { key:"approveEnrollment", op:"approveEnrollment", swagger:"Enrollment", phase:"enrollment", role:"admin",
+    method:"POST", path:"/enrollments/{enrollmentId}/approve", success:200, title:"신청 승인",
+    token:"adminAccessToken", needs:["enrollmentId","adminAccessToken"], produces:[], storePath:"-",
+    policy:"requireEnrollmentDecisionManager", also:["instructor"],
+    note:"APPLIED 또는 WAITLISTED에서만 승인됩니다. MAIN 강사도 승인할 수 있습니다." },
+
+  { key:"qrToken", op:"issueAttendanceQrToken", swagger:"Attendance", phase:"attendance", role:"instructor",
+    method:"POST", path:"/sessions/{sessionId}/qr-token", success:201, title:"QR 토큰 발급",
+    token:"accessToken", needs:["sessionId","accessToken"],
+    produces:["qrToken"], storePath:"data.token",
+    policy:"requireCourseSessionManager", also:["admin"], flags:["gate"],
+    gotcha:"전제조건이 둘입니다. 회차가 OPEN이 아니면 409 ATTENDANCE_CONFLICT, 현재 시각이 출결창(attendanceOpensAt~attendanceClosesAt, 미설정 시 startsAt~endsAt) 밖이면 409 ATTENDANCE_WINDOW_CLOSED. 토큰 TTL은 30초라 화면에서 계속 재발급해야 합니다.",
+    note:"HMAC 서명된 단기 토큰입니다. QR로 그려 학습자에게 노출합니다." },
+
+  { key:"recordAttendance", op:"recordAttendance", swagger:"Attendance", phase:"attendance", role:"learner",
+    method:"POST", path:"/sessions/{sessionId}/attendance", success:201, title:"출결 등록",
+    token:"accessToken",
+    body:{enrollmentId:"{enrollmentId}",attendanceMethod:"QR",status:"PRESENT",source:"APP",qrToken:"{qrToken}"},
+    needs:["sessionId","enrollmentId","qrToken","accessToken"], produces:["attendanceId"], storePath:"data.id",
+    policy:"본인 확인(QR) / requireCourseSessionManager(수동)", also:[], flags:["fork"],
+    gotcha:"attendanceMethod가 호출 주체를 정합니다. QR이면 토큰 소유자 본인만 가능하고 강사·관리자가 대신 찍어줄 수 없습니다(403). 수동 입력은 관리자·MAIN 강사만 가능하고 학습자는 불가입니다. EXTERNAL은 422. 그 전에 enrollment가 이 회차와 같은 과정의 APPROVED 상태여야 하고(아니면 403/409), 회차·수강신청당 1건만 등록됩니다(중복 409).",
+    note:"강사가 만든 qrToken을 학습자 본인이 되돌려 보내는 구조입니다." },
+
+  { key:"adjustAttendance", op:"adjustAttendance", swagger:"Attendance", phase:"attendance", role:"instructor",
+    method:"PATCH", path:"/attendance/{attendanceId}", success:200, title:"출결 보정",
+    token:"accessToken", body:{status:"EXCUSED",reason:"관리자 확인 후 공결 처리"},
+    needs:["attendanceId","accessToken"], produces:[], storePath:"-",
+    policy:"requireCourseSessionManager", also:["admin"],
+    note:"원본을 지우지 않고 보정 이력을 남깁니다. reason 필수이고, 현재와 같은 status로는 보정할 수 없습니다(422)." },
+
+  { key:"attendanceSummary", op:"getAttendanceSummary", swagger:"Attendance", phase:"completion", role:"instructor",
+    method:"GET", path:"/enrollments/{enrollmentId}/attendance-summary", success:200,
+    title:"출결 요약 조회", token:"accessToken",
+    needs:["enrollmentId","accessToken"], produces:["attendanceRate"],
+    storePath:"data.attendanceRate",
+    policy:"requireEnrollmentSubjectOrReader", also:["learner","admin"], flags:["gate","fork"],
+    gotcha:"이 응답에는 attendanceRate만 있고 completedMinutes가 없습니다. 그런데 다음 단계인 이수 평가는 completedMinutes를 정확히 요구합니다 — 현재 API로는 이 값을 받아올 방법이 없습니다. 아래 이수 평가 카드를 먼저 읽으세요.",
+    note:"응답 필드는 enrollmentId · totalSessions · presentCount · lateCount · absentCount · excusedCount · attendanceRate 입니다." },
+
+  { key:"evaluateCompletion", op:"evaluateCompletion", swagger:"Completion", phase:"completion", role:"instructor",
+    method:"POST", path:"/enrollments/{enrollmentId}/completion/evaluate", success:200, title:"이수 평가",
+    token:"accessToken", body:{attendanceRate:"{attendanceRate}",completedMinutes:"{completedMinutes}"},
+    needs:["enrollmentId","attendanceRate","accessToken"],
+    produces:["completionId"], storePath:"data.id",
+    flags:["gate","fork"], policy:"requireEnrollmentDecisionManager", also:["admin"],
+    gotcha:"completedMinutes를 받아올 API가 없습니다. 서버는 출결 대상 회차 중 PRESENT·LATE인 회차의 (endsAt − startsAt) 분을 합산해 계산하고, 요청 값이 다르면 409 COMPLETION_METRICS_CONFLICT를 던집니다. 그런데 이 값은 어떤 응답에도 노출되지 않아 클라이언트가 회차 목록과 출결 목록으로 직접 재계산해야 합니다. attendanceRate도 마찬가지로 정확히 일치해야 하고, 학점은행 과정이면 creditValue까지 과정 값과 같아야 합니다.",
+    note:"수강이 APPROVED이고, 과정의 모든 회차가 COMPLETED이거나 출결 마감 시각이 지나야 평가할 수 있습니다. 응답 status가 ELIGIBLE인지 확인하세요." },
+
+  { key:"confirmCompletion", op:"confirmCompletion", swagger:"Completion", phase:"completion", role:"instructor",
+    method:"POST", path:"/enrollments/{enrollmentId}/completion/confirm", success:200, title:"이수 확정",
+    token:"accessToken", needs:["enrollmentId","accessToken"], produces:[], storePath:"-",
+    flags:["gate"], policy:"requireEnrollmentDecisionManager", also:["admin"],
+    note:"평가가 ELIGIBLE이고 확정 시점에도 수강이 APPROVED여야 합니다. 성공하면 COMPLETED가 되고 Credential 발급 자격이 생깁니다." },
+
+  { key:"getCompletion", op:"getCompletion", swagger:"Completion", phase:"completion", role:"learner",
+    method:"GET", path:"/enrollments/{enrollmentId}/completion", success:200, title:"이수 조회",
+    token:"accessToken", needs:["enrollmentId","accessToken"], produces:["completionId"], storePath:"data.id",
+    policy:"requireEnrollmentSubjectOrReader", also:["instructor","admin"],
+    note:"이수 행은 평가 시점에 처음 생깁니다. 평가 전에 호출하면 404 COMPLETION_NOT_FOUND입니다." },
+
+  { key:"issueCredential", op:"issueCredential", swagger:"Credential", phase:"credential", role:"admin",
+    method:"POST", path:"/completions/{completionId}/credentials", success:202, title:"발급 요청",
+    token:"adminAccessToken", idem:"issueIdempotencyKey", body:{validUntil:"2027-09-30T00:00:00Z"},
+    needs:["completionId","adminAccessToken"], produces:["credentialId"], storePath:"data.id",
+    flags:["async"], policy:"requireCourseManager", also:[],
+    note:"관리자 전용입니다(MAIN 강사 불가). 202만 돌아오고 실제 발급은 원장 기록 이후 완료됩니다." },
+
+  { key:"pollCredential", op:"getCredential", swagger:"Credential", phase:"credential", role:"learner",
+    method:"GET", path:"/credentials/{credentialId}", success:200, title:"상태 polling",
+    token:"accessToken", needs:["credentialId","accessToken"], produces:["credentialNo"], storePath:"data.credentialNo",
+    flags:["poll"], policy:"requireCredentialSubjectOrInstitutionReader", also:["admin"],
+    note:"Credential 주인 본인이 직접 polling할 수 있습니다. ISSUED가 될 때까지 조회하고 FAILED면 중단합니다." },
+
+  { key:"downloadVc", op:"downloadCredentialDocument", swagger:"Credential", phase:"credential", role:"learner",
+    method:"GET", path:"/credentials/{credentialId}/document", success:200, title:"VC 다운로드",
+    token:"accessToken", raw:true, needs:["credentialId","accessToken"], produces:[], storePath:"-",
+    policy:"requireCredentialSubjectOrInstitutionReader", also:["admin"],
+    note:"Compact JWS 문자열입니다. JSON이 아니므로 res.text()로 받습니다. 강사는 접근할 수 없습니다." },
+
+  { key:"verifyCredential", op:"verifyCredential", swagger:"Credential", phase:"credential", role:"public",
+    method:"POST", path:"/credentials/verify", success:200, title:"공개 검증",
+    token:null, body:{credentialNo:"{credentialNo}",verificationType:"API",requesterType:"INDIVIDUAL"},
+    needs:["credentialNo"], produces:[], storePath:"-",
+    policy:"공개", also:[],
+    note:"토큰이 필요 없습니다. credentialNo와 credentialHash 중 하나만 보냅니다." },
+
+  { key:"reissueCredential", op:"reissueCredential", swagger:"Credential", phase:"credential-lifecycle", role:"admin",
+    method:"POST", path:"/credentials/{credentialId}/reissue", success:202, title:"재발급 요청",
+    token:"adminAccessToken", idem:"reissueIdempotencyKey", body:{reason:"정정 발급"},
+    needs:["credentialId","adminAccessToken"], produces:["reissuedCredentialId"], storePath:"data.id",
+    flags:["async","gate"], policy:"requireCourseManager", also:[],
+    gotcha:"재발급은 ISSUED 상태에서만 됩니다. 폐기가 반영된 뒤(REVOKED) 호출하면 반드시 409 CREDENTIAL_STATE_CONFLICT입니다 — 정정 발급은 폐기보다 먼저 하세요.",
+    note:"새 credentialId가 나옵니다. 기존 id와 헷갈리지 않게 별도 변수로 보관합니다." },
+
+  { key:"pollReissue", op:"getCredential", swagger:"Credential", phase:"credential-lifecycle", role:"admin",
+    method:"GET", path:"/credentials/{credentialId}",
+    pathAs:"/credentials/{reissuedCredentialId}", success:200, title:"재발급 상태 확인",
+    token:"adminAccessToken", needs:["reissuedCredentialId","adminAccessToken"], produces:[], storePath:"-",
+    flags:["poll"], policy:"requireCredentialSubjectOrInstitutionReader", also:[],
+    note:"새 id로 ISSUED가 될 때까지 조회합니다." },
+
+  { key:"revokeCredential", op:"revokeCredential", swagger:"Credential", phase:"credential-lifecycle", role:"admin",
+    method:"POST", path:"/credentials/{credentialId}/revoke", success:202, title:"폐기 요청",
+    token:"adminAccessToken", idem:"revokeIdempotencyKey", body:{reason:"발급 정보 정정"},
+    needs:["credentialId","adminAccessToken"], produces:[], storePath:"-",
+    flags:["async"], policy:"requireCourseManager", also:[],
+    note:"Idempotency-Key를 같은 본문으로 재사용하면 이전 결과가 그대로 반환되고, 본문이 다르면 409 CREDENTIAL_IDEMPOTENCY_CONFLICT입니다." },
+
+  { key:"pollRevoke", op:"getCredential", swagger:"Credential", phase:"credential-lifecycle", role:"admin",
+    method:"GET", path:"/credentials/{credentialId}", success:200, title:"폐기 상태 확인",
+    token:"adminAccessToken", needs:["credentialId","adminAccessToken"], produces:[], storePath:"-",
+    flags:["poll"], policy:"requireCredentialSubjectOrInstitutionReader", also:[],
+    note:"REVOKED가 될 때까지 조회합니다. 여기서 흐름이 끝납니다 — 이후 재발급은 불가입니다." }
+];
+
+/* 분기 종점과 선택 단계 — 순번 없는 곁가지 */
+const ALTS = [
+  { key:"reLogin", op:"loginLocalAccount", swagger:"Auth", altKind:"optional",
+    phase:"instructor", role:"learner", altOf:"approveInstructor",
+    method:"POST", path:"/auth/login", success:200, title:"재로그인 (불필요)",
+    token:null, body:{email:"learner@example.com",password:"{password}"},
+    needs:[], produces:[], storePath:"-", policy:"공개", also:[],
+    gotcha:"흔한 오해입니다. 역할은 JWT에 들어 있지 않고 요청마다 DB에서 읽습니다. 승인 직후 기존 accessToken 그대로 강사 API가 통과하므로 재로그인할 필요가 없습니다.",
+    note:"토큰을 새로 받아도 되지만 얻는 것은 없습니다. 만료된 토큰을 갱신할 때만 의미가 있습니다." },
+
+  { key:"rejectInstructor", op:"rejectInstructorApplication", swagger:"Instructor", altKind:"branch",
+    phase:"instructor", role:"admin", altOf:"approveInstructor",
+    method:"POST", path:"/instructor-applications/{applicationId}/reject", success:200,
+    title:"강사 신청 거절", token:"adminAccessToken", body:{rejectionReason:"자격 요건 미충족"},
+    needs:["applicationId","adminAccessToken"], produces:[], storePath:"-",
+    policy:"requireCourseManager", also:[],
+    note:"PENDING 신청만 거절됩니다(이미 처리됐으면 409). rejectionReason이 필수입니다." },
+
+  { key:"closeCourse", op:"closeCourse", swagger:"Course", altKind:"branch",
+    phase:"course-session", role:"admin", altOf:"publishCourse",
+    method:"POST", path:"/courses/{courseId}/close", success:200,
+    title:"모집 종료", token:"adminAccessToken",
+    needs:["courseId","adminAccessToken"], produces:[], storePath:"-",
+    policy:"requireCourseManager", also:[],
+    note:"RECRUITING → RECRUITMENT_CLOSED. 이후 신규 신청은 409이고 이미 승인된 수강은 그대로입니다." },
+
+  { key:"proxyEnrollment", op:"createProxyEnrollment", swagger:"Enrollment", altKind:"branch",
+    phase:"enrollment", role:"admin", altOf:"createEnrollment",
+    method:"POST", path:"/courses/{courseId}/proxy-enrollments", success:201,
+    title:"대리 수강신청", token:"adminAccessToken", body:{userId:"{userId}"},
+    needs:["courseId","userId","adminAccessToken"], produces:["enrollmentId"], storePath:"data.id",
+    policy:"requireCourseManager", also:[],
+    note:"관리자 전용입니다(MAIN 강사 불가). 이후 흐름은 본인 신청과 같습니다." },
+
+  { key:"rejectEnrollment", op:"rejectEnrollment", swagger:"Enrollment", altKind:"branch",
+    phase:"enrollment", role:"admin", altOf:"approveEnrollment",
+    method:"POST", path:"/enrollments/{enrollmentId}/reject", success:200,
+    title:"신청 반려", token:"adminAccessToken", body:{reason:"정원 초과"},
+    needs:["enrollmentId","adminAccessToken"], produces:[], storePath:"-",
+    policy:"requireEnrollmentDecisionManager", also:["instructor"],
+    note:"APPLIED · WAITLISTED에서만 가능합니다. reason 필수이고 MAIN 강사도 호출할 수 있습니다." },
+
+  { key:"cancelEnrollment", op:"cancelEnrollment", swagger:"Enrollment", altKind:"branch",
+    phase:"enrollment", role:"learner", altOf:"approveEnrollment",
+    method:"POST", path:"/enrollments/{enrollmentId}/cancel", success:200,
+    title:"신청 취소", token:"accessToken",
+    needs:["enrollmentId","accessToken"], produces:[], storePath:"-",
+    policy:"requireEnrollmentSubjectOrDecisionManager", also:["admin","instructor"],
+    note:"APPLIED · WAITLISTED에서만 가능합니다 — 승인 전 단계입니다." },
+
+  { key:"withdrawEnrollment", op:"withdrawEnrollment", swagger:"Enrollment", altKind:"branch",
+    phase:"enrollment", role:"learner", altOf:"approveEnrollment",
+    method:"POST", path:"/enrollments/{enrollmentId}/withdraw", success:200,
+    title:"수강 철회", token:"accessToken",
+    needs:["enrollmentId","accessToken"], produces:[], storePath:"-",
+    policy:"requireEnrollmentSubjectOrDecisionManager", also:["admin","instructor"],
+    note:"APPROVED에서만 가능합니다 — 취소와 시점이 정확히 갈립니다." }
+];
+ALTS.forEach(a => { a.alt = true; });
+
+const FLAG_TEXT = {
+  async:  ["f-async","202 비동기"],
+  poll:   ["f-poll","polling"],
+  gate:   ["f-gate","상태 조건"],
+  branch: ["f-branch","분기 4"],
+  fork:   ["f-fork","주체 갈림"],
+  warn:   ["f-warn","함정"]
+};
+const TOKEN_ROLE = { accessToken:"learner", adminAccessToken:"admin" };
+
+/* spine 스텝 바로 뒤에 그 분기들을 끼워 넣은 순서 */
+function phaseItems(phaseKey){
+  const out = [];
+  STEPS.filter(s => s.phase === phaseKey).forEach(s => {
+    out.push(s);
+    ALTS.filter(a => a.altOf === s.key).forEach(a => out.push(a));
+  });
+  return out;
+}
+
+/* ── 코드 생성 ──────────────────────────── */
+const baseInput = document.getElementById("baseUrl");
+const base = () => baseInput.value.trim().replace(/\/$/, "") || "http://localhost:8080";
+
+/* 화면·curl용 경로. 계약 대조에는 s.path(OpenAPI 템플릿)를 쓴다. */
+function fullPath(s){
+  return "/api/v1" + (s.pathAs || s.path) + (s.query ? "?" + s.query : "");
+}
+
+function curlOf(s){
+  const parts = [ s.method === "GET" ? "curl" : `curl -X ${s.method}` ];
+  parts.push(`'${base()}${fullPath(s)}'`);
+  if (s.token) parts.push(`-H 'Authorization: Bearer {${s.token}}'`);
+  if (s.idem)  parts.push(`-H 'Idempotency-Key: {${s.idem}}'`);
+  if (s.body)  parts.push(`-H 'Content-Type: application/json'`, `-d '${JSON.stringify(s.body)}'`);
+  if (s.raw)   parts.push("-o credential.jwt");
+  return parts.join(" ");
+}
+
+function fetchOf(s){
+  const h = [];
+  if (s.token) h.push(`    Authorization: \`Bearer \${${s.token}}\``);
+  if (s.idem)  h.push(`    "Idempotency-Key": ${s.idem}`);
+  if (s.body)  h.push(`    "Content-Type": "application/json"`);
+
+  const url = "`${baseUrl}" + fullPath(s).replace(/\{(\w+)\}/g, "${$1}") + "`";
+  const opt = [];
+  if (s.method !== "GET") opt.push(`  method: "${s.method}"`);
+  if (h.length) opt.push(`  headers: {\n${h.join(",\n")}\n  }`);
+  if (s.body) opt.push(`  body: JSON.stringify(${JSON.stringify(s.body, null, 2)
+      .replace(/"\{(\w+)\}"/g, "$1").split("\n").join("\n  ")})`);
+
+  const call = opt.length
+    ? `const res = await fetch(${url}, {\n${opt.join(",\n")}\n});`
+    : `const res = await fetch(${url});`;
+
+  let tail = `if (res.status !== ${s.success}) throw new Error(await res.text());\n`;
+  if (s.raw) tail += `const jws = await res.text();`;
+  else if (s.storePath && s.storePath !== "-") {
+    const v = s.produces[0];
+    tail += `const json = await res.json();\nconst ${v} = ${s.storePath.replace(/^data/, "json.data")};`;
+  } else tail += `const json = await res.json();`;
+
+  return call + "\n" + tail;
+}
+
+/* ── 흐름도 ─────────────────────────────── */
+const mapRows = document.getElementById("mapRows");
+
+PHASES.forEach(p => {
+  const row = document.createElement("div");
+  row.className = "prow";
+  row.innerHTML = `<div class="pmeta"><span class="pnum">${p.n}</span><div class="pname">${p.name}</div></div>`;
+
+  phaseItems(p.key).forEach((s, i) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "node " + s.role +
+      ((s.flags || []).includes("warn") ? " is-warn" : "") + (s.alt ? " is-alt" : "");
+    b.dataset.key = s.key;
+    b.innerHTML =
+      `<div class="nm">${s.alt
+        ? `<span class="seq alt ${s.altKind === "optional" ? "opt" : ""}">${
+            s.altKind === "optional" ? "선택" : "분기"}</span>`
+        : `<span class="seq">${STEPS.indexOf(s) + 1}</span>`}` +
+      `<span>${s.method}</span><span>${s.success}</span>` +
+      (s.flags || []).map(f =>
+        `<span class="flag ${FLAG_TEXT[f][0]}">${FLAG_TEXT[f][1]}</span>`).join("") +
+      `</div>` +
+      `<div class="nl"><span class="nt">${s.title}</span>` +
+      s.produces.map(v => `<span class="var">→ {${v}}</span>`).join("") +
+      ((s.also && s.also.length)
+        ? `<span class="alsoc">+${s.also.map(r => ROLES[r].label).join("·")}</span>` : "") +
+      `</div>`;
+    b.style.gridColumn = String(ROLES[s.role].col + 1);
+    b.style.gridRow = String(i + 1);
+    b.addEventListener("click", () => jumpTo(s.key));
+    row.appendChild(b);
+  });
+
+  mapRows.appendChild(row);
+});
+
+/* 연결선: 실제 노드 위치를 측정해 SVG로 그린다 */
+const svg = document.getElementById("wires");
+function drawWires(){
+  const host = svg.parentElement;
+  const hb = host.getBoundingClientRect();
+  svg.setAttribute("viewBox", `0 0 ${hb.width} ${hb.height}`);
+  svg.setAttribute("width", hb.width);
+  svg.setAttribute("height", hb.height);
+
+  let d = `<defs><marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6"
+    markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#b9c7bf"/></marker></defs>`;
+
+  const box = k => {
+    const el = mapRows.querySelector(`[data-key="${k}"]`);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x1:r.left-hb.left, x2:r.right-hb.left, y1:r.top-hb.top, y2:r.bottom-hb.top,
+             cx:r.left-hb.left+r.width/2, cy:r.top-hb.top+r.height/2 };
+  };
+
+  for (let i = 0; i < STEPS.length - 1; i++){
+    const a = box(STEPS[i].key), b = box(STEPS[i+1].key);
+    if (!a || !b) continue;
+    const sx = a.cx, sy = a.y2, ex = b.cx, ey = b.y1 - 4;
+    const mid = sy + (ey - sy) * 0.55;
+    const path = Math.abs(sx - ex) < 2
+      ? `M ${sx} ${sy} L ${ex} ${ey}`
+      : `M ${sx} ${sy} C ${sx} ${mid}, ${ex} ${mid}, ${ex} ${ey}`;
+    d += `<path d="${path}" fill="none" stroke="#b9c7bf" stroke-width="1.5"
+           stroke-dasharray="${Math.abs(sx-ex) < 2 ? "0" : "4 3"}" marker-end="url(#ah)"/>`;
+  }
+  svg.innerHTML = d;
+}
+
+/* ── 변수 사전 ──────────────────────────── */
+const varRows = document.getElementById("varRows");
+const varMap = new Map();
+STEPS.forEach(s => {
+  s.produces.forEach(v => {
+    if (!varMap.has(v)) varMap.set(v, { from:s, path:s.storePath, used:[] });
+  });
+});
+["accessToken","adminAccessToken"].forEach(v => {
+  if (!varMap.has(v)) varMap.set(v, { from:null, path:"data.accessToken", used:[] });
+});
+STEPS.forEach(s => {
+  s.needs.forEach(v => { if (varMap.has(v)) varMap.get(v).used.push(s.title); });
+});
+varMap.set("adminAccessToken", {
+  from:null, path:"data.accessToken",
+  used: varMap.get("adminAccessToken")?.used || [],
+  manual:"기관관리자 계정으로 로그인 (학습자와 다른 계정)" });
+
+[...varMap.entries()].forEach(([name, info]) => {
+  const tr = document.createElement("tr");
+  tr.innerHTML =
+    `<td><span class="mono">{${name}}</span></td>` +
+    `<td>${info.from ? `${info.from.method} ${info.from.path}` : (info.manual || "별도 로그인")}</td>` +
+    `<td><code style="font-size:12px">${info.path}</code></td>` +
+    `<td style="color:var(--muted);font-size:12.5px">${info.used.length ? info.used.join(" · ") : "—"}</td>`;
+  varRows.appendChild(tr);
+});
+
+/* ── 상세 카드 ──────────────────────────── */
+const details = document.getElementById("details");
+
+PHASES.forEach(p => {
+  const items = phaseItems(p.key);
+  const head = document.createElement("div");
+  head.className = "phase-title";
+  head.dataset.phase = p.key;
+  head.innerHTML = `<h2>${p.n}. ${p.name}</h2><span>${items.length}개 호출</span>`;
+  details.appendChild(head);
+
+  items.forEach(s => {
+    const card = document.createElement("article");
+    card.className = "card collapsed " + s.role + (s.alt ? " is-alt" : "");
+    card.id = "step-" + s.key;
+    card.dataset.role = s.role;
+
+    const inVars  = s.needs.filter(v => !TOKEN_ROLE[v]);
+    const outVars = s.produces;
+
+    card.innerHTML = `
+      <div class="card-head">
+        <span class="seq${s.alt && s.altKind === "optional" ? " opt" : ""}">${
+          s.alt ? (s.altKind === "optional" ? "선택" : "분기") : STEPS.indexOf(s) + 1}</span>
+        <span class="method m-${s.method}">${s.method}</span>
+        <h3>${s.title}</h3>
+        <span class="chip ${s.role}"><i class="dot"></i>${ROLES[s.role].label}</span>
+        <span class="code">${s.success}</span>
+        <button class="toggle">코드 ▾</button>
+      </div>
+      <div class="route">${fullPath(s)}</div>
+      <div class="io">
+        <div><b>필요</b>${inVars.length
+          ? inVars.map(v => `<span class="var in">{${v}}</span>`).join("")
+          : '<span style="color:var(--faint);font-size:12px">없음</span>'}</div>
+        <div><b>얻음</b>${outVars.length
+          ? outVars.map(v => `<span class="var">{${v}} = ${s.storePath}</span>`).join("")
+          : '<span style="color:var(--faint);font-size:12px">없음</span>'}</div>
+      </div>
+      <div class="auth">인증 ${s.token
+        ? `<span class="tok ${TOKEN_ROLE[s.token]}">Bearer {${s.token}}</span>`
+        : `<span class="tok public">불필요</span>`}
+        ${s.idem ? `<span class="tok admin">Idempotency-Key {${s.idem}}</span>` : ""}
+        ${(s.also && s.also.length)
+          ? `<span class="alsotag">또한 가능</span>` + s.also.map(r =>
+              `<span class="tok ${r}">${ROLES[r].label}</span>`).join("") : ""}
+        ${(s.flags||[]).map(f => `<span class="flag ${FLAG_TEXT[f][0]}">${FLAG_TEXT[f][1]}</span>`).join("")}
+        ${s.policy ? `<span class="policy" title="이 판정을 하는 서버 코드">${s.policy}</span>` : ""}
+      </div>
+      ${s.gotcha ? `<div class="gotcha"><b>⚠</b><span>${s.gotcha}</span></div>` : ""}
+      <p class="note">${s.note}</p>
+      <div class="tabs">
+        <button aria-selected="true"  data-tab="curl">curl</button>
+        <button aria-selected="false" data-tab="fetch">fetch</button>
+      </div>
+      <div class="snip" data-pane="curl"><button class="copy">복사</button><pre><code></code></pre></div>
+      <div class="snip" data-pane="fetch" hidden><button class="copy">복사</button><pre><code></code></pre></div>
+      <a class="swag" target="_blank" rel="noopener"
+         href="/swagger-ui/index.html#/${encodeURIComponent(s.swagger)}/${s.op}">Swagger에서 열기 ↗</a>
+    `;
+
+    const toggle = card.querySelector(".toggle");
+    toggle.addEventListener("click", () => {
+      const open = card.classList.toggle("collapsed") === false;
+      toggle.textContent = open ? "코드 ▴" : "코드 ▾";
+      requestAnimationFrame(drawWires);
+    });
+
+    card.querySelectorAll(".tabs button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        card.querySelectorAll(".tabs button").forEach(b2 =>
+          b2.setAttribute("aria-selected", String(b2 === btn)));
+        card.querySelectorAll(".snip").forEach(pane =>
+          pane.hidden = pane.dataset.pane !== btn.dataset.tab);
+      });
+    });
+    card.querySelectorAll(".copy").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const text = btn.parentElement.querySelector("code").textContent;
+        try { await navigator.clipboard.writeText(text); } catch (_) {}
+        btn.textContent = "복사됨";
+        setTimeout(() => { btn.textContent = "복사"; }, 1200);
+      });
+    });
+
+    card._step = s;
+    details.appendChild(card);
+  });
+});
+
+function renderCode(){
+  details.querySelectorAll(".card").forEach(card => {
+    const s = card._step;
+    card.querySelector('[data-pane="curl"] code').textContent  = curlOf(s);
+    card.querySelector('[data-pane="fetch"] code').textContent = fetchOf(s);
+  });
+}
+renderCode();
+baseInput.addEventListener("input", renderCode);
+
+/* ── 이동 · 필터 ────────────────────────── */
+function jumpTo(key){
+  const el = document.getElementById("step-" + key);
+  if (!el) return;
+  el.scrollIntoView({ behavior:"smooth", block:"center" });
+  el.classList.remove("flash");
+  void el.offsetWidth;
+  el.classList.add("flash");
+}
+
+const codeBtn = document.getElementById("toggleCode");
+codeBtn.addEventListener("click", () => {
+  const open = codeBtn.getAttribute("aria-pressed") !== "true";
+  codeBtn.setAttribute("aria-pressed", String(open));
+  codeBtn.textContent = open ? "코드 모두 접기" : "코드 모두 펼치기";
+  details.querySelectorAll(".card").forEach(c => {
+    c.classList.toggle("collapsed", !open);
+    c.querySelector(".toggle").textContent = open ? "코드 ▴" : "코드 ▾";
+  });
+});
+
+document.getElementById("filters").addEventListener("click", e => {
+  const btn = e.target.closest("button");
+  if (!btn || btn.id === "toggleCode") return;
+  const role = btn.dataset.role;
+  document.querySelectorAll("#filters button:not(#toggleCode)").forEach(b =>
+    b.setAttribute("aria-pressed", String(b === btn)));
+  details.querySelectorAll(".card").forEach(c => {
+    c.hidden = role !== "all" && c.dataset.role !== role;
+  });
+  details.querySelectorAll(".phase-title").forEach(h => {
+    const key = h.dataset.phase;
+    h.hidden = role !== "all" &&
+      !STEPS.some(s => s.phase === key && s.role === role);
+  });
+  requestAnimationFrame(drawWires);
+});
+
+
+/* ══════════════════════════════════════════
+   Layer 2 — 전체 API 인덱스
+   dabaeum-api-v1.yaml에서 추출한 원본 그대로.
+   ══════════════════════════════════════════ */
+const ALL_OPS = [{"op":"getSystemPing","m":"GET","p":"/system/ping","tag":"System","s":"시스템 상태 확인","auth":false,"ok":"200","req":[],"schema":null},{"op":"listInstitutions","m":"GET","p":"/institutions","tag":"Institution","s":"기관 목록 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"createInstitution","m":"POST","p":"/institutions","tag":"Institution","s":"기관 생성","auth":true,"ok":"201","req":["institutionCode","name"],"schema":"InstitutionCreateRequest"},{"op":"getInstitution","m":"GET","p":"/institutions/{institutionId}","tag":"Institution","s":"기관 상세 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"updateInstitution","m":"PUT","p":"/institutions/{institutionId}","tag":"Institution","s":"기관 수정","auth":true,"ok":"200","req":[],"schema":"InstitutionUpdateRequest"},{"op":"listInstitutionInstructorApplications","m":"GET","p":"/institutions/{institutionId}/instructor-applications","tag":"Instructor","s":"기관 강사 신청 목록 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"applyInstructor","m":"POST","p":"/institutions/{institutionId}/instructor-applications","tag":"Instructor","s":"기관 강사 신청","auth":true,"ok":"201","req":[],"schema":"InstructorApplicationRequest"},{"op":"listMyInstructorApplications","m":"GET","p":"/instructor-applications/me","tag":"Instructor","s":"내 강사 신청 목록 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"getInstructorApplication","m":"GET","p":"/instructor-applications/{applicationId}","tag":"Instructor","s":"강사 신청 상세 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"approveInstructorApplication","m":"POST","p":"/instructor-applications/{applicationId}/approve","tag":"Instructor","s":"강사 신청 승인","auth":true,"ok":"200","req":[],"schema":null},{"op":"rejectInstructorApplication","m":"POST","p":"/instructor-applications/{applicationId}/reject","tag":"Instructor","s":"강사 신청 거절","auth":true,"ok":"200","req":["rejectionReason"],"schema":"InstructorApplicationRejectRequest"},{"op":"listUsers","m":"GET","p":"/users","tag":"User","s":"사용자 목록 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"createUser","m":"POST","p":"/users","tag":"User","s":"사용자 생성","auth":true,"ok":"201","req":["name"],"schema":"UserCreateRequest"},{"op":"signupLocalAccount","m":"POST","p":"/auth/signup","tag":"Auth","s":"일반 사용자 회원가입","auth":false,"ok":"201","req":["email","password","name"],"schema":"SignupRequest"},{"op":"loginLocalAccount","m":"POST","p":"/auth/login","tag":"Auth","s":"일반 사용자 로그인","auth":false,"ok":"200","req":["email","password"],"schema":"LoginRequest"},{"op":"getAuthSession","m":"GET","p":"/auth/session","tag":"Auth","s":"현재 인증 세션 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"getCurrentUser","m":"GET","p":"/users/me","tag":"User","s":"내 사용자 정보 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"updateCurrentUser","m":"PUT","p":"/users/me","tag":"User","s":"내 사용자 정보 수정","auth":true,"ok":"200","req":[],"schema":"UserMeUpdateRequest"},{"op":"getUser","m":"GET","p":"/users/{userId}","tag":"User","s":"사용자 상세 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"updateUser","m":"PUT","p":"/users/{userId}","tag":"User","s":"사용자 수정","auth":true,"ok":"200","req":[],"schema":"UserUpdateRequest"},{"op":"changeUserStatus","m":"PATCH","p":"/users/{userId}/status","tag":"User","s":"사용자 상태 변경","auth":true,"ok":"200","req":["status"],"schema":"UserStatusChangeRequest"},{"op":"listUserIdentities","m":"GET","p":"/users/{userId}/identities","tag":"Identity & Role","s":"사용자 identity 목록 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"linkUserIdentity","m":"POST","p":"/users/{userId}/identities","tag":"Identity & Role","s":"사용자 identity 연결","auth":true,"ok":"201","req":["provider","providerSubject","verified"],"schema":"IdentityLinkRequest"},{"op":"unlinkUserIdentity","m":"DELETE","p":"/users/{userId}/identities/{identityId}","tag":"Identity & Role","s":"사용자 identity 연결 해제","auth":true,"ok":"200","req":[],"schema":null},{"op":"listUserRoles","m":"GET","p":"/users/{userId}/roles","tag":"Identity & Role","s":"사용자 역할 목록 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"assignUserRole","m":"POST","p":"/users/{userId}/roles","tag":"Identity & Role","s":"사용자 역할 부여","auth":true,"ok":"201","req":["role"],"schema":"RoleAssignmentRequest"},{"op":"revokeUserRole","m":"DELETE","p":"/users/{userId}/roles/{roleId}","tag":"Identity & Role","s":"사용자 역할 회수","auth":true,"ok":"200","req":[],"schema":null},{"op":"listCourses","m":"GET","p":"/courses","tag":"Course","s":"과정 목록 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"createCourse","m":"POST","p":"/courses","tag":"Course","s":"과정 생성","auth":true,"ok":"201","req":["institutionId","courseCode","title","educationType","startDate","endDate","capacity"],"schema":"CourseCreateRequest"},{"op":"getCourse","m":"GET","p":"/courses/{courseId}","tag":"Course","s":"과정 상세 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"updateCourse","m":"PUT","p":"/courses/{courseId}","tag":"Course","s":"과정 수정","auth":true,"ok":"200","req":[],"schema":"CourseUpdateRequest"},{"op":"publishCourse","m":"POST","p":"/courses/{courseId}/publish","tag":"Course","s":"과정 모집 공개","auth":true,"ok":"200","req":[],"schema":null},{"op":"closeCourse","m":"POST","p":"/courses/{courseId}/close","tag":"Course","s":"과정 모집 종료","auth":true,"ok":"200","req":[],"schema":null},{"op":"reopenCourse","m":"POST","p":"/courses/{courseId}/reopen","tag":"Course","s":"과정 모집 재개 (정정)","auth":true,"ok":"200","req":["reason"],"schema":"CorrectionReasonRequest"},{"op":"listCourseInstructors","m":"GET","p":"/courses/{courseId}/instructors","tag":"Instructor","s":"과정 강사 목록 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"assignCourseInstructor","m":"POST","p":"/courses/{courseId}/instructors","tag":"Instructor","s":"과정 강사 배정","auth":true,"ok":"201","req":["userId","role"],"schema":"CourseInstructorAssignRequest"},{"op":"updateCourseInstructor","m":"PUT","p":"/courses/{courseId}/instructors/{userId}","tag":"Instructor","s":"과정 강사 역할 변경","auth":true,"ok":"200","req":["role"],"schema":"CourseInstructorUpdateRequest"},{"op":"removeCourseInstructor","m":"DELETE","p":"/courses/{courseId}/instructors/{userId}","tag":"Instructor","s":"과정 강사 배정 해제","auth":true,"ok":"200","req":[],"schema":null},{"op":"listCourseSessions","m":"GET","p":"/courses/{courseId}/sessions","tag":"Course Session","s":"과정 회차 목록 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"createCourseSession","m":"POST","p":"/courses/{courseId}/sessions","tag":"Course Session","s":"과정 회차 생성","auth":true,"ok":"201","req":["sessionNo","startsAt","endsAt"],"schema":"CourseSessionCreateRequest"},{"op":"getCourseSession","m":"GET","p":"/sessions/{sessionId}","tag":"Course Session","s":"과정 회차 상세 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"updateCourseSession","m":"PUT","p":"/sessions/{sessionId}","tag":"Course Session","s":"과정 회차 수정","auth":true,"ok":"200","req":[],"schema":"CourseSessionUpdateRequest"},{"op":"reopenCourseSession","m":"POST","p":"/sessions/{sessionId}/reopen","tag":"Course Session","s":"회차 재개 (정정)","auth":true,"ok":"200","req":["reason"],"schema":"CorrectionReasonRequest"},{"op":"listCourseEnrollments","m":"GET","p":"/courses/{courseId}/enrollments","tag":"Enrollment","s":"과정 수강신청 목록 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"createEnrollment","m":"POST","p":"/courses/{courseId}/enrollments","tag":"Enrollment","s":"수강신청 생성","auth":true,"ok":"201","req":["userId"],"schema":"EnrollmentCreateRequest"},{"op":"createProxyEnrollment","m":"POST","p":"/courses/{courseId}/proxy-enrollments","tag":"Enrollment","s":"대리 수강신청 생성","auth":true,"ok":"201","req":["userId"],"schema":"ProxyEnrollmentCreateRequest"},{"op":"getEnrollment","m":"GET","p":"/enrollments/{enrollmentId}","tag":"Enrollment","s":"수강신청 상세 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"approveEnrollment","m":"POST","p":"/enrollments/{enrollmentId}/approve","tag":"Enrollment","s":"수강신청 승인","auth":true,"ok":"200","req":[],"schema":null},{"op":"rejectEnrollment","m":"POST","p":"/enrollments/{enrollmentId}/reject","tag":"Enrollment","s":"수강신청 반려","auth":true,"ok":"200","req":["reason"],"schema":"EnrollmentRejectionRequest"},{"op":"cancelEnrollment","m":"POST","p":"/enrollments/{enrollmentId}/cancel","tag":"Enrollment","s":"수강신청 취소","auth":true,"ok":"200","req":[],"schema":null},{"op":"withdrawEnrollment","m":"POST","p":"/enrollments/{enrollmentId}/withdraw","tag":"Enrollment","s":"수강 철회","auth":true,"ok":"200","req":[],"schema":null},{"op":"issueAttendanceQrToken","m":"POST","p":"/sessions/{sessionId}/qr-token","tag":"Attendance","s":"출결 QR 토큰 발급","auth":true,"ok":"201","req":[],"schema":null},{"op":"listSessionAttendance","m":"GET","p":"/sessions/{sessionId}/attendance","tag":"Attendance","s":"회차 출결 목록 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"recordAttendance","m":"POST","p":"/sessions/{sessionId}/attendance","tag":"Attendance","s":"출결 기록 등록","auth":true,"ok":"201","req":["enrollmentId","attendanceMethod","status","source"],"schema":"AttendanceCreateRequest"},{"op":"getAttendance","m":"GET","p":"/attendance/{attendanceId}","tag":"Attendance","s":"출결 상세 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"adjustAttendance","m":"PATCH","p":"/attendance/{attendanceId}","tag":"Attendance","s":"출결 보정","auth":true,"ok":"200","req":["status","reason"],"schema":"AttendanceAdjustmentRequest"},{"op":"getAttendanceSummary","m":"GET","p":"/enrollments/{enrollmentId}/attendance-summary","tag":"Attendance","s":"출결 요약 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"getCompletion","m":"GET","p":"/enrollments/{enrollmentId}/completion","tag":"Completion","s":"이수 상태 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"evaluateCompletion","m":"POST","p":"/enrollments/{enrollmentId}/completion/evaluate","tag":"Completion","s":"이수 평가","auth":true,"ok":"200","req":["attendanceRate","completedMinutes"],"schema":"CompletionEvaluationRequest"},{"op":"confirmCompletion","m":"POST","p":"/enrollments/{enrollmentId}/completion/confirm","tag":"Completion","s":"이수 확정","auth":true,"ok":"200","req":[],"schema":null},{"op":"revertCompletionConfirmation","m":"POST","p":"/enrollments/{enrollmentId}/completion/revert","tag":"Completion","s":"이수 확정 취소 (정정)","auth":true,"ok":"200","req":["reason"],"schema":"CorrectionReasonRequest"},{"op":"getLifelongEducationContextV1","m":"GET","p":"/vc/contexts/lifelong-education/v1","tag":"VC Public","s":"평생교육 VC JSON-LD Context 조회","auth":false,"ok":"200","req":[],"schema":null},{"op":"getLifelongEducationVocabularyV1","m":"GET","p":"/vc/vocabulary/lifelong-education/v1","tag":"VC Public","s":"평생교육 VC 용어 문서 조회","auth":false,"ok":"200","req":[],"schema":null},{"op":"getCredentialIssuer","m":"GET","p":"/vc/issuers/{institutionId}","tag":"VC Public","s":"Credential 발급기관 공개키 조회","auth":false,"ok":"200","req":[],"schema":null},{"op":"getPublicCredentialStatus","m":"GET","p":"/vc/status/{credentialNo}","tag":"VC Public","s":"Credential 공개 상태 조회","auth":false,"ok":"200","req":[],"schema":null},{"op":"issueCredential","m":"POST","p":"/completions/{completionId}/credentials","tag":"Credential","s":"Credential 발급 요청","auth":true,"ok":"202","req":[],"schema":"CredentialIssueRequest"},{"op":"getCredential","m":"GET","p":"/credentials/{credentialId}","tag":"Credential","s":"Credential 상세 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"downloadCredentialDocument","m":"GET","p":"/credentials/{credentialId}/document","tag":"Credential","s":"서명된 VC 문서 다운로드","auth":true,"ok":"200","req":[],"schema":null},{"op":"listCurrentUserCredentials","m":"GET","p":"/users/me/credentials","tag":"Credential","s":"내 Credential 목록 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"listUserCredentials","m":"GET","p":"/users/{userId}/credentials","tag":"Credential","s":"사용자 Credential 목록 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"revokeCredential","m":"POST","p":"/credentials/{credentialId}/revoke","tag":"Credential","s":"Credential 폐기","auth":true,"ok":"202","req":["reason"],"schema":"CredentialRevokeRequest"},{"op":"reissueCredential","m":"POST","p":"/credentials/{credentialId}/reissue","tag":"Credential","s":"Credential 재발급","auth":true,"ok":"202","req":["reason"],"schema":"CredentialReissueRequest"},{"op":"verifyCredential","m":"POST","p":"/credentials/verify","tag":"Credential","s":"Credential 검증","auth":false,"ok":"200","req":["verificationType","requesterType"],"schema":"CredentialVerifyRequest"},{"op":"listCredentialVerifications","m":"GET","p":"/credentials/{credentialId}/verifications","tag":"Credential","s":"Credential 검증 이력 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"issueLearningBadge","m":"POST","p":"/credentials/{credentialId}/badges","tag":"Badge","s":"학습 Badge 발급 요청","auth":true,"ok":"202","req":["badgeType","badgeName"],"schema":"BadgeIssueRequest"},{"op":"listUserBadges","m":"GET","p":"/users/{userId}/badges","tag":"Badge","s":"사용자 Badge 목록 조회","auth":true,"ok":"200","req":[],"schema":null},{"op":"getLearningBadge","m":"GET","p":"/badges/{badgeId}","tag":"Badge","s":"학습 Badge 상세 조회","auth":true,"ok":"200","req":[],"schema":null}];
+
+const TAG_ORDER = ["Auth","User","Identity & Role","Institution","Instructor","Course",
+  "Course Session","Enrollment","Attendance","Completion","Credential","VC Public","Badge","System"];
+
+/* 흐름도에 실린 operation → 그 노드로 점프 */
+const OP_TO_STEP = new Map();
+STEPS.forEach((s, i) => { if (!OP_TO_STEP.has(s.op)) OP_TO_STEP.set(s.op, { key:s.key, n:i + 1 }); });
+ALTS.forEach(a => { if (!OP_TO_STEP.has(a.op)) OP_TO_STEP.set(a.op, { key:a.key, n:null }); });
+
+const idxBody   = document.getElementById("idxBody");
+const idxSearch = document.getElementById("idxSearch");
+const idxCount  = document.getElementById("idxCount");
+const tagbar    = document.getElementById("tagbar");
+document.getElementById("idxTotal").textContent = ALL_OPS.length;
+
+let activeTag = "all";
+
+const tags = TAG_ORDER.filter(t => ALL_OPS.some(o => o.tag === t))
+  .concat([...new Set(ALL_OPS.map(o => o.tag))].filter(t => !TAG_ORDER.includes(t)));
+
+tagbar.innerHTML =
+  `<button data-tag="all" aria-pressed="true">전체 ${ALL_OPS.length}</button>` +
+  tags.map(t => `<button data-tag="${t}" aria-pressed="false">${t} ${
+    ALL_OPS.filter(o => o.tag === t).length}</button>`).join("");
+
+tagbar.addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  activeTag = b.dataset.tag;
+  tagbar.querySelectorAll("button").forEach(x =>
+    x.setAttribute("aria-pressed", String(x === b)));
+  renderIndex();
+});
+idxSearch.addEventListener("input", renderIndex);
+
+function statusPill(o){
+  const hit = OP_TO_STEP.get(o.op);
+  if (hit) return `<button class="pill p-map" data-jump="${hit.key}">지도 ${
+    hit.n ? hit.n : "분기"}</button>`;
+  if (o.tag === "Badge") return `<span class="pill p-todo">향후 계약</span>`;
+  return `<span class="pill p-open">인덱스</span>`;
+}
+
+function renderIndex(){
+  const q = idxSearch.value.trim().toLowerCase();
+  const rows = ALL_OPS.filter(o =>
+    (activeTag === "all" || o.tag === activeTag) &&
+    (!q || (o.p + " " + o.op + " " + o.s + " " + (o.schema || "")).toLowerCase().includes(q)));
+
+  idxCount.textContent = `${rows.length} / ${ALL_OPS.length}`;
+
+  if (!rows.length){
+    idxBody.innerHTML = `<div class="idx-empty">일치하는 operation이 없습니다.</div>`;
+    return;
+  }
+
+  const byTag = new Map();
+  rows.forEach(o => { if (!byTag.has(o.tag)) byTag.set(o.tag, []); byTag.get(o.tag).push(o); });
+
+  idxBody.innerHTML = [...byTag.entries()].sort(
+    (a, b) => TAG_ORDER.indexOf(a[0]) - TAG_ORDER.indexOf(b[0])
+  ).map(([tag, list]) => `
+    <div class="idx-group">
+      <h3>${tag} <small>${list.length}개</small></h3>
+      <table class="idx">
+        <thead><tr>
+          <th class="c-m">메서드</th><th class="c-p">경로</th><th class="c-s">설명</th>
+          <th class="c-a">인증</th><th class="c-r">필수 필드 · operationId</th>
+        </tr></thead>
+        <tbody>${list.map(o => `
+          <tr>
+            <td><span class="method m-${o.m}">${o.m}</span></td>
+            <td><code>${o.p}</code></td>
+            <td>${o.s}</td>
+            <td>${o.auth
+              ? '<span class="pill p-open">Bearer</span>'
+              : '<span class="pill p-map" style="cursor:default">공개</span>'}</td>
+            <td>
+              ${o.req.length ? `<span class="reqf">${o.req.join(", ")}</span><br>` : ""}
+              <code style="color:var(--faint)">${o.op}</code> ${statusPill(o)}
+            </td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>`).join("");
+}
+
+idxBody.addEventListener("click", e => {
+  const b = e.target.closest("[data-jump]");
+  if (b) jumpTo(b.dataset.jump);
+});
+
+renderIndex();
+
+/* ── PDF: 브라우저 인쇄 엔진을 그대로 쓴다 ── */
+document.getElementById("pdfBtn").addEventListener("click", () => {
+  const restore = idxSearch.value;
+  idxSearch.value = "";           // 검색 중이어도 전체가 인쇄되도록
+  activeTag = "all";
+  tagbar.querySelectorAll("button").forEach(x =>
+    x.setAttribute("aria-pressed", String(x.dataset.tag === "all")));
+  details.querySelectorAll(".card,.phase-title").forEach(el => { el.hidden = false; });
+  renderIndex();
+  window.print();
+  idxSearch.value = restore;
+});
+
+/* ── 초기화 ─────────────────────────────── */
+drawWires();
+window.addEventListener("resize", drawWires);
+if (document.fonts?.ready) document.fonts.ready.then(drawWires);
+</script>
+</body>
+</html>

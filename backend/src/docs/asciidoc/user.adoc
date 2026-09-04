@@ -1,0 +1,41 @@
+== User API
+
+=== Create user
+include::{snippets}/user-create/http-request.adoc[]
+include::{snippets}/user-create/request-fields.adoc[]
+include::{snippets}/user-create/http-response.adoc[]
+include::{snippets}/user-create/response-fields.adoc[]
+
+=== List users
+include::{snippets}/user-list/http-request.adoc[]
+include::{snippets}/user-list/query-parameters.adoc[]
+include::{snippets}/user-list/http-response.adoc[]
+include::{snippets}/user-list/response-fields.adoc[]
+
+=== Get user
+include::{snippets}/user-get/http-request.adoc[]
+include::{snippets}/user-get/http-response.adoc[]
+include::{snippets}/user-get/response-fields.adoc[]
+
+=== Update user
+include::{snippets}/user-update/http-request.adoc[]
+include::{snippets}/user-update/request-fields.adoc[]
+include::{snippets}/user-update/http-response.adoc[]
+include::{snippets}/user-update/response-fields.adoc[]
+
+=== Change user status
+include::{snippets}/user-status/http-request.adoc[]
+include::{snippets}/user-status/request-fields.adoc[]
+include::{snippets}/user-status/http-response.adoc[]
+include::{snippets}/user-status/response-fields.adoc[]
+
+=== Get current user
+include::{snippets}/user-me-get/http-request.adoc[]
+include::{snippets}/user-me-get/http-response.adoc[]
+include::{snippets}/user-me-get/response-fields.adoc[]
+
+=== Update current user
+include::{snippets}/user-me-update/http-request.adoc[]
+include::{snippets}/user-me-update/request-fields.adoc[]
+include::{snippets}/user-me-update/http-response.adoc[]
+include::{snippets}/user-me-update/response-fields.adoc[]

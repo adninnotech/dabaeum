@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.adn.dabaeum.fabric.infrastructure.mybatis.BlockchainTransactionMapper">
+    <resultMap id="row" type="com.adn.dabaeum.fabric.infrastructure.mybatis.BlockchainTransactionRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="reference_type" javaType="java.lang.String"/><arg column="reference_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="network" javaType="java.lang.String"/><arg column="transaction_type" javaType="java.lang.String"/>
+            <arg column="idempotency_key" javaType="java.lang.String"/><arg column="correlation_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="request_hash" javaType="java.lang.String"/><arg column="transaction_id" javaType="java.lang.String"/><arg column="status" javaType="java.lang.String"/>
+            <arg column="error_code" javaType="java.lang.String"/><arg column="error_message" javaType="java.lang.String"/>
+            <arg column="requested_at" javaType="java.time.Instant"/><arg column="confirmed_at" javaType="java.time.Instant"/>
+            <arg column="retry_count" javaType="int"/><arg column="next_retry_at" javaType="java.time.Instant"/>
+            <arg column="response_metadata" javaType="java.lang.String"/><arg column="created_at" javaType="java.time.Instant"/><arg column="updated_at" javaType="java.time.Instant"/>
+            <arg column="operation_reason" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+    <sql id="columns">id, reference_type, reference_id, network, transaction_type, idempotency_key, correlation_id, request_hash, transaction_id, status, error_code, error_message, requested_at, confirmed_at, retry_count, next_retry_at, response_metadata::text AS response_metadata, created_at, updated_at, operation_reason</sql>
+    <sql id="targetColumns">target.id, target.reference_type, target.reference_id, target.network, target.transaction_type, target.idempotency_key, target.correlation_id, target.request_hash, target.transaction_id, target.status, target.error_code, target.error_message, target.requested_at, target.confirmed_at, target.retry_count, target.next_retry_at, target.response_metadata::text AS response_metadata, target.created_at, target.updated_at, target.operation_reason</sql>
+    <select id="claimDue" resultMap="row">
+        WITH due AS (
+            SELECT id FROM tb_blockchain_transactions
+             WHERE network IN
+             <foreach collection="networks" item="network" open="(" separator="," close=")">
+                 #{network}
+             </foreach>
+               AND status = 'PENDING'
+               AND (next_retry_at IS NULL OR next_retry_at &lt;= #{now})
+             ORDER BY requested_at, id LIMIT #{limit}
+             FOR UPDATE SKIP LOCKED
+        )
+        UPDATE tb_blockchain_transactions target
+           SET status = 'PROCESSING', error_code = NULL, error_message = NULL,
+               next_retry_at = NULL, response_metadata = NULL, updated_at = #{now}
+          FROM due WHERE target.id = due.id
+        RETURNING <include refid="targetColumns"/>
+    </select>
+    <select id="claimStale" resultMap="row">
+        WITH stale AS (
+            SELECT id FROM tb_blockchain_transactions
+             WHERE network IN
+             <foreach collection="networks" item="network" open="(" separator="," close=")">
+                 #{network}
+             </foreach>
+               AND status = 'PROCESSING'
+               AND updated_at &lt;= #{staleBefore}
+             ORDER BY updated_at, id LIMIT #{limit}
+             FOR UPDATE SKIP LOCKED
+        )
+        UPDATE tb_blockchain_transactions target
+           SET status = 'PROCESSING', updated_at = #{now}
+          FROM stale WHERE target.id = stale.id
+        RETURNING <include refid="targetColumns"/>
+    </select>
+    <select id="selectById" resultMap="row">SELECT <include refid="columns"/> FROM tb_blockchain_transactions WHERE id = #{transactionId}</select>
+    <select id="selectByNetworkAndIdempotencyKey" resultMap="row">SELECT <include refid="columns"/> FROM tb_blockchain_transactions WHERE network = #{network} AND idempotency_key = #{idempotencyKey}</select>
+    <insert id="insert">INSERT INTO tb_blockchain_transactions (id, reference_type, reference_id, network, transaction_type, idempotency_key, correlation_id, request_hash, transaction_id, status, error_code, error_message, operation_reason, requested_at, confirmed_at, retry_count, next_retry_at, response_metadata, created_at, updated_at) VALUES (#{id}, #{referenceType}, #{referenceId}, #{network}, #{transactionType}, #{idempotencyKey}, #{correlationId}, #{requestHash}, #{transactionId}, #{status}, #{errorCode}, #{errorMessage}, #{operationReason}, #{requestedAt}, #{confirmedAt}, #{retryCount}, #{nextRetryAt}, CAST(#{responseMetadata} AS jsonb), #{createdAt}, #{updatedAt})</insert>
+    <update id="update">UPDATE tb_blockchain_transactions SET transaction_id = #{transactionId}, status = #{status}, error_code = #{errorCode}, error_message = #{errorMessage}, operation_reason = #{operationReason}, confirmed_at = #{confirmedAt}, retry_count = #{retryCount}, next_retry_at = #{nextRetryAt}, response_metadata = CAST(#{responseMetadata} AS jsonb), updated_at = #{updatedAt} WHERE id = #{id}</update>
+</mapper>
