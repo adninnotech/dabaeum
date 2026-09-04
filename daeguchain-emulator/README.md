@@ -110,8 +110,8 @@ pm2 logs daeguchain-emulator
 
 ## 체인코드
 
-`chaincode/continualtion-edu/` 는 Fabric 에 배포된 Go 체인코드 원본이다. 백엔드 저장소에서
-옮겨왔다(백엔드는 이제 Fabric 을 직접 알지 못한다). 에뮬레이터는 이 체인코드의
+배포된 Go 체인코드 `continualtion-edu` 는 이 저장소에 포함하지 않는다(백엔드도 이제 Fabric 을
+직접 알지 못한다). 에뮬레이터는 이 체인코드의
 `CreateData`·`UpdateData`·`DeleteData`·`GetData`·`GetDataHistory` 를 호출하며, 키 규칙
 `^[A-Z0-9]{16}$` 과 값 규칙 `^1\|[ARS]\|[0-9a-f]{64}\|[1-9][0-9]{0,18}$` 은 여기에 정의돼 있다.
 체인코드를 바꾸면 peer 에 다시 배포해야 한다(원장 변경이므로 승인이 필요하다).

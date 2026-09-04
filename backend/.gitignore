@@ -2,10 +2,8 @@
 # dabaeum
 #
 # 원칙
-#   커밋한다  AGENTS.md · .codex/config.toml · docs/superpowers · docs/decisions
-#             docs/reports · gradle/wrapper/*.jar
-#             → 에이전트가 다음 세션에서 맥락을 되찾는 근거이자 팀 규약
-#   무시한다  빌드 산출물 · 에이전트 스크래치 · 파생 문서 · 인증정보
+#   커밋한다  소스 · 빌드 스크립트 · docs/api · gradle/wrapper/*.jar
+#   무시한다  빌드 산출물 · 작업용 임시 파일 · 파생 문서 · 인증정보
 # ─────────────────────────────────────────────
 
 ### Gradle · 빌드 ###
@@ -27,7 +25,7 @@ HELP.md
 
 # ─────────────────────────────────────────────
 # 인증정보
-# AGENTS.md "인증정보를 커밋하지 않는다"의 강제 장치.
+# "인증정보를 커밋하지 않는다" 규약의 강제 장치.
 # 비밀값은 저장소에 두지 않고 환경변수로만 주입한다.
 # Jasypt를 쓰는 경우 ENC(...) 값과 master password 모두 환경변수로 준다.
 # 이름이 아니라 확장자로 넓게 막는다 — 파일명은 언제든 달라진다.
@@ -67,9 +65,8 @@ known_hosts
 
 
 # ─────────────────────────────────────────────
-# 에이전트 작업 흔적
-# 계획(docs/superpowers) · 설계(docs/specs) · 보고서(docs/reports) · ADR은 커밋 대상이다.
-# 여기서 막는 것은 중간 산출물과 백업뿐이다.
+# 작업용 임시 파일
+# 중간 산출물과 백업만 막는다.
 # ─────────────────────────────────────────────
 _backup/
 _to_delete/
@@ -83,16 +80,9 @@ output/
 *.bak
 *.rej
 
-# 에이전트 로컬 상태 — *.local.* 이 붙으면 개인 설정이라는 관례를 따른다.
-# .codex/config.toml은 MCP 서버 규약이므로 커밋한다.
-.codex/sessions/
-.codex/*.local.toml
-.claude/settings.json
-.claude/settings.local.json
+# 개발 도구 로컬 상태 — *.local.* 이 붙으면 개인 설정이라는 관례를 따른다.
+*.local.toml
 .ua/
-.claude/sessions/
-.superpowers/cache/
-.aider*
 
 
 # ─────────────────────────────────────────────
