@@ -21,3 +21,12 @@ export async function confirmCompletion(enrollmentId, idempotencyKey) {
   });
   return unwrapData(payload);
 }
+
+/** 이수 확정 취소(관리자 정정) — 확정된 이수를 ELIGIBLE 로. 사유 필수, 수료증이 발급됐으면 409 CORRECTION_NOT_ALLOWED */
+export async function revertCompletion(enrollmentId, reason) {
+  const payload = await apiRequest(`/enrollments/${enrollmentId}/completion/revert`, {
+    method: 'POST',
+    body: { reason },
+  });
+  return unwrapData(payload);
+}

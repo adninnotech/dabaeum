@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.adn.dabaeum.file.infrastructure.mybatis.FileAccessMapper">
+    <!-- 단계 배지는 단계별 이미지를 rule_params.levels[].imageFileId(문자열)로 갖는다. -->
+    <sql id="tierImage">jsonb_build_array(jsonb_build_object('imageFileId', CAST(#{fileId} AS text)))</sql>
+
+    <select id="publiclyLinked" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM tb_users u
+             WHERE #{purpose} = 'PROFILE' AND u.profile_image_id = #{fileId}
+               AND u.status = 'ACTIVE'
+            UNION ALL
+            SELECT 1 FROM tb_courses c
+             WHERE #{purpose} = 'COURSE_THUMBNAIL' AND c.thumbnail_file_id = #{fileId}
+               AND c.deleted_at IS NULL AND c.status NOT IN ('DRAFT', 'CANCELLED')
+            UNION ALL
+            SELECT 1 FROM tb_courses c JOIN tb_course_attachments a ON a.course_id = c.id
+             WHERE #{purpose} = 'COURSE_ATTACHMENT' AND a.file_id = #{fileId}
+               AND a.deleted_at IS NULL AND c.deleted_at IS NULL
+               AND c.status NOT IN ('DRAFT', 'CANCELLED')
+            UNION ALL
+            SELECT 1 FROM tb_institutions i
+             WHERE #{purpose} = 'INSTITUTION_LOGO' AND i.logo_file_id = #{fileId}
+               AND i.deleted_at IS NULL AND i.status = 'ACTIVE'
+            UNION ALL
+            SELECT 1 FROM tb_notices n JOIN tb_notice_attachments a ON a.notice_id = n.id
+             WHERE #{purpose} = 'NOTICE_ATTACHMENT' AND a.file_id = #{fileId}
+               AND a.deleted_at IS NULL AND n.status = 'PUBLISHED'
+               AND n.published_at &lt;= #{now}
+            UNION ALL
+            SELECT 1 FROM tb_banners b
+             WHERE #{purpose} = 'BANNER' AND (b.pc_image_file_id = #{fileId}
+               OR b.mobile_image_file_id = #{fileId}) AND b.deleted_at IS NULL
+               AND (b.visibility = 'PUBLIC' OR (b.visibility = 'SCHEDULED'
+                 AND b.start_at &lt;= #{now} AND b.end_at &gt;= #{now}))
+            UNION ALL
+            SELECT 1 FROM tb_badge_definitions d
+             WHERE #{purpose} = 'BADGE_IMAGE' AND (d.image_file_id = #{fileId}
+               OR d.rule_params -> 'levels' @> <include refid="tierImage"/>)
+               AND d.active = TRUE
+        )
+    </select>
+
+    <select id="linked" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM tb_users u WHERE #{purpose} = 'PROFILE' AND u.profile_image_id = #{fileId}
+            UNION ALL
+            SELECT 1 FROM tb_courses c WHERE #{purpose} = 'COURSE_THUMBNAIL' AND c.thumbnail_file_id = #{fileId}
+            UNION ALL
+            SELECT 1 FROM tb_course_attachments a WHERE #{purpose} = 'COURSE_ATTACHMENT' AND a.file_id = #{fileId}
+            UNION ALL
+            SELECT 1 FROM tb_institutions i WHERE #{purpose} = 'INSTITUTION_LOGO' AND i.logo_file_id = #{fileId}
+            UNION ALL
+            SELECT 1 FROM tb_notice_attachments a WHERE #{purpose} = 'NOTICE_ATTACHMENT' AND a.file_id = #{fileId}
+            UNION ALL
+            SELECT 1 FROM tb_banners b WHERE #{purpose} = 'BANNER'
+               AND (b.pc_image_file_id = #{fileId} OR b.mobile_image_file_id = #{fileId})
+            UNION ALL
+            SELECT 1 FROM tb_badge_definitions d WHERE #{purpose} = 'BADGE_IMAGE' AND (d.image_file_id = #{fileId}
+               OR d.rule_params -> 'levels' @> <include refid="tierImage"/>)
+        )
+    </select>
+
+    <select id="managedByInstitution" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM tb_courses c WHERE #{purpose} = 'COURSE_THUMBNAIL'
+               AND c.thumbnail_file_id = #{fileId} AND c.institution_id = #{institutionId}
+            UNION ALL
+            SELECT 1 FROM tb_courses c JOIN tb_course_attachments a ON a.course_id = c.id
+             WHERE #{purpose} = 'COURSE_ATTACHMENT' AND a.file_id = #{fileId}
+               AND c.institution_id = #{institutionId}
+            UNION ALL
+            SELECT 1 FROM tb_institutions i WHERE #{purpose} = 'INSTITUTION_LOGO'
+               AND i.logo_file_id = #{fileId} AND i.id = #{institutionId}
+        )
+    </select>
+</mapper>

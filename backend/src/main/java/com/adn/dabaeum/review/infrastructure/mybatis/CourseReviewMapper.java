@@ -22,11 +22,12 @@ public interface CourseReviewMapper {
 
     List<CourseReviewViewRow> selectByUserId(
         @Param("userId") UUID userId,
+        @Param("keyword") String keyword,
         @Param("limit") int limit,
         @Param("offset") int offset
     );
 
-    long countByUserId(@Param("userId") UUID userId);
+    long countByUserId(@Param("userId") UUID userId, @Param("keyword") String keyword);
 
     List<CourseReviewViewRow> selectByCourseId(
         @Param("courseId") UUID courseId,
@@ -35,4 +36,10 @@ public interface CourseReviewMapper {
     );
 
     long countByCourseId(@Param("courseId") UUID courseId);
+
+    ReviewSummaryRow summarizeByCourseId(@Param("courseId") UUID courseId);
+
+    ReviewSummaryRow summarizeByUserId(@Param("userId") UUID userId);
+
+    long countWritable(@Param("userId") UUID userId);
 }

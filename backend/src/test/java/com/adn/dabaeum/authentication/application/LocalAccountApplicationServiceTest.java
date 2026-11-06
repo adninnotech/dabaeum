@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.adn.dabaeum.authentication.domain.LocalAccountCredential;
 import com.adn.dabaeum.authentication.domain.LocalAccountRepository;
+import com.adn.dabaeum.authentication.domain.LoginAttemptRepository;
 import com.adn.dabaeum.common.api.ApiErrorCode;
 import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.identity.application.IdentityIdGenerator;
@@ -19,6 +20,7 @@ import com.adn.dabaeum.role.domain.UserRoleAssignment;
 import com.adn.dabaeum.role.domain.UserRoleRepository;
 import com.adn.dabaeum.user.application.UserIdGenerator;
 import com.adn.dabaeum.user.domain.User;
+import com.adn.dabaeum.user.domain.UserAgreementRepository;
 import com.adn.dabaeum.user.domain.UserRepository;
 import com.adn.dabaeum.user.domain.UserStatus;
 import java.nio.charset.StandardCharsets;
@@ -58,10 +60,12 @@ class LocalAccountApplicationServiceTest {
     @Mock LocalAccountRepository localAccountRepository;
     @Mock UserRepository userRepository;
     @Mock UserRoleRepository userRoleRepository;
+    @Mock UserAgreementRepository userAgreementRepository;
     @Mock UserIdGenerator userIdGenerator;
     @Mock IdentityIdGenerator identityIdGenerator;
     @Mock RoleIdGenerator roleIdGenerator;
     @Mock LocalAccessTokenService tokenService;
+    @Mock LoginAttemptRepository loginAttempts;
 
     private PasswordEncoder passwordEncoder;
     private LocalAccountApplicationService service;
@@ -73,11 +77,13 @@ class LocalAccountApplicationServiceTest {
             localAccountRepository,
             userRepository,
             userRoleRepository,
+            userAgreementRepository,
             userIdGenerator,
             identityIdGenerator,
             roleIdGenerator,
             passwordEncoder,
             tokenService,
+            loginAttempts,
             Clock.fixed(NOW, ZoneOffset.UTC)
         );
     }
@@ -91,7 +97,10 @@ class LocalAccountApplicationServiceTest {
             RAW_PASSWORD,
             " 홍길동 ",
             " 010-1234-5678 ",
-            LocalDate.of(1995, 5, 10)
+            LocalDate.of(1995, 5, 10),
+            true,
+            true,
+            false
         ));
 
         ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
@@ -175,6 +184,16 @@ class LocalAccountApplicationServiceTest {
     }
 
     @Test
+    void signupRejectsEmailWithoutDottedDomain() {
+        assertThatThrownBy(() -> service.signup(signup("a@b", "password12")))
+            .isInstanceOfSatisfying(ApiException.class, exception -> {
+                assertThat(exception.status().value()).isEqualTo(422);
+                assertThat(exception.details()).containsExactly("email");
+            });
+        verify(localAccountRepository, never()).save(any());
+    }
+
+    @Test
     void signupRejectsShortAndUtf8Over72BytePasswords() {
         assertApiError(
             () -> service.signup(signup("one@example.com", "short")),
@@ -212,8 +231,20 @@ class LocalAccountApplicationServiceTest {
 
         verify(localAccountRepository).findByNormalizedEmail("learner@example.com");
         verify(tokenService).issue(USER_ID);
+        verify(userRepository).recordLastLogin(USER_ID, NOW);
         assertThat(result.roles()).singleElement()
             .satisfies(role -> assertThat(role.role()).isEqualTo("LEARNER"));
+    }
+
+    @Test
+    void loginFailsClosedDoesNotRecordLastLogin() {
+        when(localAccountRepository.findByNormalizedEmail("a@b.kr"))
+            .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.login(new LoginCommand("a@b.kr", "wrong-pass1")))
+            .isInstanceOf(ApiException.class);
+
+        verify(userRepository, never()).recordLastLogin(any(), any());
     }
 
     @Test
@@ -250,7 +281,7 @@ class LocalAccountApplicationServiceTest {
     }
 
     private SignupCommand signup(String email, String password) {
-        return new SignupCommand(email, password, "학습자", null, null);
+        return new SignupCommand(email, password, "학습자", null, null, true, true, false);
     }
 
     private void stubCompleteIssuance() {

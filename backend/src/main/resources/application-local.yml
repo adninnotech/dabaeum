@@ -4,8 +4,8 @@ dabaeum:
     mask-sensitive: false
   ssh-tunnel:
     enabled: true
-    host: ${DABAEUM_SSH_HOST}
-    port: ${DABAEUM_SSH_PORT:22}
+    host: 118.45.182.100
+    port: 22880
     username: ${DABAEUM_SSH_USERNAME}
     password: ${DABAEUM_SSH_PASSWORD}
     local-host: 127.0.0.1
@@ -17,9 +17,26 @@ dabaeum:
     auth-timeout: 10s
   security:
     dev:
-      bearer-token: ${DABAEUM_DEV_BEARER_TOKEN}
+      bearer-token: ${DABAEUM_DEV_BEARER_TOKEN:adninnotech}
+    # 프론트 개발 서버가 localhost 출처에서 API 를 부른다. dev·운영은 비워 둔다(닫힘).
+    cors:
+      allowed-origins: http://localhost:*,http://127.0.0.1:*
+    # local 전용 JWT 키. dev 는 서버 env 로 받고, dev 에서 local-* kid 로 뜨면 기동을 거부한다.
+    local-account:
+      jwt:
+        key-id: local-1
+        signing-key: ${DABAEUM_JWT_SIGNING_KEY}
+    # 다대구(대구체인) QR 로그인. private-key 는 포털에서 받은 RSA 개인키(PKCS#8 Base64 한 줄).
+    # 로그인은 requiredVC=Name:PhoneNum:Birthdate 로 요청한다 — 이름·전화·생년월일을
+    # 복호화해 tb_users 에 저장하고, ci·성별·내외국인은 받아도 무시한다.
+    dadaegu:
+      site-id: ${DABAEUM_DADAEGU_SITE_ID}
+      private-key: ${DABAEUM_DADAEGU_PRIVATE_KEY}
 
 spring:
+  config:
+    # 비밀은 프로젝트 루트의 local-secrets.env(커밋 안 함)에서 읽는다. 이름은 local-secrets.env.example 을 본다.
+    import: optional:file:local-secrets.env[.properties]
   datasource:
     url: jdbc:postgresql://127.0.0.1:15432/dabaeum_dev
     username: ${DABAEUM_DB_USERNAME}

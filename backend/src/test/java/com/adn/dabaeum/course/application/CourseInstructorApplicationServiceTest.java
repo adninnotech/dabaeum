@@ -14,6 +14,7 @@ import com.adn.dabaeum.course.domain.Course;
 import com.adn.dabaeum.course.domain.CourseEducationType;
 import com.adn.dabaeum.course.domain.CourseInstructor;
 import com.adn.dabaeum.course.domain.CourseInstructorRepository;
+import com.adn.dabaeum.course.domain.CourseDetail;
 import com.adn.dabaeum.course.domain.CourseInstructorRole;
 import com.adn.dabaeum.course.domain.CourseRepository;
 import com.adn.dabaeum.course.domain.CourseStatus;
@@ -113,6 +114,41 @@ class CourseInstructorApplicationServiceTest {
     }
 
     @Test
+    void hidesProfileFieldsWhenInstructorProfileVisibleIsFalse() {
+        Course hiddenProfileCourse = hiddenProfileCourse();
+        when(courses.findActiveById(COURSE_ID)).thenReturn(Optional.of(hiddenProfileCourse));
+        when(users.findById(INSTRUCTOR_ID)).thenReturn(Optional.of(userWithProfile()));
+        when(instructors.findByCourseId(COURSE_ID)).thenReturn(List.of(
+            assignment(CourseInstructorRole.MAIN)
+        ));
+
+        List<CourseInstructorView> views = service.list(COURSE_ID);
+
+        assertThat(views).hasSize(1);
+        CourseInstructorView view = views.get(0);
+        assertThat(view.instructorName()).isEqualTo("강사");
+        assertThat(view.instructorEmail()).isEqualTo("instructor@example.com");
+        assertThat(view.introduction()).isNull();
+        assertThat(view.career()).isNull();
+        assertThat(view.profileImageId()).isNull();
+    }
+
+    @Test
+    void showsProfileFieldsWhenInstructorProfileVisibleIsTrue() {
+        when(courses.findActiveById(COURSE_ID)).thenReturn(Optional.of(course()));
+        when(users.findById(INSTRUCTOR_ID)).thenReturn(Optional.of(userWithProfile()));
+        when(instructors.findByCourseId(COURSE_ID)).thenReturn(List.of(
+            assignment(CourseInstructorRole.MAIN)
+        ));
+
+        CourseInstructorView view = service.list(COURSE_ID).get(0);
+
+        assertThat(view.introduction()).isEqualTo("소개");
+        assertThat(view.career()).isEqualTo("경력");
+        assertThat(view.profileImageId()).isNotNull();
+    }
+
+    @Test
     void rejectsUserWithoutScopedInstructorRole() {
         when(courses.findActiveById(COURSE_ID)).thenReturn(Optional.of(course()));
         when(users.findById(INSTRUCTOR_ID)).thenReturn(Optional.of(user()));
@@ -200,6 +236,23 @@ class CourseInstructorApplicationServiceTest {
             INSTRUCTOR_ID, "강사", "instructor@example.com", "010-1111-2222",
             null, UserStatus.ACTIVE, null, NOW, NOW
         );
+    }
+
+    private User userWithProfile() {
+        return user().withProfile(
+            "강사", "instructor@example.com", "010-1111-2222", null,
+            "경력", "소개", UUID.randomUUID(), NOW
+        );
+    }
+
+    private Course hiddenProfileCourse() {
+        return course().withDetail(new CourseDetail(
+                null, Set.of(), false,
+                com.adn.dabaeum.course.domain.CourseFeeType.FREE, null,
+                com.adn.dabaeum.course.domain.CourseFeeType.FREE, null,
+                false, null, null, false,
+                null, null, null,
+                com.adn.dabaeum.course.domain.CourseSelectionMethod.FCFS, null));
     }
 
     private UserRoleAssignment instructorRole() {

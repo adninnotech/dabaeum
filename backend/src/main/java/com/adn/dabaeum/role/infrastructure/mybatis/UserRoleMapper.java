@@ -18,6 +18,11 @@ public interface UserRoleMapper {
 
     List<UserRoleRow> selectByUserId(@Param("userId") UUID userId);
 
+    List<UserRoleSummaryRow> selectSummariesByUserIds(@Param("ids") List<UUID> ids);
+
+    List<InstitutionAdministratorRow> selectInstitutionAdministrators(
+        @Param("institutionId") UUID institutionId);
+
     List<UserRoleRow> selectByUserIdAndInstitution(
         @Param("userId") UUID userId,
         @Param("institutionId") UUID institutionId

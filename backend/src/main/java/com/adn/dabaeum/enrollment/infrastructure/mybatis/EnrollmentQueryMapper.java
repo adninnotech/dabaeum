@@ -36,18 +36,42 @@ public interface EnrollmentQueryMapper {
         @Param("status") String status
     );
 
+    List<InstitutionEnrollmentViewRow> selectAllEnrollments(
+        @Param("status") String status,
+        @Param("institutionId") UUID institutionId,
+        @Param("courseId") UUID courseId,
+        @Param("educationType") String educationType,
+        @Param("keyword") String keyword,
+        @Param("limit") int limit,
+        @Param("offset") int offset,
+        @Param("sortField") String sortField,
+        @Param("sortDirection") String sortDirection
+    );
+
+    long countAllEnrollments(
+        @Param("status") String status,
+        @Param("institutionId") UUID institutionId,
+        @Param("courseId") UUID courseId,
+        @Param("educationType") String educationType,
+        @Param("keyword") String keyword
+    );
+
     LearningSummaryRow selectLearningSummary(@Param("userId") UUID userId);
+
+    LearningActivityRow selectLearningActivity(@Param("userId") UUID userId);
 
     List<LearningCourseViewRow> selectLearningCourses(
         @Param("userId") UUID userId,
         @Param("learningStatus") String learningStatus,
+        @Param("keyword") String keyword,
         @Param("limit") int limit,
         @Param("offset") int offset
     );
 
     long countLearningCourses(
         @Param("userId") UUID userId,
-        @Param("learningStatus") String learningStatus
+        @Param("learningStatus") String learningStatus,
+        @Param("keyword") String keyword
     );
 
     List<EnrollmentProgressViewRow> selectInstructorEnrollmentProgress(

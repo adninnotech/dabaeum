@@ -40,6 +40,8 @@ public final class DefaultCredentialFabricReconciler implements CredentialFabric
     private final BlockchainRegistryPort registry;
     private final TransactionTemplate transactions;
     private final RegistryTarget target;
+    /** 있으면 ISSUING 확정 직전에 서명 키를 다시 본다 (§8.1 10단계). */
+    private final SigningKeyFinalizeCheck finalizeCheck;
 
     public DefaultCredentialFabricReconciler(
         BlockchainTransactionRepository transactionRepository,
@@ -59,7 +61,6 @@ public final class DefaultCredentialFabricReconciler implements CredentialFabric
             RegistryTarget.FABRIC_POC);
     }
 
-    @Autowired
     public DefaultCredentialFabricReconciler(
         BlockchainTransactionRepository transactionRepository,
         CredentialRepository credentialRepository,
@@ -67,12 +68,25 @@ public final class DefaultCredentialFabricReconciler implements CredentialFabric
         PlatformTransactionManager transactionManager,
         RegistryTarget target
     ) {
+        this(transactionRepository, credentialRepository, registry, transactionManager, target, null);
+    }
+
+    @Autowired
+    public DefaultCredentialFabricReconciler(
+        BlockchainTransactionRepository transactionRepository,
+        CredentialRepository credentialRepository,
+        BlockchainRegistryPort registry,
+        PlatformTransactionManager transactionManager,
+        RegistryTarget target,
+        SigningKeyFinalizeCheck finalizeCheck
+    ) {
         this.transactionRepository = Objects.requireNonNull(transactionRepository);
         this.credentialRepository = Objects.requireNonNull(credentialRepository);
         this.registry = Objects.requireNonNull(registry);
         this.transactions = transactionManager == null
             ? null : new TransactionTemplate(transactionManager);
         this.target = Objects.requireNonNull(target, "target");
+        this.finalizeCheck = finalizeCheck;
     }
 
     @Override
@@ -117,6 +131,11 @@ public final class DefaultCredentialFabricReconciler implements CredentialFabric
                 .orElse(credential);
             if (current.status() == CredentialStatus.ISSUING) {
                 requireMaterial(current);
+                SigningKeyFinalizeCheck.Outcome outcome = finalizeOutcome(current.id());
+                if (outcome != SigningKeyFinalizeCheck.Outcome.ALLOW) {
+                    rejectAtFinalize(current, transaction, reference(credential), outcome, now);
+                    return null;
+                }
                 credentialRepository.update(current.markIssued(
                     current.vcPayload(), current.vcHash(), current.issuerIdentifier(),
                     current.subjectIdentifier(), current.validFrom(), current.issuedAt()));
@@ -134,6 +153,19 @@ public final class DefaultCredentialFabricReconciler implements CredentialFabric
 
     private void reconcileRevoke(BlockchainTransaction transaction, Instant now) {
         Credential credential = credential(transaction);
+        if (CompensatingRevoke.isCompensation(credential)) {
+            CredentialRegistryState compensationState;
+            try {
+                compensationState = registry.getCredentialState(reference(credential));
+            } catch (RuntimeException exception) {
+                // 보정은 실패로 닫으면 멱등키 때문에 다시 넣을 수 없다. 원장 조회 오류는 코드와 무관하게 재시도한다.
+                retry(transaction, exception instanceof BlockchainRegistryException registryException
+                    ? registryException.code() : "BLOCKCHAIN_READ_FAILED", now);
+                return;
+            }
+            reconcileCompensation(transaction, credential, compensationState, now);
+            return;
+        }
         CredentialRegistryState state = registry.getCredentialState(reference(credential));
         if (!matching(state, credential) || state.status() != RegistryStatus.REVOKED) {
             fail(transaction, "BLOCKCHAIN_LEDGER_CONFLICT", now);
@@ -183,6 +215,11 @@ public final class DefaultCredentialFabricReconciler implements CredentialFabric
             if (old.status() == CredentialStatus.ISSUED
                 && current.status() == CredentialStatus.ISSUING) {
                 requireMaterial(current);
+                SigningKeyFinalizeCheck.Outcome outcome = finalizeOutcome(current.id());
+                if (outcome != SigningKeyFinalizeCheck.Outcome.ALLOW) {
+                    rejectAtFinalize(current, transaction, reference(replacement), outcome, now);
+                    return null;
+                }
                 credentialRepository.update(old.markSuperseded(now));
                 credentialRepository.update(current.markIssued(
                     current.vcPayload(), current.vcHash(), current.issuerIdentifier(),
@@ -242,6 +279,49 @@ public final class DefaultCredentialFabricReconciler implements CredentialFabric
         if (credential.status() == CredentialStatus.ISSUING) {
             credentialRepository.update(credential.markFailed(
                 code, "Credential blockchain operation failed", now));
+        }
+    }
+
+    private SigningKeyFinalizeCheck.Outcome finalizeOutcome(UUID credentialId) {
+        return finalizeCheck == null ? SigningKeyFinalizeCheck.Outcome.ALLOW : finalizeCheck.check(credentialId);
+    }
+
+    /** 워커의 확정 거부와 같다. 원장 기록은 사실이므로 트랜잭션은 확정하고 수료증만 FAILED, R 보정을 남긴다. */
+    private void rejectAtFinalize(
+        Credential current,
+        BlockchainTransaction transaction,
+        CredentialRegistryReference reference,
+        SigningKeyFinalizeCheck.Outcome outcome,
+        Instant now
+    ) {
+        String code = SigningKeyFinalizeCheck.finalizeCode(outcome);
+        credentialRepository.update(current.markFailed(
+            code, "Signing key was withdrawn before issuance was finalized", now));
+        confirm(transaction, reference, now);
+        CompensatingRevoke.insertOnce(transactionRepository, transaction, code, now);
+    }
+
+    /**
+     * 처리 중에 멈춘 보정. FAILED 수료증에는 해시가 없어 원장 참조만 대조한다. 원장이 아직 ACTIVE 면 실패로
+     * 닫지 않고 재시도로 돌려 워커가 다시 R 을 쓰게 한다 — 실패로 닫으면 보정이 사라진다.
+     */
+    private void reconcileCompensation(
+        BlockchainTransaction transaction,
+        Credential credential,
+        CredentialRegistryState state,
+        Instant now
+    ) {
+        if (!reference(credential).chainKey().equals(state.chainKey())) {
+            fail(transaction, "BLOCKCHAIN_LEDGER_CONFLICT", now);
+        } else if (state.status() == RegistryStatus.REVOKED) {
+            inTransaction(() -> {
+                confirm(transaction, reference(credential), now);
+                return null;
+            });
+        } else if (state.status() == RegistryStatus.ACTIVE) {
+            retry(transaction, "BLOCKCHAIN_COMPENSATION_PENDING", now);
+        } else {
+            fail(transaction, "BLOCKCHAIN_LEDGER_CONFLICT", now);
         }
     }
 

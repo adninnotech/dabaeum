@@ -1,5 +1,8 @@
-import { educationTypeLabel, statusLabel } from '@/utils/status';
+import { shouldShowEducationTypeUI } from '@/config/features';
+import { EDUCATION_TYPE_LABEL, educationTypeLabel, statusLabel } from '@/utils/status';
 import { formatDateKst } from '@/utils/datetime';
+
+const EDUCATION_TYPE_BADGE_LABELS = new Set(Object.values(EDUCATION_TYPE_LABEL));
 
 const PLACEHOLDER_IMAGES = [
   'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=640&q=80',
@@ -24,7 +27,7 @@ function weeksBetween(start, end) {
 /** API Course → 목록 카드 UI 모델 */
 export function toCourseCard(course, institutionName = '') {
   const badges = [];
-  if (course.educationType) {
+  if (shouldShowEducationTypeUI() && course.educationType) {
     badges.push(educationTypeLabel(course.educationType));
   }
   if (course.creditBankEligible) badges.push('학점은행제 인정');
@@ -39,14 +42,28 @@ export function toCourseCard(course, institutionName = '') {
     institution: institutionName || course.institutionName || '교육기관',
     institutionName: institutionName || course.institutionName || '교육기관',
     duration: weeksBetween(course.startDate, course.endDate),
-    level: educationTypeLabel(course.educationType),
+    level: shouldShowEducationTypeUI() ? educationTypeLabel(course.educationType) : '',
     recruitStatus: statusLabel(course.status),
     recruitEnd: formatDateDot(course.recruitEndDate),
     priceLabel: '문의',
-    location: course.location || (course.educationType === 'ONLINE' ? '온라인' : '-'),
+    location:
+      course.location ||
+      (shouldShowEducationTypeUI() && course.educationType === 'ONLINE' ? '온라인' : '-'),
     period: `${formatDateDot(course.startDate)} - ${formatDateDot(course.endDate)}`,
     creditLabel: course.creditBankEligible ? `${course.creditValue || '-'}학점` : '',
     badges,
     image: course.image || PLACEHOLDER_IMAGES[hash % PLACEHOLDER_IMAGES.length],
   };
+}
+
+/** 교육 유형 컬럼 제외 (테이블용) */
+export function filterEducationTypeColumn(columns) {
+  if (shouldShowEducationTypeUI()) return columns || [];
+  return (columns || []).filter((col) => col.name !== 'educationType');
+}
+
+/** 카드 뱃지에서 교육 유형 라벨 제거 */
+export function filterEducationTypeBadges(badges) {
+  if (shouldShowEducationTypeUI()) return badges || [];
+  return (badges || []).filter((label) => !EDUCATION_TYPE_BADGE_LABELS.has(label));
 }

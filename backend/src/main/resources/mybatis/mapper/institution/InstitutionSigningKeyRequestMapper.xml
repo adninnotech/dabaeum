@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.institution.infrastructure.mybatis.InstitutionSigningKeyRequestMapper">
+
+    <insert id="insert">
+        INSERT INTO tb_outbox_events (
+            id, aggregate_type, aggregate_id, event_type, payload, status,
+            occurred_at, created_at
+        ) VALUES (
+            #{request.id}, 'INSTITUTION', #{request.institutionId}, 'INSTITUTION_SIGNING_KEYS_REQUESTED',
+            jsonb_build_object('institutionId', CAST(#{request.institutionId} AS TEXT),
+                               'requestedBy', CAST(#{request.requestedBy} AS TEXT)), 'PENDING',
+            #{request.requestedAt}, #{request.requestedAt}
+        )
+    </insert>
+
+</mapper>

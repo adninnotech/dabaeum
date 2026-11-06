@@ -165,8 +165,17 @@ class IntegrationOperationConstraintIntegrationTest
             """, Integer.class);
 
         // V13까지의 도메인 테이블 25개 + V14 프론트 지원 테이블 11개
-        // + V18 관리자 정정 이력 + V19 Credential 상태목록.
-        assertThat(domainTables).isEqualTo(38);
+        // + V18 관리자 정정 이력 + V19 Credential 상태목록 + V22 기관 서명키 4개 (V20·V21 은 CHECK 만)
+        // + V26 카테고리 마스터 1개 + V29 과정 첨부파일 1개 + V33 약관 동의 이력 1개
+        // + V37 공지 첨부파일 1개 + V38 배너 1개 + V39 학번 카운터·가입 토큰 2개
+        // + V40 관리자 접속기록 1개 + V41 강좌 분류 1개 − V42 옛 카테고리 1개
+        // + V43 배지 정의 1개 + V44 조회 salt·조회 로그·인기 집계 3개
+        // + V46 포트폴리오 공유 1개 + V47 콘텐츠 페이지·사이트 메뉴 2개 + V49 배지 변동 이력 1개
+        // + V53 공공데이터 강좌·수집 이력 2개 + V54 추천 노출 로그 1개
+        // + V55 추천 모델 실행 이력·점수 2개 (V56·V57 은 컬럼만) + V58 NFT 발행 1개
+        // + V59 이용 통계 원문·일별 집계·검색어 집계·집계 완료일 4개 + V60 이용 통계 salt 1개
+        // + V61 회원 관심 분야 1개 - V62 평생학번 카운터 1개.
+        assertThat(domainTables).isEqualTo(69);
     }
 
     private UUID insertExternalSystem() {

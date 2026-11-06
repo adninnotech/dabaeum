@@ -6,15 +6,16 @@ import com.adn.dabaeum.authorization.application.AuthorizationPolicy;
 import com.adn.dabaeum.common.api.ApiErrorCode;
 import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.security.AuthenticatedUserContext;
+import com.adn.dabaeum.completion.config.CompletionProperties;
 import com.adn.dabaeum.completion.domain.Completion;
 import com.adn.dabaeum.completion.domain.CompletionConfirmedEvent;
 import com.adn.dabaeum.completion.domain.CompletionOutboxRepository;
 import com.adn.dabaeum.completion.domain.CompletionRepository;
 import com.adn.dabaeum.completion.domain.CompletionStatus;
 import com.adn.dabaeum.completion.domain.CompletionStatusPolicy;
+import com.adn.dabaeum.course.application.CourseInstructorAssignments;
 import com.adn.dabaeum.course.domain.Course;
 import com.adn.dabaeum.course.domain.CourseInstructorRepository;
-import com.adn.dabaeum.course.domain.CourseInstructorRole;
 import com.adn.dabaeum.course.domain.CourseRepository;
 import com.adn.dabaeum.course.domain.CourseSessionRepository;
 import com.adn.dabaeum.enrollment.domain.Enrollment;
@@ -52,7 +53,10 @@ public class DefaultCompletionApplicationService implements CompletionApplicatio
     private final CompletionStatusPolicy statusPolicy = new CompletionStatusPolicy();
     private final CredentialGroupRepository credentialGroupRepository;
     private final AdminCorrectionRepository corrections;
+    private final CompletionProperties properties;
     private final Clock clock;
+
+    private final List<CompletionConfirmedListener> confirmedListeners;
 
     public DefaultCompletionApplicationService(
         CompletionRepository completionRepository,
@@ -66,11 +70,15 @@ public class DefaultCompletionApplicationService implements CompletionApplicatio
         AuthorizationPolicy authorizationPolicy,
         CredentialGroupRepository credentialGroupRepository,
         AdminCorrectionRepository corrections,
-        Clock clock
+        CompletionProperties properties,
+        Clock clock,
+        List<CompletionConfirmedListener> confirmedListeners
     ) {
+        this.confirmedListeners = List.copyOf(confirmedListeners);
         this.credentialGroupRepository = Objects.requireNonNull(
             credentialGroupRepository, "credentialGroupRepository");
         this.corrections = Objects.requireNonNull(corrections, "corrections");
+        this.properties = Objects.requireNonNull(properties, "properties");
         this.completionRepository = Objects.requireNonNull(completionRepository);
         this.outboxRepository = Objects.requireNonNull(outboxRepository);
         this.idGenerator = Objects.requireNonNull(idGenerator);
@@ -118,6 +126,11 @@ public class DefaultCompletionApplicationService implements CompletionApplicatio
         // 판정에는 항상 서버 계산값을 쓴다. 호출자가 보낸 값은 참고용이라 불일치해도 거부하지 않는다.
         command = withServerMetrics(command, metrics, course);
         String reason = normalizeReason(command.failureReason());
+        if (reason == null && command.attendanceRate().compareTo(properties.minAttendanceRate()) < 0) {
+            // 이수 기준 출석률 미만은 사유가 없어도 미이수다(QA CMP-03). 호출자가 준 사유는 그대로 둔다.
+            reason = "출석률 미달 (" + command.attendanceRate().toPlainString() + "% < "
+                + properties.minAttendanceRate().stripTrailingZeros().toPlainString() + "%)";
+        }
         CompletionStatus nextStatus = reason == null
             ? CompletionStatus.ELIGIBLE : CompletionStatus.NOT_COMPLETED;
 
@@ -177,6 +190,9 @@ public class DefaultCompletionApplicationService implements CompletionApplicatio
         }
         outboxRepository.save(new CompletionConfirmedEvent(
             UUID.randomUUID(), completed.id(), completed.enrollmentId(), course.id(), now));
+        for (CompletionConfirmedListener listener : confirmedListeners) {
+            listener.onCompletionConfirmed(completed.id(), enrollment.userId(), course.id(), now);
+        }
         return completed;
     }
 
@@ -263,6 +279,9 @@ public class DefaultCompletionApplicationService implements CompletionApplicatio
             UUID.randomUUID(), CorrectionTargetType.COMPLETION, current.id(),
             CompletionStatus.COMPLETED.name(), CompletionStatus.ELIGIBLE.name(),
             correctionReason, context.userId(), now));
+        for (CompletionConfirmedListener listener : confirmedListeners) {
+            listener.onCompletionReverted(current.id(), enrollment.userId(), enrollment.courseId(), now);
+        }
         return reverted;
     }
 
@@ -291,15 +310,8 @@ public class DefaultCompletionApplicationService implements CompletionApplicatio
         Course course,
         boolean mainOnly
     ) {
-        if (context == null || context.roles().stream().noneMatch(role ->
-            "INSTRUCTOR".equals(role.role())
-                && Objects.equals(role.institutionId(), course.institutionId()))) {
-            return false;
-        }
-        return mainOnly
-            ? instructorRepository.existsByCourseIdAndUserIdAndRole(
-                course.id(), context.userId(), CourseInstructorRole.MAIN)
-            : instructorRepository.existsByCourseIdAndUserId(course.id(), context.userId());
+        return CourseInstructorAssignments.isAssigned(
+            instructorRepository, context, course, mainOnly);
     }
 
     private Enrollment findEnrollment(UUID enrollmentId) {
@@ -327,7 +339,7 @@ public class DefaultCompletionApplicationService implements CompletionApplicatio
     }
 
     private ApiException validation(String field) {
-        return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+        return new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
             ApiErrorCode.VALIDATION_FAILED, "Request validation failed", List.of(field));
     }
 

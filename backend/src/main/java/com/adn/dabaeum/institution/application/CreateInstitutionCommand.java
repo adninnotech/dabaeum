@@ -10,6 +10,9 @@ public record CreateInstitutionCommand(
     String address,
     String contactPhone,
     String contactEmail,
-    InstitutionStatus status
+    InstitutionStatus status,
+    String homepageUrl,
+    String region,
+    java.util.UUID logoFileId
 ) {
 }

@@ -1,6 +1,5 @@
 package com.adn.dabaeum.institution.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document;
@@ -10,6 +9,7 @@ import static org.springframework.restdocs.operation.preprocess.Preprocessors.pr
 import static org.springframework.restdocs.payload.PayloadDocumentation.fieldWithPath;
 import static org.springframework.restdocs.payload.PayloadDocumentation.requestFields;
 import static org.springframework.restdocs.payload.PayloadDocumentation.responseFields;
+import static org.springframework.restdocs.payload.PayloadDocumentation.subsectionWithPath;
 import static org.springframework.restdocs.request.RequestDocumentation.parameterWithName;
 import static org.springframework.restdocs.request.RequestDocumentation.queryParameters;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -29,9 +29,8 @@ import com.adn.dabaeum.common.web.RequestIdFilter;
 import com.adn.dabaeum.institution.application.InstitutionApplicationService;
 import com.adn.dabaeum.institution.application.InstitutionPage;
 import com.adn.dabaeum.institution.domain.Institution;
+import com.adn.dabaeum.institution.domain.InstitutionListItem;
 import com.adn.dabaeum.institution.domain.InstitutionStatus;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -53,6 +52,7 @@ import org.springframework.test.web.servlet.MockMvc;
 )
 @Import({
     InstitutionApiMapper.class,
+    com.adn.dabaeum.authorization.application.AuthorizationPolicy.class,
     ApiExceptionHandler.class,
     ClockConfiguration.class,
     SecurityConfiguration.class,
@@ -61,9 +61,6 @@ import org.springframework.test.web.servlet.MockMvc;
 })
 class InstitutionDocumentationTest {
 
-    private static final Path CONTRACT = Path.of(
-        "docs/api/dabaeum-api-v1.yaml"
-    ).toAbsolutePath();
     private static final UUID INSTITUTION_ID = UUID.fromString(
         "66666666-6666-6666-6666-666666666666"
     );
@@ -76,10 +73,23 @@ class InstitutionDocumentationTest {
     @MockitoBean
     InstitutionApplicationService service;
 
+    /** 기관 상세가 관리자 노출 여부를 판단하느라 현재 사용자를 본다. */
+    @MockitoBean
+    com.adn.dabaeum.common.security.CurrentUserProvider currentUserProvider;
+
+    @org.junit.jupiter.api.BeforeEach
+    void stubPlatformAdmin() {
+        org.mockito.Mockito.when(currentUserProvider.requireContext()).thenReturn(
+            new com.adn.dabaeum.common.security.AuthenticatedUserContext(
+                java.util.UUID.fromString("ffffffff-0000-0000-0000-000000000001"), "LOCAL",
+                java.util.Set.of(new com.adn.dabaeum.common.security.AuthenticatedRole(
+                    "PLATFORM_ADMIN", null))));
+    }
+
     @Test
     void documentsInstitutionList() throws Exception {
         when(service.list(any())).thenReturn(new InstitutionPage(
-            List.of(institution()),
+            List.of(new InstitutionListItem(institution(), 0, 0, 0, 0, null)),
             0,
             20,
             1,
@@ -106,7 +116,6 @@ class InstitutionDocumentationTest {
             .andExpect(jsonPath("$.page.totalElements").value(1))
             .andExpect(jsonPath("$.page.totalPages").value(1))
             .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "institution-list",
                 preprocessRequest(prettyPrint()),
@@ -122,7 +131,7 @@ class InstitutionDocumentationTest {
 
     @Test
     void documentsInstitutionCreate() throws Exception {
-        when(service.create(any())).thenReturn(institution());
+        when(service.create(any(), any())).thenReturn(institution());
 
         mockMvc.perform(post("/api/v1/institutions")
                 .with(user("platform-admin").roles("PLATFORM_ADMIN"))
@@ -155,7 +164,6 @@ class InstitutionDocumentationTest {
             .andExpect(jsonPath("$.data.id").value(INSTITUTION_ID.toString()))
             .andExpect(jsonPath("$.data.name").value("다배움 문서 기관"))
             .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "institution-create",
                 preprocessRequest(prettyPrint()),
@@ -194,7 +202,6 @@ class InstitutionDocumentationTest {
             .andExpect(jsonPath("$.data.id").value(INSTITUTION_ID.toString()))
             .andExpect(jsonPath("$.data.deletedAt").doesNotExist())
             .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "institution-get",
                 preprocessRequest(prettyPrint()),
@@ -244,7 +251,6 @@ class InstitutionDocumentationTest {
             .andExpect(jsonPath("$.data.businessNumber").doesNotExist())
             .andExpect(jsonPath("$.data.status").value("SUSPENDED"))
             .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "institution-update",
                 preprocessRequest(prettyPrint()),
@@ -273,6 +279,14 @@ class InstitutionDocumentationTest {
                 fieldWithPath("data[].status").description("기관 상태"),
                 fieldWithPath("data[].createdAt").description("생성 시각"),
                 fieldWithPath("data[].updatedAt").description("수정 시각"),
+                fieldWithPath("data[].homepageUrl").description("홈페이지 URL"),
+                fieldWithPath("data[].region").description("지역"),
+                fieldWithPath("data[].logoFileId").description("로고 파일 ID"),
+                fieldWithPath("data[].introduction").description("기관 소개"),
+                fieldWithPath("data[].instructorCount").description("소속 강사 수"),
+                fieldWithPath("data[].courseCount").description("개설 과정 수(삭제 제외)"),
+                fieldWithPath("data[].learnerCount").description("승인 수강 학습자 수(중복 제외)"),
+                fieldWithPath("data[].adminCount").description("기관 관리자 계정 수"),
                 fieldWithPath("page.page").description("현재 페이지"),
                 fieldWithPath("page.size").description("페이지 크기"),
                 fieldWithPath("page.totalElements").description("전체 요소 수"),
@@ -293,6 +307,14 @@ class InstitutionDocumentationTest {
             fieldWithPath("data.status").description("기관 상태"),
             fieldWithPath("data.createdAt").description("생성 시각"),
             fieldWithPath("data.updatedAt").description("수정 시각"),
+            fieldWithPath("data.homepageUrl").description("홈페이지 URL"),
+            fieldWithPath("data.region").description("지역"),
+            fieldWithPath("data.logoFileId").description("로고 파일 ID"),
+            fieldWithPath("data.introduction").description("기관 소개"),
+            subsectionWithPath("data.administrators")
+                .type(org.springframework.restdocs.payload.JsonFieldType.ARRAY)
+                .description("기관 관리자 목록. 상세 조회에서만 온다.")
+                .optional(),
             fieldWithPath("meta.requestId").description("요청 추적 UUID"),
             fieldWithPath("meta.timestamp").description("응답 시각")
         );

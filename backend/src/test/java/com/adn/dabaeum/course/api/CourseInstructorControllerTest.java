@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
@@ -52,6 +53,7 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
@@ -93,7 +95,9 @@ class CourseInstructorControllerTest {
                 .with(user("reader").roles("LEARNER")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[0].instructorName").value("강사"))
-            .andExpect(jsonPath("$.data[0].instructorPhone").doesNotExist());
+            .andExpect(jsonPath("$.data[0].instructorPhone").doesNotExist())
+            .andExpect(jsonPath("$.data[0].introduction").value("안녕하세요"))
+            .andExpect(jsonPath("$.data[0].career").value("10년 경력"));
 
         mockMvc.perform(post("/api/v1/courses/{courseId}/instructors", COURSE_ID)
                 .with(user("manager").roles("INSTITUTION_ADMIN"))
@@ -139,9 +143,38 @@ class CourseInstructorControllerTest {
     }
 
     @Test
-    void blocksLearnerManagementAndRequiresAuthenticationForList() throws Exception {
+    void listHidesProfileFieldsWhenServiceReturnsThemNull() throws Exception {
+        when(currentUserProvider.findContext()).thenReturn(java.util.Optional.of(manager()));
+        when(service.list(COURSE_ID)).thenReturn(List.of(hiddenProfileView()));
+
+        mockMvc.perform(get("/api/v1/courses/{courseId}/instructors", COURSE_ID)
+                .with(user("reader").roles("LEARNER")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].instructorName").value("강사"))
+            .andExpect(jsonPath("$.data[0].instructorEmail").value("instructor@example.com"))
+            .andExpect(jsonPath("$.data[0].introduction")
+                .value(org.hamcrest.Matchers.nullValue()))
+            .andExpect(jsonPath("$.data[0].career")
+                .value(org.hamcrest.Matchers.nullValue()))
+            .andExpect(jsonPath("$.data[0].profileImageId")
+                .value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    /** 강좌 상세는 로그인 전에도 열린다. 그때는 강사 이메일을 내보내지 않는다. */
+    @Test
+    void anonymousListOmitsInstructorEmail() throws Exception {
+        when(service.list(COURSE_ID)).thenReturn(List.of(view(CourseInstructorRole.MAIN)));
+
         mockMvc.perform(get("/api/v1/courses/{courseId}/instructors", COURSE_ID))
-            .andExpect(status().isUnauthorized());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].instructorName").value("강사"))
+            .andExpect(jsonPath("$.data[0].instructorEmail")
+                .value(org.hamcrest.Matchers.nullValue()))
+            .andExpect(jsonPath("$.data[0].career").value("10년 경력"));
+    }
+
+    @Test
+    void blocksLearnerManagement() throws Exception {
         mockMvc.perform(post("/api/v1/courses/{courseId}/instructors", COURSE_ID)
                 .with(user("learner").roles("LEARNER"))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -155,7 +188,17 @@ class CourseInstructorControllerTest {
         Instant now = Instant.parse("2026-08-12T00:00:00Z");
         return new CourseInstructorView(
             ASSIGNMENT_ID, COURSE_ID, INSTRUCTOR_ID, "강사",
-            "instructor@example.com", role, now, now
+            "instructor@example.com", role, now, now,
+            "안녕하세요", "10년 경력", UUID.fromString("66666666-6666-6666-6666-666666666666")
+        );
+    }
+
+    private CourseInstructorView hiddenProfileView() {
+        Instant now = Instant.parse("2026-08-12T00:00:00Z");
+        return new CourseInstructorView(
+            ASSIGNMENT_ID, COURSE_ID, INSTRUCTOR_ID, "강사",
+            "instructor@example.com", CourseInstructorRole.MAIN, now, now,
+            null, null, null
         );
     }
 

@@ -60,6 +60,11 @@ public class CourseSessionMyBatisRepository implements CourseSessionRepository {
     }
 
     @Override
+    public List<CourseSession> findByCourseId(UUID courseId) {
+        return mapper.selectByCourseId(courseId).stream().map(this::toDomain).toList();
+    }
+
+    @Override
     public List<CourseSession> findPageByCourseId(CourseSessionPageCriteria criteria) {
         return mapper.selectPage(criteria).stream().map(this::toDomain).toList();
     }
@@ -74,6 +79,41 @@ public class CourseSessionMyBatisRepository implements CourseSessionRepository {
         return mapper.update(toRow(session)) == 1;
     }
 
+    @Override
+    public boolean reopen(UUID sessionId, CourseSessionStatus from, CourseSessionStatus to, Instant updatedAt) {
+        return mapper.reopen(sessionId, from.name(), to.name(), updatedAt) == 1;
+    }
+
+    @Override
+    public boolean existsSessionDependenciesByCourseId(UUID courseId) {
+        return mapper.existsSessionDependenciesByCourseId(courseId);
+    }
+
+    @Override
+    public boolean existsNonScheduledByCourseId(UUID courseId) {
+        return mapper.existsNonScheduledByCourseId(courseId);
+    }
+
+    @Override
+    public Optional<Instant> findFirstActiveStartByCourseId(UUID courseId) {
+        return Optional.ofNullable(mapper.selectFirstActiveStartByCourseId(courseId));
+    }
+
+    @Override
+    public void deleteAllByCourseId(UUID courseId) {
+        mapper.deleteAllByCourseId(courseId);
+    }
+
+    @Override
+    public int shiftSessionNoByOffset(UUID courseId, int offset) {
+        return mapper.shiftSessionNoByOffset(courseId, offset);
+    }
+
+    @Override
+    public boolean updateSessionNo(UUID sessionId, int sessionNo) {
+        return mapper.updateSessionNo(sessionId, sessionNo) == 1;
+    }
+
     private CourseSessionRow toRow(CourseSession session) {
         return new CourseSessionRow(
             session.id(),
@@ -86,7 +126,8 @@ public class CourseSessionMyBatisRepository implements CourseSessionRepository {
             session.attendanceClosesAt(),
             session.status().name(),
             session.createdAt(),
-            session.updatedAt()
+            session.updatedAt(),
+            session.topic()
         );
     }
 
@@ -102,7 +143,8 @@ public class CourseSessionMyBatisRepository implements CourseSessionRepository {
             row.attendanceClosesAt(),
             CourseSessionStatus.valueOf(row.status()),
             row.createdAt(),
-            row.updatedAt()
+            row.updatedAt(),
+            row.topic()
         );
     }
 }

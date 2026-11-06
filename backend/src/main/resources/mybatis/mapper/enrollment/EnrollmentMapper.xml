@@ -85,6 +85,24 @@
         FOR UPDATE
     </select>
 
+    <select id="selectByIds" resultMap="enrollmentRowResultMap">
+        SELECT
+            id, course_id, user_id, applied_by, application_type, status,
+            applied_at, approved_at, rejected_at, cancelled_at, withdrawn_at,
+            rejection_reason, cancellation_reason, created_at, updated_at
+        FROM tb_enrollments
+        WHERE id IN
+        <!--
+            foreach 항목은 @Param Map 이 아니라 실제 값의 타입(java.util.UUID)으로 해석되고,
+            MyBatis 기본 registry 에는 UUID 핸들러가 없다. InstitutionMapper.selectByIds 와
+            같이 typeHandler 를 명시해야 한다.
+        -->
+        <foreach item="id" collection="ids" open="(" separator="," close=")">
+            #{id, javaType=java.util.UUID,
+              typeHandler=org.apache.ibatis.type.ObjectTypeHandler}
+        </foreach>
+    </select>
+
     <!-- MyBatis 에는 java.util.UUID 용 TypeHandler 가 없어 resultType 으로 직접 쓸 수 없다.
          POJO 로 간주해 private UUID(byte[]) 생성자를 리플렉션으로 호출하려다
          JDK 16+ 의 모듈 캡슐화에 막힌다. text 로 받아 리포지토리에서 변환한다. -->
@@ -108,25 +126,92 @@
           AND status IN ('APPLIED', 'WAITLISTED', 'APPROVED')
     </select>
 
-    <select id="selectPage" resultMap="enrollmentRowResultMap">
+    <select id="selectActiveByCourseId" resultMap="enrollmentRowResultMap">
         SELECT
             id, course_id, user_id, applied_by, application_type, status,
             applied_at, approved_at, rejected_at, cancelled_at, withdrawn_at,
             rejection_reason, cancellation_reason, created_at, updated_at
         FROM tb_enrollments
-        WHERE course_id = #{criteria.courseId}
+        WHERE course_id = #{courseId}
+          AND status IN ('APPLIED', 'WAITLISTED', 'APPROVED')
+        ORDER BY applied_at, id
+    </select>
+
+    <resultMap id="enrollmentListItemRowResultMap"
+        type="com.adn.dabaeum.enrollment.infrastructure.mybatis.EnrollmentListItemRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="user_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="applied_by" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="application_type" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="applied_at" javaType="java.time.Instant"/>
+            <arg column="approved_at" javaType="java.time.Instant"/>
+            <arg column="rejected_at" javaType="java.time.Instant"/>
+            <arg column="cancelled_at" javaType="java.time.Instant"/>
+            <arg column="withdrawn_at" javaType="java.time.Instant"/>
+            <arg column="rejection_reason" javaType="java.lang.String"/>
+            <arg column="cancellation_reason" javaType="java.lang.String"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+            <arg column="waitlist_position" javaType="java.lang.Integer"/>
+            <arg column="enrollee_name" javaType="java.lang.String"/>
+            <arg column="enrollee_birth_date" javaType="java.time.LocalDate"/>
+            <arg column="enrollee_gender" javaType="java.lang.String"/>
+            <arg column="enrollee_email" javaType="java.lang.String"/>
+            <arg column="enrollee_phone" javaType="java.lang.String"/>
+            <arg column="enrollee_profile_image_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="attended_count" javaType="java.lang.Long"/>
+            <arg column="session_count" javaType="java.lang.Long"/>
+            <arg column="last_studied_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <!-- X-2: 행마다 /users/{id} 를 부르지 않도록 신청자 정보를 조인한다.
+         대기 순번은 저장하지 않고 조회 시 윈도우 함수로 계산한다(취소·승인 때 뒤가 자동으로 당겨진다).
+         ORDER BY 에 e.id 를 함께 넣는 이유: applied_at 이 같은 밀리초로 들어오면 순서가
+         비결정적이 되어 새로고침마다 번호가 바뀔 수 있다. PARTITION BY 에 status 를 넣어
+         대기자끼리만 세므로 승인·취소 건이 번호에 끼지 않는다. -->
+    <select id="selectListWithProfile" resultMap="enrollmentListItemRowResultMap">
+        SELECT
+            e.id, e.course_id, e.user_id, e.applied_by, e.application_type, e.status,
+            e.applied_at, e.approved_at, e.rejected_at, e.cancelled_at, e.withdrawn_at,
+            e.rejection_reason, e.cancellation_reason, e.created_at, e.updated_at,
+            CASE WHEN e.status = 'WAITLISTED' THEN
+                ROW_NUMBER() OVER (
+                    PARTITION BY e.course_id, e.status
+                    ORDER BY e.applied_at, e.id
+                )
+            END AS waitlist_position,
+            <include refid="com.adn.dabaeum.enrollment.infrastructure.mybatis.EnrolleeProfileSql.columns"/>,
+            COALESCE(pat.attended_count, 0) AS attended_count,
+            (SELECT COUNT(*) FROM tb_course_sessions cs
+              WHERE cs.course_id = e.course_id
+                AND cs.status &lt;&gt; 'CANCELLED') AS session_count,
+            pat.last_studied_at
+        FROM tb_enrollments e
+        <include refid="com.adn.dabaeum.enrollment.infrastructure.mybatis.EnrollmentQueryMapper.progressJoins">
+            <property name="attendanceScope" value=""/>
+        </include>
+        WHERE e.course_id = #{criteria.courseId}
         ORDER BY
         <choose>
-            <when test="criteria.sort.name() == 'UPDATED_AT'">updated_at</when>
-            <when test="criteria.sort.name() == 'APPLIED_AT'">applied_at</when>
-            <when test="criteria.sort.name() == 'STATUS'">status</when>
-            <when test="criteria.sort.name() == 'USER_ID'">user_id</when>
-            <otherwise>created_at</otherwise>
+            <when test="criteria.sort.name() == 'UPDATED_AT'">e.updated_at</when>
+            <when test="criteria.sort.name() == 'APPLIED_AT'">e.applied_at</when>
+            <when test="criteria.sort.name() == 'STATUS'">e.status</when>
+            <when test="criteria.sort.name() == 'USER_ID'">e.user_id</when>
+            <otherwise>e.created_at</otherwise>
         </choose>
         <choose>
             <when test="criteria.direction.name() == 'ASC'">ASC</when>
             <otherwise>DESC</otherwise>
-        </choose>, id ASC
+        </choose>, e.id ASC
         LIMIT #{criteria.limit} OFFSET #{criteria.offset}
     </select>
 
@@ -141,6 +226,24 @@
         FROM tb_enrollments
         WHERE course_id = #{courseId}
           AND status = 'APPROVED'
+    </select>
+
+    <select id="existsAttendance" flushCache="true" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1
+              FROM tb_attendance_records
+             WHERE enrollment_id = #{enrollmentId}
+               AND status IN ('PRESENT', 'LATE')
+        )
+    </select>
+
+    <select id="existsCompletionDecision" flushCache="true" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1
+              FROM tb_completions
+             WHERE enrollment_id = #{enrollmentId}
+               AND status IN ('ELIGIBLE', 'COMPLETED')
+        )
     </select>
 
     <update id="updateState">

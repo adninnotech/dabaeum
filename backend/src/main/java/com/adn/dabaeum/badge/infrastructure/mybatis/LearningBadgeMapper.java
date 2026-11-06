@@ -1,5 +1,6 @@
 package com.adn.dabaeum.badge.infrastructure.mybatis;
 
+import com.adn.dabaeum.badge.domain.LearningBadgeRepository;
 import java.util.List;
 import java.util.UUID;
 import org.apache.ibatis.annotations.Mapper;
@@ -27,4 +28,11 @@ public interface LearningBadgeMapper {
     );
 
     long countByUserId(@Param("userId") UUID userId);
+
+    LearningBadgeRow selectByUserIdAndDefinitionId(
+        @Param("userId") java.util.UUID userId, @Param("definitionId") java.util.UUID definitionId);
+
+    List<LearningBadgeRow> search(@Param("criteria") LearningBadgeRepository.BadgeSearch criteria);
+
+    long count(@Param("criteria") LearningBadgeRepository.BadgeSearch criteria);
 }

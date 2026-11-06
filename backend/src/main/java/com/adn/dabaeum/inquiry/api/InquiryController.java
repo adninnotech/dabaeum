@@ -1,5 +1,7 @@
 package com.adn.dabaeum.inquiry.api;
 
+import com.adn.dabaeum.accesslog.domain.AccessLogAction;
+import com.adn.dabaeum.accesslog.web.PersonalDataAccess;
 import com.adn.dabaeum.common.api.ApiResponse;
 import com.adn.dabaeum.common.security.CurrentUserProvider;
 import com.adn.dabaeum.common.web.RequestIdFilter;
@@ -51,6 +53,7 @@ public class InquiryController {
     }
 
     @GetMapping("/inquiries/{inquiryId}")
+    @PersonalDataAccess(action = AccessLogAction.READ, targetField = "userId")
     public ApiResponse<InquiryResponse> get(
         @PathVariable UUID inquiryId,
         HttpServletRequest servletRequest
@@ -78,11 +81,13 @@ public class InquiryController {
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "20") int size,
         @RequestParam(required = false) String status,
+        @RequestParam(required = false) String q,
         HttpServletRequest servletRequest
     ) {
         mapper.validatePaging(page, size);
         var result = service.listMine(
-            currentUserProvider.requireContext(), mapper.parseStatus(status), page, size);
+            currentUserProvider.requireContext(), mapper.parseStatus(status),
+            com.adn.dabaeum.common.api.KeywordQuery.normalize(q), page, size);
         return mapper.toPageResponse(result, requestId(servletRequest));
     }
 
@@ -101,7 +106,24 @@ public class InquiryController {
         return mapper.toPageResponse(result, requestId(servletRequest));
     }
 
+    @GetMapping("/instructors/{userId}/inquiries")
+    @PersonalDataAccess(action = AccessLogAction.READ)
+    public InquiryPageResponse listForInstructorByUser(
+        @PathVariable UUID userId,
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "20") int size,
+        @RequestParam(required = false) String status,
+        @RequestParam(required = false) UUID courseId,
+        HttpServletRequest servletRequest
+    ) {
+        mapper.validatePaging(page, size);
+        var result = service.listForInstructorOf(
+            userId, mapper.parseStatus(status), courseId, page, size);
+        return mapper.toPageResponse(result, requestId(servletRequest));
+    }
+
     @GetMapping("/institutions/{institutionId}/inquiries")
+    @PersonalDataAccess(action = AccessLogAction.READ)
     public InquiryPageResponse listForInstitution(
         @PathVariable UUID institutionId,
         @RequestParam(defaultValue = "0") int page,
@@ -115,6 +137,20 @@ public class InquiryController {
             currentUserProvider.requireContext(), institutionId,
             mapper.parseStatus(status), courseId, page, size);
         return mapper.toPageResponse(result, requestId(servletRequest));
+    }
+
+    @GetMapping("/courses/{courseId}/inquiries")
+    public InquiryPageResponse listForCourse(
+        @PathVariable UUID courseId,
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "20") int size,
+        @RequestParam(required = false) String type,
+        HttpServletRequest servletRequest
+    ) {
+        mapper.validatePaging(page, size);
+        var actor = currentUserProvider.requireContext();
+        var result = service.listForCourse(actor, courseId, mapper.parseType(type), page, size);
+        return mapper.toCoursePageResponse(result, requestId(servletRequest));
     }
 
     private String requestId(HttpServletRequest request) {

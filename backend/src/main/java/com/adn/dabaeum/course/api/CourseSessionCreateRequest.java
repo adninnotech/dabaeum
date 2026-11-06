@@ -15,12 +15,12 @@ public final class CourseSessionCreateRequest {
 
     @NotNull @Min(1)
     private Integer sessionNo;
-    @NotNull
     private Instant startsAt;
-    @NotNull
     private Instant endsAt;
     @Size(max = 500)
     private String location;
+    @Size(max = 200)
+    private String topic;
     private Instant attendanceOpensAt;
     private Instant attendanceClosesAt;
     private CourseSessionStatus status = CourseSessionStatus.SCHEDULED;
@@ -33,6 +33,7 @@ public final class CourseSessionCreateRequest {
     @JsonSetter("startsAt") public void setStartsAt(Instant value) { startsAt = value; }
     @JsonSetter("endsAt") public void setEndsAt(Instant value) { endsAt = value; }
     @JsonSetter("location") public void setLocation(String value) { location = value; }
+    @JsonSetter("topic") public void setTopic(String value) { topic = value; }
     @JsonSetter("attendanceOpensAt") public void setAttendanceOpensAt(Instant value) { attendanceOpensAt = value; }
     @JsonSetter("attendanceClosesAt") public void setAttendanceClosesAt(Instant value) { attendanceClosesAt = value; }
     @JsonSetter("status") public void setStatus(CourseSessionStatus value) { statusPresent = true; status = value; }
@@ -41,6 +42,7 @@ public final class CourseSessionCreateRequest {
     public Instant startsAt() { return startsAt; }
     public Instant endsAt() { return endsAt; }
     public String location() { return location; }
+    public String topic() { return topic; }
     public Instant attendanceOpensAt() { return attendanceOpensAt; }
     public Instant attendanceClosesAt() { return attendanceClosesAt; }
     public CourseSessionStatus status() { return status; }

@@ -100,6 +100,103 @@ class HttpTrafficLoggingFilterTest {
     }
 
     @Test
+    void prettyJsonModeWritesSummaryLineThenIndentedBodiesStillMasked() throws Exception {
+        List<String> messages = new ArrayList<>();
+        HttpTrafficLoggingFilter filter = new HttpTrafficLoggingFilter(
+            new ObjectMapper(),
+            messages::add,
+            new HttpTrafficLoggingProperties(true, true, true)
+        );
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/test");
+        request.setContentType("application/json");
+        request.setContent("{\"name\":\"tester\",\"password\":\"body-secret\"}".getBytes());
+        request.setAttribute(RequestIdFilter.ATTRIBUTE_NAME, "request-123");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, (servletRequest, servletResponse) -> {
+            ((HttpServletRequest) servletRequest).getInputStream().readAllBytes();
+            HttpServletResponse httpResponse = (HttpServletResponse) servletResponse;
+            httpResponse.setContentType("application/json");
+            httpResponse.getWriter().write("{\"data\":{\"status\":\"ok\"}}");
+        });
+
+        String message = messages.getFirst();
+        assertThat(message.lines().findFirst().orElseThrow())
+            .startsWith("http_exchange requestId=request-123 method=POST path=/api/v1/test")
+            .doesNotContain("requestBody");
+        assertThat(message)
+            .contains("\nrequestBody:\n{\n  \"name\" : \"tester\",")
+            .contains("\"password\" : \"***MASKED***\"")
+            .contains("\nresponseBody:\n{\n  \"data\" : {\n    \"status\" : \"ok\"")
+            .doesNotContain("body-secret");
+    }
+
+    @Test
+    void compactModeKeepsOneLine() throws Exception {
+        List<String> messages = new ArrayList<>();
+        HttpTrafficLoggingFilter filter = new HttpTrafficLoggingFilter(
+            new ObjectMapper(),
+            messages::add,
+            new HttpTrafficLoggingProperties(true, true, false)
+        );
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/test");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, (servletRequest, servletResponse) -> {
+            servletResponse.setContentType("application/json");
+            servletResponse.getWriter().write("{\"data\":{\"status\":\"ok\"}}");
+        });
+
+        assertThat(messages.getFirst()).doesNotContain("\n")
+            .contains("responseBody={\"data\":{\"status\":\"ok\"}}");
+    }
+
+    @Test
+    void devLogOmitsCredentialsAndPersonalQueryValuesButKeepsSummary() throws Exception {
+        List<String> messages = new ArrayList<>();
+        HttpTrafficLoggingFilter filter = new HttpTrafficLoggingFilter(
+            new ObjectMapper(), messages::add,
+            new HttpTrafficLoggingProperties(false, true, false));
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/auth/login");
+        request.setQueryString("email=person@example.com");
+        request.setContentType("application/json");
+        request.setContent("{\"password\":\"login-secret\"}".getBytes());
+        request.setAttribute(RequestIdFilter.ATTRIBUTE_NAME, "request-123");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, (servletRequest, servletResponse) -> {
+            ((HttpServletRequest) servletRequest).getInputStream().readAllBytes();
+            servletResponse.setContentType("application/json");
+            ((HttpServletResponse) servletResponse).setStatus(200);
+            servletResponse.getWriter().write("{\"accessToken\":\"jwt-secret\"}");
+        });
+
+        assertThat(messages.getFirst())
+            .contains("requestId=request-123 method=POST path=/api/v1/auth/login")
+            .contains("status=200 durationMs=")
+            .contains("query=<omitted>")
+            .contains("requestBody=<body-logging-off> responseBody=<body-logging-off>")
+            .doesNotContain("person@example.com", "login-secret", "jwt-secret");
+    }
+
+    @Test
+    void publicPortfolioTokenIsMaskedInPath() throws Exception {
+        List<String> messages = new ArrayList<>();
+        HttpTrafficLoggingFilter filter = new HttpTrafficLoggingFilter(
+            new ObjectMapper(), messages::add,
+            new HttpTrafficLoggingProperties(false, true, false));
+        MockHttpServletRequest request = new MockHttpServletRequest(
+            "GET", "/api/v1/public/portfolios/share-secret");
+
+        filter.doFilter(request, new MockHttpServletResponse(),
+            (servletRequest, servletResponse) -> {});
+
+        assertThat(messages.getFirst())
+            .contains("path=/api/v1/public/portfolios/***MASKED***")
+            .doesNotContain("share-secret");
+    }
+
+    @Test
     void hasLocalAndDevProfileOnly() {
         org.springframework.context.annotation.Profile profile =
             HttpTrafficLoggingConfiguration.class.getAnnotation(

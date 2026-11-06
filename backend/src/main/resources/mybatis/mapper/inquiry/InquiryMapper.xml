@@ -27,6 +27,7 @@
             <arg column="answered_at" javaType="java.time.Instant"/>
             <arg column="created_at" javaType="java.time.Instant"/>
             <arg column="updated_at" javaType="java.time.Instant"/>
+            <arg column="inquiry_type" javaType="java.lang.String"/>
         </constructor>
     </resultMap>
 
@@ -45,21 +46,47 @@
                 typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
             <arg column="title" javaType="java.lang.String"/>
             <arg column="status" javaType="java.lang.String"/>
+            <arg column="inquiry_type" javaType="java.lang.String"/>
             <arg column="created_at" javaType="java.time.Instant"/>
             <arg column="course_title" javaType="java.lang.String"/>
-            <arg column="user_name" javaType="java.lang.String"/>
+            <arg column="enrollee_name" javaType="java.lang.String"/>
+            <arg column="enrollee_birth_date" javaType="java.time.LocalDate"/>
+            <arg column="enrollee_gender" javaType="java.lang.String"/>
+            <arg column="enrollee_email" javaType="java.lang.String"/>
+            <arg column="enrollee_phone" javaType="java.lang.String"/>
+            <arg column="enrollee_profile_image_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="institution_name" javaType="java.lang.String"/>
+            <arg column="card_instructor_name" javaType="java.lang.String"/>
+            <arg column="card_classification_code" javaType="java.lang.String"/>
+            <arg column="card_education_type" javaType="java.lang.String"/>
+            <arg column="card_session_count" javaType="java.lang.Integer"/>
+            <arg column="card_tags" javaType="java.lang.String"/>
+            <arg column="card_tuition_type" javaType="java.lang.String"/>
+            <arg column="card_tuition_amount" javaType="java.math.BigDecimal"/>
+            <arg column="card_thumbnail_file_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
         </constructor>
     </resultMap>
 
     <sql id="viewColumns">
-        i.id, i.user_id, i.course_id, i.title, i.status, i.created_at,
-        c.title AS course_title, u.name AS user_name
+        i.id, i.user_id, i.course_id, i.title, i.status, i.inquiry_type, i.created_at,
+        c.title AS course_title,
+        <include refid="com.adn.dabaeum.enrollment.infrastructure.mybatis.EnrolleeProfileSql.columns"/>,
+        <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.institutionNameColumn"/>,
+        c.classification_code AS card_classification_code, c.education_type AS card_education_type,
+        <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.cardColumns"/>
+    </sql>
+
+    <sql id="viewJoins">
+        <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.institutionJoin"/>
+        <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.cardJoins"/>
     </sql>
 
     <insert id="insert">
         INSERT INTO tb_inquiries (
             id, user_id, course_id, title, content, status, answer,
-            answered_by, answered_at, created_at, updated_at
+            answered_by, answered_at, created_at, updated_at, inquiry_type
         ) VALUES (
             #{id}, #{userId},
             #{courseId, jdbcType=OTHER},
@@ -67,13 +94,13 @@
             #{answer, jdbcType=VARCHAR},
             #{answeredBy, jdbcType=OTHER},
             #{answeredAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
-            #{createdAt}, #{updatedAt}
+            #{createdAt}, #{updatedAt}, #{type}
         )
     </insert>
 
     <select id="selectById" resultMap="inquiryRowResultMap">
         SELECT id, user_id, course_id, title, content, status, answer,
-               answered_by, answered_at, created_at, updated_at
+               answered_by, answered_at, created_at, updated_at, inquiry_type
         FROM tb_inquiries
         WHERE id = #{id}
     </select>
@@ -93,11 +120,13 @@
         SELECT <include refid="viewColumns"/>
           FROM tb_inquiries i
           LEFT JOIN tb_courses c ON c.id = i.course_id
-          JOIN tb_users u ON u.id = i.user_id
+          <include refid="com.adn.dabaeum.enrollment.infrastructure.mybatis.EnrolleeProfileSql.join"><property name="ownerAlias" value="i"/></include>
+          <include refid="viewJoins"/>
          WHERE i.user_id = #{userId}
         <if test="status != null">
            AND i.status = #{status}
         </if>
+        <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.keywordFilter"/>
         ORDER BY i.created_at DESC, i.id ASC
         LIMIT #{limit} OFFSET #{offset}
     </select>
@@ -105,10 +134,12 @@
     <select id="countByUserId" resultType="long">
         SELECT COUNT(*)
           FROM tb_inquiries i
+          LEFT JOIN tb_courses c ON c.id = i.course_id
          WHERE i.user_id = #{userId}
         <if test="status != null">
            AND i.status = #{status}
         </if>
+        <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.keywordFilter"/>
     </select>
 
     <select id="selectByInstructorUserId" resultMap="inquiryViewRowResultMap">
@@ -116,7 +147,8 @@
           FROM tb_inquiries i
           JOIN tb_courses c ON c.id = i.course_id
           JOIN tb_course_instructors ci ON ci.course_id = c.id
-          JOIN tb_users u ON u.id = i.user_id
+          <include refid="com.adn.dabaeum.enrollment.infrastructure.mybatis.EnrolleeProfileSql.join"><property name="ownerAlias" value="i"/></include>
+          <include refid="viewJoins"/>
          WHERE ci.user_id = #{instructorUserId}
         <if test="status != null">
            AND i.status = #{status}
@@ -145,7 +177,8 @@
         SELECT <include refid="viewColumns"/>
           FROM tb_inquiries i
           JOIN tb_courses c ON c.id = i.course_id
-          JOIN tb_users u ON u.id = i.user_id
+          <include refid="com.adn.dabaeum.enrollment.infrastructure.mybatis.EnrolleeProfileSql.join"><property name="ownerAlias" value="i"/></include>
+          <include refid="viewJoins"/>
          WHERE c.institution_id = #{institutionId}
         <if test="status != null">
            AND i.status = #{status}
@@ -168,6 +201,78 @@
         <if test="courseId != null">
            AND i.course_id = #{courseId}
         </if>
+    </select>
+
+    <!-- C-6 · E-2 공유: 강좌별 문의 목록. 관리자에게는 실명·연락처를, 학습자에게는 마스킹된
+         이름만 노출하는 판단은 API 매퍼(InquiryApiMapper)에서 한다 -->
+    <select id="selectByCourseId" resultMap="inquiryViewRowResultMap">
+        SELECT <include refid="viewColumns"/>
+          FROM tb_inquiries i
+          JOIN tb_courses c ON c.id = i.course_id
+          <include refid="com.adn.dabaeum.enrollment.infrastructure.mybatis.EnrolleeProfileSql.join"><property name="ownerAlias" value="i"/></include>
+          <include refid="viewJoins"/>
+         WHERE i.course_id = #{courseId}
+        <if test="type != null">
+           AND i.inquiry_type = #{type}
+        </if>
+        ORDER BY i.created_at DESC, i.id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countByCourseId" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_inquiries i
+         WHERE i.course_id = #{courseId}
+        <if test="type != null">
+           AND i.inquiry_type = #{type}
+        </if>
+    </select>
+
+    <!-- B-7 플랫폼 관리자 사이트 전체 문의 목록. findByInstitutionId 와 같은 SELECT·조인을
+         기관 조건 없이 쓴다. 일반 문의(course_id 가 null)도 포함해야 하므로 LEFT JOIN 이다 —
+         selectByUserId 와 같은 전제다. -->
+    <sql id="adminFilters">
+        <if test="status != null">
+           AND i.status = #{status}
+        </if>
+        <if test="inquiryType != null">
+           AND i.inquiry_type = #{inquiryType}
+        </if>
+        <if test="educationType != null">
+           AND c.education_type = #{educationType}
+        </if>
+        <if test="institutionId != null">
+           AND c.institution_id = #{institutionId}
+        </if>
+        <if test="courseId != null">
+           AND i.course_id = #{courseId}
+        </if>
+        <if test="keyword != null">
+           AND (
+               LOWER(i.title) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+               OR LOWER(c.title) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+           )
+        </if>
+    </sql>
+
+    <select id="selectForAdmin" resultMap="inquiryViewRowResultMap">
+        SELECT <include refid="viewColumns"/>
+          FROM tb_inquiries i
+          LEFT JOIN tb_courses c ON c.id = i.course_id
+          <include refid="com.adn.dabaeum.enrollment.infrastructure.mybatis.EnrolleeProfileSql.join"><property name="ownerAlias" value="i"/></include>
+          <include refid="viewJoins"/>
+         WHERE 1 = 1
+        <include refid="adminFilters"/>
+        ORDER BY i.created_at DESC, i.id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countForAdmin" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_inquiries i
+          LEFT JOIN tb_courses c ON c.id = i.course_id
+         WHERE 1 = 1
+        <include refid="adminFilters"/>
     </select>
 
 </mapper>

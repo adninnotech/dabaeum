@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
@@ -45,6 +46,7 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
@@ -108,6 +110,8 @@ class SessionDocumentationTest {
                         .description("기관 범위 UUID"),
                     fieldWithPath("data.expiresAt")
                         .description("인증 만료 시각"),
+                    fieldWithPath("data.passwordExpired")
+                        .description("관리자 비밀번호 변경 안내 필요 여부(90일 경과·임시 비밀번호)"),
                     fieldWithPath("meta.requestId")
                         .description("요청 추적 UUID"),
                     fieldWithPath("meta.timestamp")

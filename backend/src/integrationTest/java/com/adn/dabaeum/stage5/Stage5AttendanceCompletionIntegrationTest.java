@@ -3,7 +3,6 @@ package com.adn.dabaeum.stage5;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.adn.dabaeum.attendance.application.AttendanceApplicationService;
-import com.adn.dabaeum.attendance.application.AttendanceQrTokenApplicationService;
 import com.adn.dabaeum.attendance.application.AttendanceMetrics;
 import com.adn.dabaeum.attendance.application.RecordAttendanceCommand;
 import com.adn.dabaeum.attendance.domain.Attendance;
@@ -29,25 +28,20 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 class Stage5AttendanceCompletionIntegrationTest extends RemotePostgresIntegrationTestSupport {
 
-    @Autowired AttendanceQrTokenApplicationService qrService;
     @Autowired AttendanceApplicationService attendanceService;
     @Autowired AttendanceRepository attendanceRepository;
     @Autowired CompletionApplicationService completionService;
 
     @Test
-    void runsQrAttendanceAdjustmentSummaryAndCompletionEndToEnd() {
+    void runsAttendanceAdjustmentSummaryAndCompletionEndToEnd() {
         Fixture fixture = fixture();
         AuthenticatedUserContext manager = manager(fixture.managerId(), fixture.institutionId());
-        String displayedToken = qrService.issue(fixture.sessionId(), manager).token();
-
         Attendance first = attendanceService.record(new RecordAttendanceCommand(
-            fixture.sessionId(), fixture.firstEnrollmentId(), AttendanceMethod.QR,
-            AttendanceStatus.PRESENT, null, AttendanceSource.APP, displayedToken),
-            learner(fixture.firstLearnerId(), fixture.institutionId()));
+            fixture.sessionId(), fixture.firstEnrollmentId(), AttendanceMethod.ADMIN,
+            AttendanceStatus.PRESENT, null, AttendanceSource.ADMIN_WEB, null), manager);
         attendanceService.record(new RecordAttendanceCommand(
-            fixture.sessionId(), fixture.secondEnrollmentId(), AttendanceMethod.QR,
-            AttendanceStatus.PRESENT, null, AttendanceSource.APP, displayedToken),
-            learner(fixture.secondLearnerId(), fixture.institutionId()));
+            fixture.sessionId(), fixture.secondEnrollmentId(), AttendanceMethod.ADMIN,
+            AttendanceStatus.PRESENT, null, AttendanceSource.ADMIN_WEB, null), manager);
 
         attendanceService.adjust(
             new com.adn.dabaeum.attendance.application.AdjustAttendanceCommand(

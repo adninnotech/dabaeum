@@ -25,6 +25,16 @@
             <arg column="course_code" javaType="java.lang.String"/>
             <arg column="course_status" javaType="java.lang.String"/>
             <arg column="institution_name" javaType="java.lang.String"/>
+            <arg column="card_instructor_name" javaType="java.lang.String"/>
+            <arg column="card_classification_code" javaType="java.lang.String"/>
+            <arg column="card_education_type" javaType="java.lang.String"/>
+            <arg column="card_session_count" javaType="java.lang.Integer"/>
+            <arg column="card_tags" javaType="java.lang.String"/>
+            <arg column="card_tuition_type" javaType="java.lang.String"/>
+            <arg column="card_tuition_amount" javaType="java.math.BigDecimal"/>
+            <arg column="card_thumbnail_file_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="cancellation_reason" javaType="java.lang.String"/>
         </constructor>
     </resultMap>
 
@@ -46,8 +56,30 @@
             <arg column="created_at" javaType="java.time.Instant"/>
             <arg column="course_title" javaType="java.lang.String"/>
             <arg column="user_name" javaType="java.lang.String"/>
+            <arg column="institution_name" javaType="java.lang.String"/>
+            <arg column="attended_count" javaType="java.lang.Long"/>
+            <arg column="session_count" javaType="java.lang.Long"/>
+            <arg column="last_studied_at" javaType="java.time.Instant"/>
+            <arg column="processed_at" javaType="java.time.Instant"/>
+            <arg column="waitlist_position" javaType="java.lang.Integer"/>
+            <arg column="cancellation_reason" javaType="java.lang.String"/>
         </constructor>
     </resultMap>
+
+    <!-- 처리일: 마지막으로 일어난 처리(철회·취소·거절·승인 순으로 앞선 것). 강좌별 목록의
+         Enrollment.processedAt(EnrollmentApiMapper.processedAt)과 같은 규칙이다.
+         대기 순번: 강좌별 목록과 같은 순서(applied_at, id)로 같은 강좌의 대기자 중 몇 번째인지 센다.
+         윈도우 함수로 세면 상태·검색 필터와 LIMIT 가 걸린 결과 안에서만 세어 번호가 틀어지므로
+         강좌 전체 대기열을 직접 센다. -->
+    <sql id="processedAndWaitlistColumns">
+               COALESCE(e.withdrawn_at, e.cancelled_at, e.rejected_at, e.approved_at) AS processed_at,
+               CASE WHEN e.status = 'WAITLISTED' THEN
+                   (SELECT COUNT(*) FROM tb_enrollments w
+                     WHERE w.course_id = e.course_id
+                       AND w.status = 'WAITLISTED'
+                       AND (w.applied_at, w.id) &lt;= (e.applied_at, e.id))::int
+               END AS waitlist_position
+    </sql>
 
     <sql id="orderBy">
         ORDER BY
@@ -64,10 +96,14 @@
     <select id="selectMyEnrollments" resultMap="myEnrollmentViewRowResultMap">
         SELECT e.id, e.course_id, e.user_id, e.status, e.applied_at, e.created_at,
                c.title AS course_title, c.course_code AS course_code,
-               c.status AS course_status, i.name AS institution_name
+               c.status AS course_status, i.name AS institution_name,
+               c.classification_code AS card_classification_code, c.education_type AS card_education_type,
+               e.cancellation_reason AS cancellation_reason,
+               <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.cardColumns"/>
           FROM tb_enrollments e
           JOIN tb_courses c ON c.id = e.course_id
           JOIN tb_institutions i ON i.id = c.institution_id
+          <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.cardJoins"/>
          WHERE e.user_id = #{userId}
         <if test="status != null">
            AND e.status = #{status}
@@ -87,10 +123,18 @@
 
     <select id="selectInstitutionEnrollments" resultMap="institutionEnrollmentViewRowResultMap">
         SELECT e.id, e.course_id, e.user_id, e.status, e.applied_at, e.created_at,
-               c.title AS course_title, u.name AS user_name
+               c.title AS course_title, u.name AS user_name, i.name AS institution_name,
+               COALESCE(pat.attended_count, 0) AS attended_count,
+               (SELECT COUNT(*) FROM tb_course_sessions cs
+                 WHERE cs.course_id = e.course_id
+                   AND cs.status &lt;&gt; 'CANCELLED') AS session_count,
+               pat.last_studied_at,
+               <include refid="processedAndWaitlistColumns"/>,
+               e.cancellation_reason AS cancellation_reason
           FROM tb_enrollments e
           JOIN tb_courses c ON c.id = e.course_id
-          JOIN tb_users u ON u.id = e.user_id
+          <include refid="progressJoins"><property name="attendanceScope" value=""/></include>
+          JOIN tb_institutions i ON i.id = c.institution_id
          WHERE c.institution_id = #{institutionId}
         <if test="status != null">
            AND e.status = #{status}
@@ -107,6 +151,58 @@
         <if test="status != null">
            AND e.status = #{status}
         </if>
+    </select>
+
+    <!-- 수강현황관리 화면의 사이트 전체 수강신청 목록. selectInstitutionEnrollments 와 같은
+         SELECT·조인을 기관 조건 없이 쓴다. -->
+    <sql id="adminEnrollmentFilters">
+        <if test="status != null">
+           AND e.status = #{status}
+        </if>
+        <if test="institutionId != null">
+           AND c.institution_id = #{institutionId}
+        </if>
+        <if test="courseId != null">
+           AND e.course_id = #{courseId}
+        </if>
+        <if test="educationType != null">
+           AND c.education_type = #{educationType}
+        </if>
+        <if test="keyword != null">
+           AND (
+               LOWER(c.title) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+               OR LOWER(u.name) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+           )
+        </if>
+    </sql>
+
+    <select id="selectAllEnrollments" resultMap="institutionEnrollmentViewRowResultMap">
+        SELECT e.id, e.course_id, e.user_id, e.status, e.applied_at, e.created_at,
+               c.title AS course_title, u.name AS user_name, i.name AS institution_name,
+               COALESCE(pat.attended_count, 0) AS attended_count,
+               (SELECT COUNT(*) FROM tb_course_sessions cs
+                 WHERE cs.course_id = e.course_id
+                   AND cs.status &lt;&gt; 'CANCELLED') AS session_count,
+               pat.last_studied_at,
+               <include refid="processedAndWaitlistColumns"/>,
+               e.cancellation_reason AS cancellation_reason
+          FROM tb_enrollments e
+          JOIN tb_courses c ON c.id = e.course_id
+          <include refid="progressJoins"><property name="attendanceScope" value=""/></include>
+          JOIN tb_institutions i ON i.id = c.institution_id
+         WHERE 1 = 1
+        <include refid="adminEnrollmentFilters"/>
+        <include refid="orderBy"/>
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countAllEnrollments" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_enrollments e
+          JOIN tb_courses c ON c.id = e.course_id
+          JOIN tb_users u ON u.id = e.user_id
+         WHERE 1 = 1
+        <include refid="adminEnrollmentFilters"/>
     </select>
 
     <resultMap
@@ -138,6 +234,15 @@
             <arg column="start_date" javaType="java.time.LocalDate"/>
             <arg column="end_date" javaType="java.time.LocalDate"/>
             <arg column="applied_at" javaType="java.time.Instant"/>
+            <arg column="card_instructor_name" javaType="java.lang.String"/>
+            <arg column="card_classification_code" javaType="java.lang.String"/>
+            <arg column="card_session_count" javaType="java.lang.Integer"/>
+            <arg column="card_tags" javaType="java.lang.String"/>
+            <arg column="card_tuition_type" javaType="java.lang.String"/>
+            <arg column="card_tuition_amount" javaType="java.math.BigDecimal"/>
+            <arg column="card_thumbnail_file_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="attended_count" javaType="java.lang.Long"/>
         </constructor>
     </resultMap>
 
@@ -152,12 +257,19 @@
                 typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
             <arg column="user_id" javaType="java.util.UUID"
                 typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
-            <arg column="user_name" javaType="java.lang.String"/>
+            <arg column="enrollee_name" javaType="java.lang.String"/>
+            <arg column="enrollee_birth_date" javaType="java.time.LocalDate"/>
+            <arg column="enrollee_gender" javaType="java.lang.String"/>
+            <arg column="enrollee_email" javaType="java.lang.String"/>
+            <arg column="enrollee_phone" javaType="java.lang.String"/>
+            <arg column="enrollee_profile_image_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
             <arg column="course_id" javaType="java.util.UUID"
                 typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
             <arg column="course_title" javaType="java.lang.String"/>
             <arg column="attended_count" javaType="java.lang.Long"/>
             <arg column="session_count" javaType="java.lang.Long"/>
+            <arg column="last_studied_at" javaType="java.time.Instant"/>
             <arg column="status" javaType="java.lang.String"/>
         </constructor>
     </resultMap>
@@ -205,19 +317,85 @@
          WHERE e.user_id = #{userId}
     </select>
 
+    <resultMap
+        id="learningActivityRowResultMap"
+        type="com.adn.dabaeum.enrollment.infrastructure.mybatis.LearningActivityRow">
+
+        <constructor>
+            <arg column="total_study_minutes" javaType="java.lang.Long"/>
+            <arg column="average_progress_percent" javaType="java.math.BigDecimal"/>
+            <arg column="inquiry_count" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <!--
+      B-4 회원 상세 학습 통계의 원장 집계. 세 값의 기준 테이블이 모두 달라(이수·출결·문의)
+      한 행으로 조인하면 카티션 곱으로 합계가 부풀어난다. 그래서 스칼라 서브쿼리 셋을 나란히 둔다.
+
+      평균 진도율은 학습 카드(LearningCourseView.progressPercent)와 같은 정의다 —
+      취소되지 않은 회차 대비 출석(PRESENT·LATE) 비율을 승인된 수강에 대해 평균낸다.
+      출결이 하나도 없는 수강은 NULL 이 아니라 0 으로 세야 평균이 부풀지 않으므로
+      COALESCE 로 0 을 채우고, 회차가 0건이면 나누지 않고 바로 0 을 준다.
+      승인된 수강이 아예 없으면 AVG 가 NULL 이라 바깥 COALESCE 가 0 을 준다.
+    -->
+    <select id="selectLearningActivity" resultMap="learningActivityRowResultMap">
+        SELECT
+            (SELECT COALESCE(SUM(cp.completed_minutes), 0)
+               FROM tb_completions cp
+               JOIN tb_enrollments ce ON ce.id = cp.enrollment_id
+              WHERE ce.user_id = #{userId}) AS total_study_minutes,
+            (SELECT COALESCE(AVG(
+                        CASE
+                            WHEN ps.session_count = 0 THEN 0
+                            ELSE pa.attended_count * 100.0 / ps.session_count
+                        END), 0)
+               FROM tb_enrollments pe
+               <!-- 한 사용자의 수강 몇 건만 보는 쿼리다. GROUP BY 파생 테이블로 짜면
+                    사용자 조건을 안으로 못 밀어 출석·회차 테이블 전체를 집계하므로
+                    상관 서브쿼리로 건마다 인덱스를 탄다(ix_tb_attendance_records__enrollment). -->
+               CROSS JOIN LATERAL (
+                   SELECT COUNT(*) AS session_count
+                     FROM tb_course_sessions cs
+                    WHERE cs.course_id = pe.course_id
+                      AND cs.status &lt;&gt; 'CANCELLED'
+               ) ps
+               CROSS JOIN LATERAL (
+                   SELECT COUNT(*) AS attended_count
+                     FROM tb_attendance_records ar
+                    WHERE ar.enrollment_id = pe.id
+                      AND ar.status IN ('PRESENT', 'LATE')
+               ) pa
+              WHERE pe.user_id = #{userId}
+                AND pe.status = 'APPROVED') AS average_progress_percent,
+            (SELECT COUNT(*)
+               FROM tb_inquiries iq
+              WHERE iq.user_id = #{userId}) AS inquiry_count
+    </select>
+
     <select id="selectLearningCourses" resultMap="learningCourseViewRowResultMap">
         SELECT e.id AS enrollment_id, c.id AS course_id, c.title,
                i.name AS institution_name,
                <include refid="learningStatusCase"/> AS learning_status,
-               c.education_type, c.start_date, c.end_date, e.applied_at
+               c.education_type, c.start_date, c.end_date, e.applied_at,
+               c.classification_code AS card_classification_code,
+               <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.cardColumns"/>,
+               COALESCE(lc_at.attended_count, 0) AS attended_count
           FROM tb_enrollments e
           JOIN tb_courses c ON c.id = e.course_id
           JOIN tb_institutions i ON i.id = c.institution_id
+          <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.cardJoins"/>
+          LEFT JOIN (
+              SELECT ar.enrollment_id, COUNT(*) AS attended_count
+                FROM tb_attendance_records ar
+               WHERE ar.status IN ('PRESENT', 'LATE')
+               GROUP BY ar.enrollment_id
+          ) lc_at ON lc_at.enrollment_id = e.id
          WHERE e.user_id = #{userId}
            AND e.status IN ('APPLIED', 'WAITLISTED', 'APPROVED')
         <if test="learningStatus != null">
            AND <include refid="learningStatusCase"/> = #{learningStatus}
         </if>
+        <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.keywordFilter"/>
         ORDER BY e.applied_at DESC, e.id ASC
         LIMIT #{limit} OFFSET #{offset}
     </select>
@@ -231,18 +409,40 @@
         <if test="learningStatus != null">
            AND <include refid="learningStatusCase"/> = #{learningStatus}
         </if>
+        <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.keywordFilter"/>
     </select>
 
+    <!-- C-4: attended_count 와 last_studied_at 을 같은 서브쿼리에서 뽑아
+         tb_attendance_records 스캔을 한 번으로 합친다. -->
     <sql id="progressColumns">
-        e.id AS enrollment_id, e.user_id, u.name AS user_name,
+        e.id AS enrollment_id, e.user_id,
+        <include refid="com.adn.dabaeum.enrollment.infrastructure.mybatis.EnrolleeProfileSql.columns"/>,
         c.id AS course_id, c.title AS course_title,
-        (SELECT COUNT(*) FROM tb_attendance_records ar
-           JOIN tb_course_sessions cs ON cs.id = ar.session_id
-          WHERE ar.enrollment_id = e.id
-            AND ar.status IN ('PRESENT', 'LATE')) AS attended_count,
+        COALESCE(pat.attended_count, 0) AS attended_count,
         (SELECT COUNT(*) FROM tb_course_sessions cs
-          WHERE cs.course_id = c.id) AS session_count,
+          WHERE cs.course_id = c.id
+            AND cs.status &lt;&gt; 'CANCELLED') AS session_count,
+        pat.last_studied_at,
         e.status
+    </sql>
+
+    <sql id="progressJoins">
+        <include refid="com.adn.dabaeum.enrollment.infrastructure.mybatis.EnrolleeProfileSql.join"><property name="ownerAlias" value="e"/></include>
+        LEFT JOIN (
+            SELECT enrollment_id,
+                   COUNT(*) FILTER (WHERE status IN ('PRESENT', 'LATE')) AS attended_count,
+                   MAX(checked_at) FILTER (WHERE status IN ('PRESENT', 'LATE')) AS last_studied_at
+              FROM tb_attendance_records
+            <!--
+              attendanceScope: 단건 조회(selectEnrollmentProgress)는 여기에 WHERE 를 넣어야 한다.
+              바깥의 e.id = ? 는 GROUP BY 서브쿼리 안으로 밀어넣을 수 없어서, 없으면 한 행을
+              만들려고 tb_attendance_records 전체를 집계한다. 목록 쿼리는 빈 문자열을 넘겨
+              예전처럼 한 번에 모아 뽑는다. <if> 로 못 하는 이유: 강사 목록의 파라미터 맵에
+              enrollmentId 키가 없어 MyBatis 가 null 대신 BindingException 을 던진다.
+            -->
+             ${attendanceScope}
+             GROUP BY enrollment_id
+        ) pat ON pat.enrollment_id = e.id
     </sql>
 
     <select id="selectInstructorEnrollmentProgress"
@@ -250,7 +450,7 @@
         SELECT <include refid="progressColumns"/>
           FROM tb_enrollments e
           JOIN tb_courses c ON c.id = e.course_id
-          JOIN tb_users u ON u.id = e.user_id
+          <include refid="progressJoins"><property name="attendanceScope" value=""/></include>
           JOIN tb_course_instructors ci ON ci.course_id = c.id
          WHERE ci.user_id = #{instructorUserId}
            AND e.status = 'APPROVED'
@@ -277,7 +477,9 @@
         SELECT <include refid="progressColumns"/>
           FROM tb_enrollments e
           JOIN tb_courses c ON c.id = e.course_id
-          JOIN tb_users u ON u.id = e.user_id
+          <include refid="progressJoins">
+            <property name="attendanceScope" value="WHERE enrollment_id = #{enrollmentId}"/>
+          </include>
          WHERE e.id = #{enrollmentId}
     </select>
 

@@ -1,10 +1,14 @@
 package com.adn.dabaeum.course.infrastructure.mybatis;
 
 import com.adn.dabaeum.course.domain.Course;
+import com.adn.dabaeum.course.domain.CourseDetail;
 import com.adn.dabaeum.course.domain.CourseEducationType;
 import com.adn.dabaeum.course.domain.CoursePageCriteria;
 import com.adn.dabaeum.course.domain.CourseRepository;
+import com.adn.dabaeum.course.domain.CourseSelectionMethod;
 import com.adn.dabaeum.course.domain.CourseStatus;
+import com.adn.dabaeum.course.domain.CourseView;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -64,8 +68,14 @@ public class CourseMyBatisRepository implements CourseRepository {
     }
 
     @Override
-    public long countActive() {
-        return mapper.countActive();
+    public long countActive(
+        String keyword, CourseEducationType educationType,
+        CourseSelectionMethod selectionMethod, CourseStatus status,
+        boolean includeAllDraft, List<UUID> draftVisibleInstitutionIds, String classificationPrefix
+    ) {
+        return mapper.countActiveFiltered(
+            keyword, educationType, selectionMethod, status,
+            includeAllDraft, draftVisibleInstitutionIds, classificationPrefix);
     }
 
     @Override
@@ -73,14 +83,42 @@ public class CourseMyBatisRepository implements CourseRepository {
         return mapper.updateActive(toRow(course)) == 1;
     }
 
+    @Override
+    public boolean softDeleteDraft(UUID id, Instant deletedAt) {
+        return mapper.softDeleteDraft(id, deletedAt) == 1;
+    }
+
+    @Override
+    public Optional<CourseView> findActiveViewById(UUID id) {
+        return Optional.ofNullable(mapper.selectActiveViewById(id))
+            .map(this::toDomain);
+    }
+
+    @Override
+    public List<CourseView> findActiveViewsByIds(List<UUID> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return mapper.selectActiveViewsByIds(ids).stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    public List<CourseView> findActiveViewPage(CoursePageCriteria criteria) {
+        return mapper.selectActiveViewPage(criteria)
+            .stream()
+            .map(this::toDomain)
+            .toList();
+    }
+
     private CourseRow toRow(Course course) {
+        CourseDetail detail = course.detail();
         return new CourseRow(
             course.id(),
             course.institutionId(),
             course.courseCode(),
             course.title(),
             course.description(),
-            course.category(),
+            course.classificationCode(),
             course.educationType().name(),
             course.startDate(),
             course.endDate(),
@@ -95,8 +133,34 @@ public class CourseMyBatisRepository implements CourseRepository {
             course.createdAt(),
             course.updatedAt(),
             course.deletedAt(),
-            course.thumbnailFileId()
+            course.thumbnailFileId(),
+            detail.tags(),
+            detail.targetAudiencesAsText(),
+            detail.instructorProfileVisible(),
+            detail.tuitionType().name(),
+            detail.tuitionAmount(),
+            detail.materialFeeType().name(),
+            detail.materialFeeAmount(),
+            detail.completionEnabled(),
+            detail.completionCriteria() == null ? null : detail.completionCriteria().name(),
+            detail.requiredProgressRate(),
+            detail.issueCertificate(),
+            detail.notes(),
+            detail.materials(),
+            detail.learningObjective(),
+            detail.selectionMethod().name(),
+            detail.waitlistCapacity()
         );
+    }
+
+    private CourseView toDomain(CourseViewRow row) {
+        return new CourseView(
+            toDomain(row.toCourseRow()), zeroIfNull(row.enrolledCount()),
+            row.institutionName(), row.mainInstructorName());
+    }
+
+    private static long zeroIfNull(Long value) {
+        return value == null ? 0 : value;
     }
 
     private Course toDomain(CourseRow row) {
@@ -106,7 +170,7 @@ public class CourseMyBatisRepository implements CourseRepository {
             row.courseCode(),
             row.title(),
             row.description(),
-            row.category(),
+            row.classificationCode(),
             CourseEducationType.valueOf(row.educationType()),
             row.startDate(),
             row.endDate(),
@@ -121,7 +185,8 @@ public class CourseMyBatisRepository implements CourseRepository {
             row.createdAt(),
             row.updatedAt(),
             row.deletedAt(),
-            row.thumbnailFileId()
+            row.thumbnailFileId(),
+            row.toDetail()
         );
     }
 }

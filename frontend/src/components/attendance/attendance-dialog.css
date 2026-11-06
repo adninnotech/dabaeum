@@ -1,0 +1,22 @@
+/* 출결 관리 창 공통 — 폰에서도 넘치지 않게 max-width 만 둔다 */
+.attendance-dialog {
+  width: 440px;
+  max-width: 94vw;
+}
+
+.attendance-dialog--wide {
+  width: 560px;
+}
+
+/* 창 제목 — Quasar text-h6(20px)가 다른 콘솔 창보다 커서 맞춘다 */
+.attendance-dialog__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--db-text-title);
+  word-break: keep-all;
+}
+
+.attendance-dialog__error {
+  margin: 0;
+  color: var(--db-error);
+}

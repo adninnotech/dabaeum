@@ -1,6 +1,11 @@
 package com.adn.dabaeum.badge.application;
 
 import com.adn.dabaeum.authorization.application.AuthorizationPolicy;
+import com.adn.dabaeum.badge.domain.BadgeDefinition;
+import com.adn.dabaeum.badge.domain.BadgeDefinitionRepository;
+import com.adn.dabaeum.badge.domain.BadgeRule;
+import com.adn.dabaeum.badge.domain.LearningBadgeEvent;
+import com.adn.dabaeum.badge.domain.LearningBadgeEventRepository;
 import com.adn.dabaeum.badge.domain.LearningBadge;
 import com.adn.dabaeum.badge.domain.LearningBadgeRepository;
 import com.adn.dabaeum.badge.domain.LearningBadgeStatus;
@@ -40,6 +45,8 @@ public class DefaultLearningBadgeApplicationService
     private final EnrollmentRepository enrollmentRepository;
     private final CourseRepository courseRepository;
     private final AuthorizationPolicy authorizationPolicy;
+    private final BadgeDefinitionRepository definitionRepository;
+    private final LearningBadgeEventRepository eventRepository;
 
     public DefaultLearningBadgeApplicationService(
         LearningBadgeRepository badgeRepository,
@@ -48,8 +55,12 @@ public class DefaultLearningBadgeApplicationService
         CompletionRepository completionRepository,
         EnrollmentRepository enrollmentRepository,
         CourseRepository courseRepository,
-        AuthorizationPolicy authorizationPolicy
+        AuthorizationPolicy authorizationPolicy,
+        BadgeDefinitionRepository definitionRepository,
+        LearningBadgeEventRepository eventRepository
     ) {
+        this.definitionRepository = definitionRepository;
+        this.eventRepository = eventRepository;
         this.badgeRepository = badgeRepository;
         this.credentialRepository = credentialRepository;
         this.groupRepository = groupRepository;
@@ -76,9 +87,15 @@ public class DefaultLearningBadgeApplicationService
                 "Credential is not in ISSUED status");
         }
 
-        // 동일 Credential에 대한 같은 종류·이름의 발급 요청은 기존 Badge를 반환한다.
-        Optional<LearningBadge> existing = badgeRepository.findByCredentialIdAndTypeAndName(
-            command.credentialId(), command.badgeType(), command.badgeName());
+        BadgeDefinition definition = definitionRepository.findById(command.definitionId())
+            .orElseThrow(() -> notFound(ApiErrorCode.BADGE_DEFINITION_NOT_FOUND, "Badge definition not found"));
+        // 단계 배지는 이수 건수로만 정해진다(설계서 §11.4). 수동으로 주지 않는다.
+        if (!definition.active() || definition.rule() instanceof BadgeRule.Tiered) {
+            throw validation("definitionId");
+        }
+        // 정의 배지는 사람당 정의당 1회다. 이미 받았으면(자동 발급 포함) 그 배지를 돌려준다.
+        Optional<LearningBadge> existing = badgeRepository.findByUserIdAndDefinitionId(
+            scope.userId(), definition.id());
         if (existing.isPresent()) {
             return existing.get();
         }
@@ -97,14 +114,17 @@ public class DefaultLearningBadgeApplicationService
             scope.userId(),
             courseId,
             credential.id(),
-            command.badgeType(),
-            command.badgeName(),
+            definition.rule().type().name(),
+            definition.name(),
             LearningBadgeStatus.ISSUED,
             null,
             command.requestedAt(),
             null,
             command.requestedAt(),
-            command.requestedAt()
+            command.requestedAt(),
+            definition.id(),
+            definition.code(),
+            definition.imageFileId()
         );
         try {
             badgeRepository.save(badge);
@@ -114,6 +134,8 @@ public class DefaultLearningBadgeApplicationService
                 ApiErrorCode.BADGE_CONFLICT,
                 "Badge was issued concurrently");
         }
+        eventRepository.save(LearningBadgeEvent.of(badge.id(), LearningBadgeEvent.Type.ISSUED, null, null,
+            "수료증 기반 수동 발급", command.actor().userId(), command.requestedAt()));
         return badge;
     }
 
@@ -181,7 +203,7 @@ public class DefaultLearningBadgeApplicationService
 
     private ApiException validation(String field) {
         return new ApiException(
-            HttpStatus.UNPROCESSABLE_ENTITY,
+            HttpStatus.UNPROCESSABLE_CONTENT,
             ApiErrorCode.VALIDATION_FAILED,
             "Request validation failed",
             List.of(field));

@@ -17,6 +17,7 @@ public final class CourseSessionUpdateRequest {
     private Instant startsAt;
     private Instant endsAt;
     @Size(max = 500) private String location;
+    @Size(max = 200) private String topic;
     private Instant attendanceOpensAt;
     private Instant attendanceClosesAt;
     private CourseSessionStatus status;
@@ -24,6 +25,7 @@ public final class CourseSessionUpdateRequest {
     private boolean startsAtPresent;
     private boolean endsAtPresent;
     private boolean locationPresent;
+    private boolean topicPresent;
     private boolean attendanceOpensAtPresent;
     private boolean attendanceClosesAtPresent;
     private boolean statusPresent;
@@ -35,6 +37,7 @@ public final class CourseSessionUpdateRequest {
     @JsonSetter("startsAt") public void setStartsAt(Instant value) { startsAtPresent = true; startsAt = value; }
     @JsonSetter("endsAt") public void setEndsAt(Instant value) { endsAtPresent = true; endsAt = value; }
     @JsonSetter("location") public void setLocation(String value) { locationPresent = true; location = value; }
+    @JsonSetter("topic") public void setTopic(String value) { topicPresent = true; topic = value; }
     @JsonSetter("attendanceOpensAt") public void setAttendanceOpensAt(Instant value) { attendanceOpensAtPresent = true; attendanceOpensAt = value; }
     @JsonSetter("attendanceClosesAt") public void setAttendanceClosesAt(Instant value) { attendanceClosesAtPresent = true; attendanceClosesAt = value; }
     @JsonSetter("status") public void setStatus(CourseSessionStatus value) { statusPresent = true; status = value; }
@@ -43,6 +46,7 @@ public final class CourseSessionUpdateRequest {
     public CourseSessionUpdateField<Instant> startsAtUpdate() { return field(startsAtPresent, startsAt); }
     public CourseSessionUpdateField<Instant> endsAtUpdate() { return field(endsAtPresent, endsAt); }
     public CourseSessionUpdateField<String> locationUpdate() { return field(locationPresent, location); }
+    public CourseSessionUpdateField<String> topicUpdate() { return field(topicPresent, topic); }
     public CourseSessionUpdateField<Instant> attendanceOpensAtUpdate() { return field(attendanceOpensAtPresent, attendanceOpensAt); }
     public CourseSessionUpdateField<Instant> attendanceClosesAtUpdate() { return field(attendanceClosesAtPresent, attendanceClosesAt); }
     public CourseSessionUpdateField<CourseSessionStatus> statusUpdate() { return field(statusPresent, status); }
@@ -50,7 +54,8 @@ public final class CourseSessionUpdateRequest {
     @JsonIgnore @AssertTrue(message = "at least one field is required")
     public boolean isNotEmpty() {
         return sessionNoPresent || startsAtPresent || endsAtPresent || locationPresent
-            || attendanceOpensAtPresent || attendanceClosesAtPresent || statusPresent;
+            || topicPresent || attendanceOpensAtPresent || attendanceClosesAtPresent
+            || statusPresent;
     }
 
     @JsonIgnore @AssertTrue(message = "startsAt must be before endsAt")

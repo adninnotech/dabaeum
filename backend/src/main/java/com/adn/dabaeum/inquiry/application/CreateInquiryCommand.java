@@ -1,6 +1,7 @@
 package com.adn.dabaeum.inquiry.application;
 
 import com.adn.dabaeum.common.security.AuthenticatedUserContext;
+import com.adn.dabaeum.inquiry.domain.InquiryType;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -9,6 +10,7 @@ public record CreateInquiryCommand(
     String content,
     UUID courseId,
     AuthenticatedUserContext actor,
-    Instant requestedAt
+    Instant requestedAt,
+    InquiryType type
 ) {
 }

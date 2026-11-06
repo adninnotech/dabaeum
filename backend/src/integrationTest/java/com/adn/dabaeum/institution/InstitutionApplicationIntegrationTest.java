@@ -23,6 +23,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 class InstitutionApplicationIntegrationTest
     extends RemotePostgresIntegrationTestSupport {
 
+    private static final UUID REQUESTED_BY =
+        UUID.fromString("ffffffff-0000-0000-0000-000000000001");
+
     @Autowired
     InstitutionApplicationService service;
 
@@ -40,13 +43,23 @@ class InstitutionApplicationIntegrationTest
             "서울시 중구",
             "02-1234-5678",
             "acceptance@example.com",
-            InstitutionStatus.ACTIVE
-        ));
+            InstitutionStatus.ACTIVE,
+            null,
+            null,
+            null
+        ), REQUESTED_BY);
 
         assertThat(repository.findActiveById(created.id()))
             .contains(created);
         assertThat(service.get(created.id()))
             .isEqualTo(created);
+        assertThat(jdbcTemplate.queryForList("""
+            SELECT payload->>'requestedBy'
+              FROM tb_outbox_events
+             WHERE event_type = 'INSTITUTION_SIGNING_KEYS_REQUESTED'
+               AND aggregate_id = ? AND status = 'PENDING'
+            """, String.class, created.id()))
+            .containsExactly(REQUESTED_BY.toString());
     }
 
     @Test
@@ -60,11 +73,14 @@ class InstitutionApplicationIntegrationTest
         InstitutionPage page = service.list(new ListInstitutionsQuery(
             0,
             100,
-            "institutionCode,asc"
+            "institutionCode,asc",
+            null,
+            null,
+            null
         ));
 
         assertThat(page.data())
-            .extracting(Institution::id)
+            .extracting(item -> item.institution().id())
             .contains(active.id(), inactive.id(), suspended.id())
             .doesNotContain(deleted.id());
         assertThatThrownBy(() -> service.get(deleted.id()))
@@ -83,8 +99,11 @@ class InstitutionApplicationIntegrationTest
             "서울시 중구",
             "02-1234-5678",
             "before@example.com",
-            InstitutionStatus.ACTIVE
-        ));
+            InstitutionStatus.ACTIVE,
+            null,
+            null,
+            null
+        ), REQUESTED_BY);
 
         Institution updated = service.update(new UpdateInstitutionCommand(
             original.id(),
@@ -95,7 +114,10 @@ class InstitutionApplicationIntegrationTest
             UpdateField.present(null),
             UpdateField.absent(),
             UpdateField.present(null),
-            UpdateField.present(InstitutionStatus.SUSPENDED)
+            UpdateField.present(InstitutionStatus.SUSPENDED),
+            UpdateField.absent(),
+            UpdateField.absent(),
+            UpdateField.absent()
         ));
 
         assertThat(updated.name()).isEqualTo("인수 수정 후");
@@ -120,8 +142,11 @@ class InstitutionApplicationIntegrationTest
             null,
             null,
             null,
-            InstitutionStatus.ACTIVE
-        )))
+            InstitutionStatus.ACTIVE,
+            null,
+            null,
+            null
+        ), REQUESTED_BY))
             .isInstanceOf(ApiException.class)
             .satisfies(error -> {
                 ApiException exception = (ApiException) error;
@@ -140,6 +165,9 @@ class InstitutionApplicationIntegrationTest
             UpdateField.absent(),
             UpdateField.absent(),
             UpdateField.absent(),
+            UpdateField.absent(),
+            UpdateField.absent(),
+            UpdateField.absent(),
             UpdateField.absent()
         )))
             .isInstanceOf(ApiException.class)
@@ -149,7 +177,7 @@ class InstitutionApplicationIntegrationTest
 
     @Test
     void pageAndSortTotalsRemainConsistent() {
-        long baseline = repository.countActive();
+        long baseline = repository.countActive(null, null, null);
         create("APP-PAGE-1", InstitutionStatus.ACTIVE);
         create("APP-PAGE-2", InstitutionStatus.INACTIVE);
         create("APP-PAGE-3", InstitutionStatus.SUSPENDED);
@@ -157,12 +185,18 @@ class InstitutionApplicationIntegrationTest
         InstitutionPage first = service.list(new ListInstitutionsQuery(
             0,
             2,
-            "institutionCode,asc"
+            "institutionCode,asc",
+            null,
+            null,
+            null
         ));
         InstitutionPage second = service.list(new ListInstitutionsQuery(
             1,
             2,
-            "institutionCode,asc"
+            "institutionCode,asc",
+            null,
+            null,
+            null
         ));
 
         assertThat(first.size()).isEqualTo(2);
@@ -178,15 +212,15 @@ class InstitutionApplicationIntegrationTest
         ));
         assertThat(first.data()).doesNotContainAnyElementsOf(second.data());
         assertThat(first.data()).isSortedAccordingTo(
-            (left, right) -> left.institutionCode()
-                .compareTo(right.institutionCode())
+            (left, right) -> left.institution().institutionCode()
+                .compareTo(right.institution().institutionCode())
         );
         assertThat(second.data()).isSortedAccordingTo(
-            (left, right) -> left.institutionCode()
-                .compareTo(right.institutionCode())
+            (left, right) -> left.institution().institutionCode()
+                .compareTo(right.institution().institutionCode())
         );
-        assertThat(first.data().getLast().institutionCode())
-            .isLessThanOrEqualTo(second.data().getFirst().institutionCode());
+        assertThat(first.data().getLast().institution().institutionCode())
+            .isLessThanOrEqualTo(second.data().getFirst().institution().institutionCode());
     }
 
     private Institution create(String prefix, InstitutionStatus status) {
@@ -198,8 +232,11 @@ class InstitutionApplicationIntegrationTest
             "주소",
             "02-0000-0000",
             "acceptance@example.com",
-            status
-        ));
+            status,
+            null,
+            null,
+            null
+        ), REQUESTED_BY);
     }
 
     private void softDelete(UUID id) {

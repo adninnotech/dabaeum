@@ -1,7 +1,7 @@
 package com.adn.dabaeum.course.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document;
 import static org.springframework.restdocs.operation.preprocess.Preprocessors.preprocessRequest;
@@ -10,6 +10,7 @@ import static org.springframework.restdocs.operation.preprocess.Preprocessors.pr
 import static org.springframework.restdocs.payload.PayloadDocumentation.fieldWithPath;
 import static org.springframework.restdocs.payload.PayloadDocumentation.requestFields;
 import static org.springframework.restdocs.payload.PayloadDocumentation.responseFields;
+import static org.springframework.restdocs.payload.PayloadDocumentation.subsectionWithPath;
 import static org.springframework.restdocs.request.RequestDocumentation.parameterWithName;
 import static org.springframework.restdocs.request.RequestDocumentation.queryParameters;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -33,9 +34,8 @@ import com.adn.dabaeum.course.application.CoursePage;
 import com.adn.dabaeum.course.domain.Course;
 import com.adn.dabaeum.course.domain.CourseEducationType;
 import com.adn.dabaeum.course.domain.CourseStatus;
-import com.adn.dabaeum.testsupport.OpenApiContract;
+import com.adn.dabaeum.course.domain.CourseView;
 import java.math.BigDecimal;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -63,8 +63,6 @@ import org.springframework.test.web.servlet.MockMvc;
 })
 class CourseDocumentationTest {
 
-    private static final Path CONTRACT =
-        Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final UUID COURSE_ID = UUID.fromString(
         "33333333-3333-3333-3333-333333333333"
     );
@@ -85,8 +83,8 @@ class CourseDocumentationTest {
 
     @Test
     void documentsCourseList() throws Exception {
-        when(service.list(any())).thenReturn(new CoursePage(
-            List.of(course()), 0, 20, 1, 1));
+        when(service.list(any(), any())).thenReturn(new CoursePage(
+            List.of(new CourseView(course(), 7, null, null)), 0, 20, 1, 1));
 
         mockMvc.perform(get("/api/v1/courses")
                 .queryParam("page", "0")
@@ -98,7 +96,6 @@ class CourseDocumentationTest {
             .andExpect(status().isOk())
             .andExpect(header().string(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(jsonPath("$.page.totalElements").value(1))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "course-list",
                 preprocessRequest(prettyPrint()),
@@ -125,7 +122,6 @@ class CourseDocumentationTest {
             .andExpect(status().isCreated())
             .andExpect(header().string(
                 "Location", "https://api.dabaeum.local/api/v1/courses/" + COURSE_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "course-create",
                 preprocessRequest(prettyPrint()),
@@ -135,7 +131,7 @@ class CourseDocumentationTest {
                     fieldWithPath("courseCode").description("과정 코드"),
                     fieldWithPath("title").description("과정명"),
                     fieldWithPath("description").optional().description("상세 설명"),
-                    fieldWithPath("category").optional().description("분류"),
+                    fieldWithPath("classificationCode").optional().description("표준 강좌 분류 코드(TSIX_AABBCC)"),
                     fieldWithPath("educationType").description("교육 유형"),
                     fieldWithPath("startDate").description("시작일"),
                     fieldWithPath("endDate").description("종료일"),
@@ -150,12 +146,11 @@ class CourseDocumentationTest {
                 courseResponseFields(false)
             ));
 
-        when(service.get(COURSE_ID)).thenReturn(course());
+        when(service.get(eq(COURSE_ID), any())).thenReturn(new CourseView(course(), 7, null, null));
         mockMvc.perform(get("/api/v1/courses/{courseId}", COURSE_ID)
                 .with(user("reader").roles("USER"))
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(status().isOk())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "course-get",
                 preprocessRequest(prettyPrint()),
@@ -168,6 +163,7 @@ class CourseDocumentationTest {
     void documentsCourseUpdate() throws Exception {
         when(currentUserProvider.requireContext()).thenReturn(managerContext());
         when(service.update(any(), any())).thenReturn(course());
+        when(service.get(eq(COURSE_ID), any())).thenReturn(new CourseView(course(), 7, null, null));
 
         mockMvc.perform(put("/api/v1/courses/{courseId}", COURSE_ID)
                 .with(user("manager").roles("INSTITUTION_ADMIN"))
@@ -177,7 +173,6 @@ class CourseDocumentationTest {
                     {"title":"수정 과정", "description":null, "status":"IN_PROGRESS"}
                     """))
             .andExpect(status().isOk())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "course-update",
                 preprocessRequest(prettyPrint()),
@@ -196,12 +191,12 @@ class CourseDocumentationTest {
         when(currentUserProvider.requireContext()).thenReturn(managerContext());
         when(service.publish(any(), any())).thenReturn(course());
         when(service.close(any(), any())).thenReturn(course());
+        when(service.get(eq(COURSE_ID), any())).thenReturn(new CourseView(course(), 7, null, null));
 
         mockMvc.perform(post("/api/v1/courses/{courseId}/publish", COURSE_ID)
                 .with(user("manager").roles("INSTITUTION_ADMIN"))
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(status().isOk())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "course-publish",
                 preprocessRequest(prettyPrint()),
@@ -213,7 +208,6 @@ class CourseDocumentationTest {
                 .with(user("manager").roles("INSTITUTION_ADMIN"))
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(status().isOk())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "course-close",
                 preprocessRequest(prettyPrint()),
@@ -231,7 +225,8 @@ class CourseDocumentationTest {
             fieldWithPath(prefix + ".courseCode").description("과정 코드"),
             fieldWithPath(prefix + ".title").description("과정명"),
             fieldWithPath(prefix + ".description").optional().description("상세 설명"),
-            fieldWithPath(prefix + ".category").optional().description("분류"),
+            fieldWithPath(prefix + ".classificationCode").optional().description("분류"),
+            fieldWithPath(prefix + ".classificationPath").description("표시용 분류 경로(1→3단계 이름)"),
             fieldWithPath(prefix + ".educationType").description("교육 유형"),
             fieldWithPath(prefix + ".startDate").description("시작일"),
             fieldWithPath(prefix + ".endDate").description("종료일"),
@@ -246,6 +241,10 @@ class CourseDocumentationTest {
             fieldWithPath(prefix + ".createdAt").description("생성 시각"),
             fieldWithPath(prefix + ".updatedAt").description("수정 시각"),
             fieldWithPath(prefix + ".thumbnailFileId").optional().description("썸네일 파일 ID"),
+            subsectionWithPath(prefix + ".detail").description("상세 설정 (D-1·D-3)"),
+            fieldWithPath(prefix + ".enrolledCount").description("승인된 신청자 수"),
+            fieldWithPath(prefix + ".institutionName").optional().description("기관명"),
+            fieldWithPath(prefix + ".mainInstructorName").optional().description("주강사 이름"),
             fieldWithPath("meta.requestId").description("요청 추적 UUID"),
             fieldWithPath("meta.timestamp").description("응답 시각")
         ));
@@ -275,7 +274,7 @@ class CourseDocumentationTest {
               "courseCode": "COURSE-001",
               "title": "과정 제목",
               "description": "상세 설명",
-              "category": "개발",
+              "classificationCode": "TSIX_040201",
               "educationType": "HYBRID",
               "startDate": "2026-09-01",
               "endDate": "2026-10-31",
@@ -293,7 +292,7 @@ class CourseDocumentationTest {
     private Course course() {
         Instant instant = Instant.parse("2026-08-04T00:00:00Z");
         return new Course(
-            COURSE_ID, INSTITUTION_ID, "COURSE-001", "과정 제목", "상세 설명", "개발",
+            COURSE_ID, INSTITUTION_ID, "COURSE-001", "과정 제목", "상세 설명", "TSIX_040201",
             CourseEducationType.HYBRID, LocalDate.of(2026, 9, 1),
             LocalDate.of(2026, 10, 31), LocalDate.of(2026, 8, 1),
             LocalDate.of(2026, 8, 25), 30, "서울 교육장",

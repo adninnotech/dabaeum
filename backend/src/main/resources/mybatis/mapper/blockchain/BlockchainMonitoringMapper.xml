@@ -73,7 +73,9 @@
                (response_metadata ->> 'blockNumber')::bigint AS block_number,
                COALESCE(response_metadata ->> 'commitCode', '') LIKE 'RECONCILED%' AS reconciled
           FROM tb_blockchain_transactions
-        ORDER BY created_at DESC, id ASC
+        <!-- 화면이 보여주는 값이 occurred_at 이므로 정렬도 같은 값으로 한다. created_at 으로
+             정렬하면 나중에 확정된 트랜잭션이 먼저 만들어졌을 때 순서가 뒤집혀 보인다. -->
+        ORDER BY occurred_at DESC, id ASC
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
@@ -90,7 +92,9 @@
                COALESCE(confirmed_at, requested_at, created_at) AS occurred_at
           FROM tb_blockchain_transactions
          WHERE status = 'FAILED'
-        ORDER BY created_at DESC, id ASC
+        <!-- 화면이 보여주는 값이 occurred_at 이므로 정렬도 같은 값으로 한다. created_at 으로
+             정렬하면 나중에 확정된 트랜잭션이 먼저 만들어졌을 때 순서가 뒤집혀 보인다. -->
+        ORDER BY occurred_at DESC, id ASC
         LIMIT #{limit} OFFSET #{offset}
     </select>
 

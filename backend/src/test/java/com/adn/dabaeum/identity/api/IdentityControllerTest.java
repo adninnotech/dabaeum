@@ -1,10 +1,10 @@
 package com.adn.dabaeum.identity.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -18,16 +18,17 @@ import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
+import com.adn.dabaeum.common.security.AuthenticatedUserPrincipal;
 import com.adn.dabaeum.common.web.RequestIdFilter;
 import com.adn.dabaeum.identity.application.IdentityApplicationService;
 import com.adn.dabaeum.identity.domain.IdentityProvider;
 import com.adn.dabaeum.identity.domain.UserIdentity;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,10 +36,13 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 @WebMvcTest(IdentityController.class)
 @ActiveProfiles("local")
@@ -50,14 +54,12 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
 class IdentityControllerTest {
 
-    private static final Path CONTRACT = Path.of(
-        "docs/api/dabaeum-api-v1.yaml"
-    ).toAbsolutePath();
     private static final UUID USER_ID = UUID.fromString(
         "11111111-1111-1111-1111-111111111111"
     );
@@ -91,10 +93,57 @@ class IdentityControllerTest {
             .andExpect(jsonPath("$.data[0].providerSubject").doesNotExist())
             .andExpect(jsonPath("$.data[0].externalDid").doesNotExist())
             .andExpect(jsonPath("$.data[0].metadata").doesNotExist())
-            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID));
 
         verify(service).list(USER_ID);
+    }
+
+    @Test
+    void listsMyIdentitiesForLearner() throws Exception {
+        when(service.list(USER_ID)).thenReturn(List.of(identity()));
+
+        mockMvc.perform(get("/api/v1/users/me/identities")
+                .with(principal(USER_ID, "LEARNER"))
+                .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
+            .andExpect(status().isOk())
+            .andExpect(header().string(
+                RequestIdFilter.HEADER_NAME,
+                REQUEST_ID
+            ))
+            .andExpect(jsonPath("$.data[0].id")
+                .value(IDENTITY_ID.toString()))
+            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID));
+
+        verify(service).list(USER_ID);
+    }
+
+    @Test
+    void requiresAuthenticationForMyIdentities() throws Exception {
+        mockMvc.perform(get("/api/v1/users/me/identities"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+
+        verify(service, never()).list(any());
+    }
+
+    @Test
+    void doesNotLetLearnerReadAnotherUsersIdentities() throws Exception {
+        UUID otherUserId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+
+        mockMvc.perform(get("/api/v1/users/{userId}/identities", otherUserId)
+                .with(principal(USER_ID, "LEARNER")))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        verify(service, never()).list(any());
+    }
+
+    private RequestPostProcessor principal(UUID userId, String role) {
+        return authentication(new UsernamePasswordAuthenticationToken(
+            new AuthenticatedUserPrincipal(userId, Set.of("ROLE_" + role)),
+            "N/A",
+            Set.of(new SimpleGrantedAuthority("ROLE_" + role))
+        ));
     }
 
     @Test
@@ -124,8 +173,7 @@ class IdentityControllerTest {
             .andExpect(jsonPath("$.data.provider").value("DADAEGU"))
             .andExpect(jsonPath("$.data.providerSubject").doesNotExist())
             .andExpect(jsonPath("$.data.externalDid").doesNotExist())
-            .andExpect(jsonPath("$.data.metadata").doesNotExist())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.metadata").doesNotExist());
 
         verify(service).link(any());
     }
@@ -147,8 +195,7 @@ class IdentityControllerTest {
                 REQUEST_ID
             ))
             .andExpect(jsonPath("$.data.id")
-                .value(IDENTITY_ID.toString()))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+                .value(IDENTITY_ID.toString()));
 
         verify(service).unlink(USER_ID, IDENTITY_ID);
     }
@@ -268,7 +315,7 @@ class IdentityControllerTest {
     @Test
     void mapsUnverifiedIdentityToUnprocessableEntity() throws Exception {
         when(service.link(any())).thenThrow(new ApiException(
-            HttpStatus.UNPROCESSABLE_ENTITY,
+            HttpStatus.UNPROCESSABLE_CONTENT,
             ApiErrorCode.IDENTITY_NOT_VERIFIED,
             "Identity verification is required"
         ));

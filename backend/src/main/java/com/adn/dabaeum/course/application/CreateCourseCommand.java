@@ -1,5 +1,6 @@
 package com.adn.dabaeum.course.application;
 
+import com.adn.dabaeum.course.domain.CourseDetail;
 import com.adn.dabaeum.course.domain.CourseEducationType;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -10,7 +11,7 @@ public record CreateCourseCommand(
     String courseCode,
     String title,
     String description,
-    String category,
+    String classificationCode,
     CourseEducationType educationType,
     LocalDate startDate,
     LocalDate endDate,
@@ -21,7 +22,8 @@ public record CreateCourseCommand(
     String onlineUrl,
     Boolean creditBankEligible,
     BigDecimal creditValue,
-    UUID thumbnailFileId
+    UUID thumbnailFileId,
+    CourseDetail detail
 ) {
 
     /** 썸네일 없이 생성하는 명령. */
@@ -30,7 +32,7 @@ public record CreateCourseCommand(
         String courseCode,
         String title,
         String description,
-        String category,
+        String classificationCode,
         CourseEducationType educationType,
         LocalDate startDate,
         LocalDate endDate,
@@ -42,8 +44,8 @@ public record CreateCourseCommand(
         Boolean creditBankEligible,
         BigDecimal creditValue
     ) {
-        this(institutionId, courseCode, title, description, category, educationType,
+        this(institutionId, courseCode, title, description, classificationCode, educationType,
             startDate, endDate, recruitStartDate, recruitEndDate, capacity, location,
-            onlineUrl, creditBankEligible, creditValue, null);
+            onlineUrl, creditBankEligible, creditValue, null, CourseDetail.empty());
     }
 }

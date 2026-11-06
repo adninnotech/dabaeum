@@ -1,0 +1,605 @@
+/* 강의 등록 위저드 — 단계 본문 부품(일정·회차·비용·첨부·미리보기·체크사항).
+   틀(레이아웃·카드·칸·하단 바)은 course-wizard.scss. 둘 다 .wizard-page 아래로 묶는다 */
+.wizard-page {
+  /* 세그먼트 */
+  .segment {
+    display: flex;
+    width: 480px;
+    max-width: 100%;
+    height: 36px;
+    gap: 0;
+  }
+
+  .segment__btn {
+    flex: 1;
+    height: 36px;
+    background: var(--db-bg-white);
+    border: 1px solid var(--wz-border);
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--wz-label);
+    cursor: pointer;
+  }
+
+  .segment__btn:first-child {
+    border-radius: 4px 0 0 4px;
+  }
+
+  .segment__btn:last-child {
+    border-radius: 0 4px 4px 0;
+    border-left: none;
+  }
+
+  .segment__btn.active {
+    background: var(--wz-primary);
+    border-color: var(--wz-primary);
+    color: var(--db-on-color);
+  }
+
+  /* 반복 일정 */
+  /* 넓은 화면은 네 칸이 한 줄(첫 수업일 · 요일 · 시간 · 회차), 좁으면 접힌다 */
+  .repeat-grid {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 16px 40px;
+  }
+
+  .weekday-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .weekday-chip {
+    width: 60px;
+    height: 36px;
+    background: var(--db-bg-white);
+    border: 1px solid var(--wz-border);
+    border-radius: 4px;
+    font-size: 14px;
+    color: var(--wz-label);
+    cursor: pointer;
+  }
+
+  .weekday-chip.active {
+    background: var(--wz-primary);
+    border-color: var(--wz-primary);
+    color: var(--db-on-color);
+  }
+
+  .time-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .time-row__tilde {
+    width: 37px;
+    text-align: center;
+    color: var(--wz-caption);
+  }
+
+  .wizard-card .wz-time {
+    width: 128px;
+  }
+
+  .wizard-card .wz-time .q-field__control,
+  .wizard-card .wz-date .q-field__control,
+  .wizard-card .wz-count .q-field__control {
+    border-radius: 8px;
+  }
+
+  .wizard-card .wz-date {
+    width: 220px;
+    max-width: 100%;
+  }
+
+  .count-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* 숫자 두세 자리 — 286px 이나 됐다 */
+  .wizard-card .wz-count {
+    width: 120px;
+    max-width: 100%;
+  }
+
+  /* 모집 설정 — 일정 아래 한 줄(넓으면 다섯 칸, 좁으면 둘, 폰은 하나) */
+  .recruit-help {
+    margin: -4px 0 12px;
+  }
+
+  .recruit-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 4px 16px;
+
+    .field {
+      min-width: 0;
+    }
+
+    .wz-input {
+      width: 100%;
+      max-width: none;
+    }
+  }
+
+  .count-row__unit {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--wz-caption);
+  }
+
+  .schedule-summary-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+  }
+
+  /* 만든 회차 한 줄 요약 — 무엇이 만들어졌는지 아래 표를 내려 보지 않고 안다 */
+  .schedule-summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    background: var(--db-accent-soft);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--db-text-title);
+    font-variant-numeric: tabular-nums;
+
+    .q-icon {
+      color: var(--db-accent);
+    }
+  }
+
+  .btn-generate {
+    width: 180px;
+    height: 40px;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  /* 일정대로 만든 회차 — 날짜·시간을 글자로, 옆에 [고치기] */
+  .session-when {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+  }
+
+  .session-when__text {
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+    color: var(--db-text-title);
+    white-space: nowrap;
+  }
+
+  /* 회차 테이블 */
+  .curriculum-head {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .table-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .btn-add-session .q-btn__content {
+    flex-wrap: nowrap;
+  }
+
+  .btn-add-session {
+    min-width: 120px;
+    height: 48px;
+    white-space: nowrap;
+    border-radius: 6px;
+    color: var(--wz-primary);
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .table-wrap {
+    border: 1px solid var(--wz-border);
+    border-radius: 4px;
+    overflow-x: auto;
+  }
+
+  .session-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+  }
+
+  .session-table th {
+    height: 39px;
+    padding: 0 10px;
+    background: var(--db-bg-table-head);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--wz-label);
+    text-align: center;
+  }
+
+  /* 좁은 화면에서 고정 칸이 주제 칸을 0 가까이 짓누르지 않게 — 최소 폭을 넘으면 표가 가로로 스크롤된다.
+   * 40 + 80 + 180 + 320 + 주제 240 + 80 */
+  .session-table--offline {
+    min-width: 940px;
+  }
+
+  .session-table--offline .time-row {
+    gap: 4px;
+  }
+
+  .session-table--offline .time-row__tilde {
+    width: 16px;
+  }
+
+  .session-table th.th-left {
+    text-align: left;
+  }
+
+  .session-table td {
+    height: 57px;
+    padding: 10px;
+    border-bottom: 1px solid var(--wz-border);
+    font-size: 14px;
+    color: var(--wz-label);
+  }
+
+  .session-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* 행 57px = 입력 36 + td padding 10*2 + border 1 */
+  .session-table td .q-field__control {
+    height: 36px;
+    min-height: 36px;
+  }
+
+  /* 폭은 <colgroup>이 잡는다 — 여기는 정렬만 */
+  .col-handle,
+  .col-no,
+  .col-manage {
+    text-align: center;
+  }
+
+  .btn-delete-session {
+    color: var(--wz-req);
+  }
+
+  .drag-handle {
+    color: var(--wz-caption);
+    cursor: grab;
+  }
+
+  .session-order {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* 교육비 / 재료비 */
+  .fee-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 32px;
+  }
+
+  .fee-col + .fee-col {
+    padding-left: 32px;
+    border-left: 1px solid var(--wz-border);
+  }
+
+  .fee-col {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  .fee-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px 32px;
+    align-items: flex-start;
+  }
+
+  .fee-row__type {
+    width: 168px;
+    flex-shrink: 0;
+  }
+
+  .fee-row__amount {
+    flex: 1;
+    min-width: 0;
+    max-width: 266px;
+  }
+
+  .field-note {
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--wz-help);
+  }
+
+  .opt {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--wz-caption);
+  }
+
+  @media (max-width: 1023px) {
+    .fee-split {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .fee-col + .fee-col {
+      padding-top: 24px;
+      padding-left: 0;
+      border-top: 1px solid var(--wz-border);
+      border-left: 0;
+    }
+  }
+
+  /* 첨부파일 */
+  .attach-pick {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .btn-attach {
+    /* 84px 고정이라 폰에서 '파일 / 선택'이 두 줄로 꺾여 잘렸다 */
+    flex-shrink: 0;
+    min-width: 84px;
+    white-space: nowrap;
+    height: 32px;
+    border-radius: 4px;
+    background: var(--db-accent-fill);
+    color: var(--db-on-color);
+  }
+
+  .attach-pick__status {
+    flex: 0 1 240px;
+    min-width: 0;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    padding: 6px 8px;
+    border: 1px solid var(--wz-border);
+    border-radius: 6px;
+    font-size: 14px;
+    color: var(--wz-help);
+    gap: 6px;
+  }
+
+  .attach-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 36px;
+    border-bottom: 1px solid var(--wz-border);
+  }
+
+  .attach-row__icon {
+    color: var(--wz-caption);
+  }
+
+  .attach-row__name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 14px;
+    color: var(--wz-label);
+  }
+
+  .attach-row__size {
+    font-size: 12px;
+    color: var(--wz-caption);
+  }
+
+  /* 미리보기 */
+  .preview-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 48px;
+  }
+
+  .checklist {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .checklist--optional {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--wz-border);
+  }
+
+  .checklist__title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--wz-label);
+  }
+
+  .checklist__row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 24px;
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--db-text-body);
+    text-align: left;
+  }
+
+  /* 빠진 필수 — 누르면 그 단계·칸으로 */
+  .checklist__row--missing {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in srgb, var(--db-error) 25%, transparent);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--db-error) 5%, var(--db-bg-white));
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .checklist__row--missing:hover,
+  .checklist__row--missing:focus-visible {
+    border-color: var(--db-error);
+  }
+
+  .checklist__text {
+    flex: 1;
+    min-width: 0;
+    word-break: keep-all;
+  }
+
+  .checklist__step,
+  .checklist__state {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--db-text-sub);
+  }
+
+  .checklist__ok {
+    color: var(--db-status-green);
+  }
+
+  .checklist__todo {
+    color: var(--db-error);
+  }
+
+  .checklist__none {
+    color: var(--wz-border);
+  }
+
+  /* 미리보기 — 학습자 강좌 상세 컴포넌트를 카드 안에 그대로 */
+  .wizard-preview {
+    gap: 24px;
+    container-type: inline-size;
+  }
+
+  /* 회차 — 폰 카드·빈 상태 */
+  .session-list__empty {
+    padding: 24px 12px;
+    border: 1px dashed var(--wz-border);
+    border-radius: 4px;
+    font-size: 14px;
+    text-align: center;
+    color: var(--wz-caption);
+  }
+
+  .session-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--wz-border);
+    border-radius: 6px;
+  }
+
+  .session-card + .session-card {
+    margin-top: 8px;
+  }
+
+  .session-card__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .session-card__no {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--wz-text);
+  }
+
+  .session-card__tools {
+    display: flex;
+    gap: 2px;
+  }
+
+  .session-card .time-row .wz-time {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .thumb-box {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 160px;
+    border: 1px dashed var(--wz-border);
+    border-radius: 8px;
+    cursor: pointer;
+    overflow: hidden;
+  }
+
+  .thumb-box__text {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--wz-label);
+  }
+
+  .thumb-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .thumb-remove {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: rgba(0, 0, 0, 0.5);
+    color: var(--db-on-color);
+  }
+
+  .thumb-caption {
+    font-size: 12px;
+    color: var(--wz-caption);
+  }
+
+  @media (max-width: 599px) {
+    .segment__btn {
+      font-size: 14px;
+    }
+
+    .repeat-grid {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    /* 요일 일곱 개를 한 줄에 같은 폭으로 — '일'만 다음 줄로 떨어졌다 */
+    .weekday-row {
+      flex-wrap: nowrap;
+      gap: 6px;
+    }
+
+    .weekday-chip {
+      flex: 1 1 0;
+      width: auto;
+      min-width: 0;
+    }
+  }
+}

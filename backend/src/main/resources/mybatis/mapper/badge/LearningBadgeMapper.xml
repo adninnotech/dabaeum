@@ -28,18 +28,53 @@
             <arg column="revoked_at" javaType="java.time.Instant"/>
             <arg column="created_at" javaType="java.time.Instant"/>
             <arg column="updated_at" javaType="java.time.Instant"/>
+            <arg column="definition_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="definition_code" javaType="java.lang.String"/>
+            <arg column="image_file_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="recipient_name" javaType="java.lang.String"/>
+            <arg column="tier_level" javaType="java.lang.Integer"/>
+            <arg column="expires_at" javaType="java.time.Instant"/>
+            <arg column="rule_type" javaType="java.lang.String"/>
+            <arg column="rule_params" javaType="java.lang.String"/>
+            <arg column="last_event_type" javaType="java.lang.String"/>
+            <arg column="last_event_reason" javaType="java.lang.String"/>
+            <arg column="last_event_at" javaType="java.time.Instant"/>
+            <arg column="last_event_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
         </constructor>
     </resultMap>
 
+    <!-- 정의 배지는 정의의 code·이미지·규칙을 함께 읽는다. 정의 없는 옛 배지는 null.
+         수혜자 이름과 최근 변동 1건도 함께 읽는다(설계서 §11.4). -->
     <sql id="columns">
-        id, user_id, course_id, credential_id, badge_type, badge_name,
-        status, nft_token_id, issued_at, revoked_at, created_at, updated_at
+        b.id, b.user_id, b.course_id, b.credential_id, b.badge_type, b.badge_name,
+        b.status, b.nft_token_id, b.issued_at, b.revoked_at, b.created_at, b.updated_at,
+        b.definition_id, d.code AS definition_code, d.image_file_id,
+        u.name AS recipient_name, b.tier_level, b.expires_at,
+        d.rule_type, d.rule_params::text AS rule_params,
+        ev.event_type AS last_event_type, ev.reason AS last_event_reason, ev.occurred_at AS last_event_at,
+        ev.id AS last_event_id
+    </sql>
+
+    <sql id="from">
+        FROM tb_learning_badges b
+        JOIN tb_users u ON u.id = b.user_id
+        LEFT JOIN tb_badge_definitions d ON d.id = b.definition_id
+        LEFT JOIN LATERAL (
+            SELECT e.id, e.event_type, e.reason, e.occurred_at
+              FROM tb_learning_badge_events e
+             WHERE e.badge_id = b.id
+             ORDER BY e.occurred_at DESC, e.created_at DESC
+             LIMIT 1
+        ) ev ON TRUE
     </sql>
 
     <insert id="insert">
         INSERT INTO tb_learning_badges (
             id, user_id, course_id, credential_id, badge_type, badge_name,
-            status, nft_token_id, issued_at, revoked_at, created_at, updated_at
+            status, nft_token_id, issued_at, revoked_at, created_at, updated_at, definition_id
         ) VALUES (
             #{id}, #{userId},
             #{courseId, jdbcType=OTHER},
@@ -48,41 +83,74 @@
             #{nftTokenId, jdbcType=VARCHAR},
             #{issuedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
             #{revokedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
-            #{createdAt}, #{updatedAt}
+            #{createdAt}, #{updatedAt},
+            #{definitionId, jdbcType=OTHER}
         )
     </insert>
 
     <select id="selectById" resultMap="learningBadgeRowResultMap">
         SELECT <include refid="columns"/>
-        FROM tb_learning_badges
-        WHERE id = #{id}
+        <include refid="from"/>
+        WHERE b.id = #{id}
     </select>
 
     <select id="selectByCredentialIdAndTypeAndName" resultMap="learningBadgeRowResultMap">
         SELECT <include refid="columns"/>
-        FROM tb_learning_badges
-        WHERE credential_id = #{credentialId}
-          AND badge_type = #{badgeType}
-          AND badge_name = #{badgeName}
-        ORDER BY created_at ASC, id ASC
+        <include refid="from"/>
+        WHERE b.credential_id = #{credentialId}
+          AND b.badge_type = #{badgeType}
+          AND b.badge_name = #{badgeName}
+        ORDER BY b.created_at ASC, b.id ASC
         LIMIT 1
     </select>
 
     <select id="selectByUserId" resultMap="learningBadgeRowResultMap">
         SELECT <include refid="columns"/>
-        FROM tb_learning_badges
-        WHERE user_id = #{userId}
+        <include refid="from"/>
+        WHERE b.user_id = #{userId}
         ORDER BY
         <choose>
-            <when test="sortField == 'issued_at'">issued_at</when>
-            <when test="sortField == 'updated_at'">updated_at</when>
-            <otherwise>created_at</otherwise>
+            <when test="sortField == 'issued_at'">b.issued_at</when>
+            <when test="sortField == 'updated_at'">b.updated_at</when>
+            <otherwise>b.created_at</otherwise>
         </choose>
         <choose>
             <when test="sortDirection == 'ASC'">ASC</when>
             <otherwise>DESC</otherwise>
-        </choose>, id ASC
+        </choose>, b.id ASC
         LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="selectByUserIdAndDefinitionId" resultMap="learningBadgeRowResultMap">
+        SELECT <include refid="columns"/>
+        <include refid="from"/>
+        WHERE b.user_id = #{userId}
+          AND b.definition_id = #{definitionId}
+    </select>
+
+    <sql id="searchWhere">
+        WHERE b.status IN ('ISSUED', 'REVOKED')
+        <if test="criteria.definitionId != null">AND b.definition_id = #{criteria.definitionId}</if>
+        <if test="criteria.status != null">AND b.status = #{criteria.status}</if>
+        <if test="criteria.tierLevel != null">AND b.tier_level = #{criteria.tierLevel}</if>
+        <if test="criteria.keyword != null">
+            AND LOWER(u.name) LIKE '%' || #{criteria.keyword} || '%' ESCAPE '\'
+        </if>
+    </sql>
+
+    <select id="search" resultMap="learningBadgeRowResultMap">
+        SELECT <include refid="columns"/>
+        <include refid="from"/>
+        <include refid="searchWhere"/>
+        ORDER BY b.issued_at DESC NULLS LAST, b.id ASC
+        LIMIT #{criteria.limit} OFFSET #{criteria.offset}
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_learning_badges b
+          JOIN tb_users u ON u.id = b.user_id
+        <include refid="searchWhere"/>
     </select>
 
     <select id="countByUserId" resultType="long">

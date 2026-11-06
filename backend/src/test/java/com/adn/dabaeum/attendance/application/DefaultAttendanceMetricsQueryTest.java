@@ -46,7 +46,7 @@ class DefaultAttendanceMetricsQueryTest {
         CourseSession afterApprovalAttended = session(APPROVED_AT.plusSeconds(3_600), 90);
         CourseSession afterApprovalAbsent = session(APPROVED_AT.plusSeconds(7_200), 30);
         when(enrollments.findById(ENROLLMENT_ID)).thenReturn(Optional.of(enrollment(APPROVED_AT)));
-        when(sessions.findAttendanceEligibleByCourseId(COURSE_ID, APPROVED_AT.plusSeconds(86_400)))
+        when(sessions.findByCourseId(COURSE_ID))
             .thenReturn(List.of(beforeApprovalNoRecord, beforeApprovalAttended,
                 afterApprovalAttended, afterApprovalAbsent));
         when(attendances.findByEnrollment(ENROLLMENT_ID)).thenReturn(List.of(
@@ -68,7 +68,7 @@ class DefaultAttendanceMetricsQueryTest {
     void countsEverySessionWhenTheEnrollmentHasNoApprovalTime() {
         CourseSession early = session(APPROVED_AT.minusSeconds(7_200), 120);
         when(enrollments.findById(ENROLLMENT_ID)).thenReturn(Optional.of(enrollment(null)));
-        when(sessions.findAttendanceEligibleByCourseId(COURSE_ID, APPROVED_AT))
+        when(sessions.findByCourseId(COURSE_ID))
             .thenReturn(List.of(early));
         when(attendances.findByEnrollment(ENROLLMENT_ID)).thenReturn(List.of());
 
@@ -79,10 +79,61 @@ class DefaultAttendanceMetricsQueryTest {
         assertThat(metrics.attendanceRate()).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
+    @Test
+    void countsOpenSessionsThatAlreadyHaveARecordAndLeavesExcusedOutOfTheDenominator() {
+        // QA ATT-09: 1회차 지각, 2회차 출석, 3회차 공결. 회차는 아직 OPEN 이라 종료 회차만 세면 0% 였다.
+        Instant now = APPROVED_AT.plusSeconds(3_600);
+        CourseSession late = session(APPROVED_AT.plusSeconds(600), 120, CourseSessionStatus.OPEN);
+        CourseSession present = session(APPROVED_AT.plusSeconds(900), 120, CourseSessionStatus.OPEN);
+        CourseSession excused = session(APPROVED_AT.plusSeconds(1_200), 120, CourseSessionStatus.OPEN);
+        CourseSession openNoRecord = session(APPROVED_AT.plusSeconds(1_500), 120, CourseSessionStatus.OPEN);
+        CourseSession cancelledWithRecord = session(APPROVED_AT.plusSeconds(300), 60, CourseSessionStatus.CANCELLED);
+        when(enrollments.findById(ENROLLMENT_ID)).thenReturn(Optional.of(enrollment(APPROVED_AT)));
+        when(sessions.findByCourseId(COURSE_ID))
+            .thenReturn(List.of(cancelledWithRecord, late, present, excused, openNoRecord));
+        when(attendances.findByEnrollment(ENROLLMENT_ID)).thenReturn(List.of(
+            attendance(late, AttendanceStatus.LATE),
+            attendance(present, AttendanceStatus.PRESENT),
+            attendance(excused, AttendanceStatus.EXCUSED),
+            attendance(cancelledWithRecord, AttendanceStatus.PRESENT)));
+
+        AttendanceMetrics metrics = query.calculate(ENROLLMENT_ID, now);
+
+        // 기록 없는 진행 중 회차와 취소 회차는 빠진다 → 3회차, 출석 인정 2, 공결 1(분모 제외)
+        assertThat(metrics.totalSessions()).isEqualTo(3);
+        assertThat(metrics.presentCount()).isEqualTo(1);
+        assertThat(metrics.lateCount()).isEqualTo(1);
+        assertThat(metrics.excusedCount()).isEqualTo(1);
+        assertThat(metrics.absentCount()).isZero();
+        assertThat(metrics.attendanceRate()).isEqualByComparingTo(new BigDecimal("100.00"));
+    }
+
+    @Test
+    void excusedSessionsDoNotLowerTheRateOfClosedSessions() {
+        CourseSession present = session(APPROVED_AT.plusSeconds(600), 60);
+        CourseSession absent = session(APPROVED_AT.plusSeconds(900), 60);
+        CourseSession excused = session(APPROVED_AT.plusSeconds(1_200), 60);
+        when(enrollments.findById(ENROLLMENT_ID)).thenReturn(Optional.of(enrollment(APPROVED_AT)));
+        when(sessions.findByCourseId(COURSE_ID)).thenReturn(List.of(present, absent, excused));
+        when(attendances.findByEnrollment(ENROLLMENT_ID)).thenReturn(List.of(
+            attendance(present, AttendanceStatus.PRESENT),
+            attendance(excused, AttendanceStatus.EXCUSED)));
+
+        AttendanceMetrics metrics = query.calculate(ENROLLMENT_ID, APPROVED_AT.plusSeconds(86_400));
+
+        // 분모 = 3 - 공결 1 = 2, 출석 1 → 50%
+        assertThat(metrics.totalSessions()).isEqualTo(3);
+        assertThat(metrics.attendanceRate()).isEqualByComparingTo(new BigDecimal("50.00"));
+    }
+
     private static CourseSession session(Instant startsAt, int minutes) {
+        return session(startsAt, minutes, CourseSessionStatus.COMPLETED);
+    }
+
+    private static CourseSession session(Instant startsAt, int minutes, CourseSessionStatus status) {
         return new CourseSession(UUID.randomUUID(), COURSE_ID, 1, startsAt,
             startsAt.plusSeconds(minutes * 60L), null, null, null,
-            CourseSessionStatus.COMPLETED, startsAt, startsAt);
+            status, startsAt, startsAt, null);
     }
 
     private static Attendance attendance(CourseSession session, AttendanceStatus status) {

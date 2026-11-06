@@ -1,10 +1,14 @@
 package com.adn.dabaeum.enrollment.infrastructure.mybatis;
 
 import com.adn.dabaeum.enrollment.domain.Enrollment;
+import com.adn.dabaeum.enrollment.domain.EnrolleeProfile;
+import com.adn.dabaeum.enrollment.domain.EnrollmentListItem;
 import com.adn.dabaeum.enrollment.domain.EnrollmentPageCriteria;
+import com.adn.dabaeum.enrollment.domain.EnrollmentProgressView;
 import com.adn.dabaeum.enrollment.domain.EnrollmentRepository;
 import com.adn.dabaeum.enrollment.domain.EnrollmentApplicationType;
 import com.adn.dabaeum.enrollment.domain.EnrollmentStatus;
+import com.adn.dabaeum.user.domain.Gender;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -37,6 +41,11 @@ public class EnrollmentMyBatisRepository implements EnrollmentRepository {
     }
 
     @Override
+    public List<Enrollment> findAllByIds(List<UUID> ids) {
+        return mapper.selectByIds(ids).stream().map(this::toDomain).toList();
+    }
+
+    @Override
     public List<UUID> findInstitutionIdsByUserId(UUID userId) {
         return mapper.selectInstitutionIdsByUserId(userId).stream()
             .map(UUID::fromString)
@@ -50,8 +59,13 @@ public class EnrollmentMyBatisRepository implements EnrollmentRepository {
     }
 
     @Override
-    public List<Enrollment> findPageByCourseId(EnrollmentPageCriteria criteria) {
-        return mapper.selectPage(criteria).stream().map(this::toDomain).toList();
+    public List<Enrollment> findActiveByCourseId(UUID courseId) {
+        return mapper.selectActiveByCourseId(courseId).stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    public List<EnrollmentListItem> findEnrollmentListByCourseId(EnrollmentPageCriteria criteria) {
+        return mapper.selectListWithProfile(criteria).stream().map(this::toListItem).toList();
     }
 
     @Override
@@ -62,6 +76,16 @@ public class EnrollmentMyBatisRepository implements EnrollmentRepository {
     @Override
     public long countApprovedByCourseId(UUID courseId) {
         return mapper.countApprovedByCourseId(courseId);
+    }
+
+    @Override
+    public boolean hasAttendance(UUID enrollmentId) {
+        return mapper.existsAttendance(enrollmentId);
+    }
+
+    @Override
+    public boolean hasCompletionDecision(UUID enrollmentId) {
+        return mapper.existsCompletionDecision(enrollmentId);
     }
 
     @Override
@@ -76,6 +100,24 @@ public class EnrollmentMyBatisRepository implements EnrollmentRepository {
             enrollment.approvedAt(), enrollment.rejectedAt(), enrollment.cancelledAt(),
             enrollment.withdrawnAt(), enrollment.rejectionReason(), enrollment.cancellationReason(),
             enrollment.createdAt(), enrollment.updatedAt());
+    }
+
+    private EnrollmentListItem toListItem(EnrollmentListItemRow row) {
+        Enrollment enrollment = new Enrollment(
+            row.id(), row.courseId(), row.userId(), row.appliedBy(),
+            EnrollmentApplicationType.valueOf(row.applicationType()),
+            EnrollmentStatus.valueOf(row.status()), row.appliedAt(), row.approvedAt(),
+            row.rejectedAt(), row.cancelledAt(), row.withdrawnAt(), row.rejectionReason(),
+            row.cancellationReason(), row.createdAt(), row.updatedAt());
+        EnrolleeProfile profile = new EnrolleeProfile(
+            row.enrolleeName(), row.enrolleeBirthDate(),
+            row.enrolleeGender() == null ? null : Gender.valueOf(row.enrolleeGender()),
+            row.enrolleeEmail(), row.enrolleePhone(), row.enrolleeProfileImageId());
+        int progressPercent = EnrollmentProgressView.progressPercent(
+            row.attendedCount() == null ? 0L : row.attendedCount(),
+            row.sessionCount() == null ? 0L : row.sessionCount());
+        return new EnrollmentListItem(
+            enrollment, profile, row.waitlistPosition(), progressPercent, row.lastStudiedAt());
     }
 
     private Enrollment toDomain(EnrollmentRow row) {

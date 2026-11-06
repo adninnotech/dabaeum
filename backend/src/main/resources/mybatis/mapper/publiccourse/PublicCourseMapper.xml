@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- 공공데이터 강좌 (설계서 docs/specs/public-lifelong-courses.md §3.4, §4.1, §5.1). 행은 지우지 않는다. -->
+<mapper namespace="com.adn.dabaeum.publiccourse.infrastructure.mybatis.PublicCourseMapper">
+
+    <resultMap id="stored" type="com.adn.dabaeum.publiccourse.infrastructure.mybatis.PublicCourseMapper$StoredRow">
+        <constructor>
+            <arg column="source_key" javaType="java.lang.String"/>
+            <arg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="raw_hash" javaType="java.lang.String"/>
+            <arg column="active" javaType="_boolean"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="course" type="com.adn.dabaeum.publiccourse.infrastructure.mybatis.PublicCourseMapper$CourseRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="source_key" javaType="java.lang.String"/>
+            <arg column="raw_hash" javaType="java.lang.String"/>
+            <arg column="instt_code" javaType="java.lang.String"/>
+            <arg column="instt_name" javaType="java.lang.String"/>
+            <arg column="lecture_name" javaType="java.lang.String"/>
+            <arg column="instructor_name" javaType="java.lang.String"/>
+            <arg column="lecture_content" javaType="java.lang.String"/>
+            <arg column="place" javaType="java.lang.String"/>
+            <arg column="road_address" javaType="java.lang.String"/>
+            <arg column="oper_institution_name" javaType="java.lang.String"/>
+            <arg column="oper_phone" javaType="java.lang.String"/>
+            <arg column="homepage_url" javaType="java.lang.String"/>
+            <arg column="edc_start_date" javaType="java.time.LocalDate"/>
+            <arg column="edc_end_date" javaType="java.time.LocalDate"/>
+            <arg column="start_time" javaType="java.time.LocalTime"/>
+            <arg column="end_time" javaType="java.time.LocalTime"/>
+            <arg column="oper_days" javaType="java.lang.String"/>
+            <arg column="target_types" javaType="java.lang.String"/>
+            <arg column="method" javaType="java.lang.String"/>
+            <arg column="region_code" javaType="java.lang.String"/>
+            <arg column="capacity" javaType="java.lang.Integer"/>
+            <arg column="cost_amount" javaType="java.lang.Integer"/>
+            <arg column="free" javaType="java.lang.Boolean"/>
+            <arg column="receipt_start_date" javaType="java.time.LocalDate"/>
+            <arg column="receipt_end_date" javaType="java.time.LocalDate"/>
+            <arg column="receipt_method" javaType="java.lang.String"/>
+            <arg column="selection_method" javaType="java.lang.String"/>
+            <arg column="training_subsidy" javaType="java.lang.Boolean"/>
+            <arg column="credit_bank" javaType="java.lang.Boolean"/>
+            <arg column="learning_account" javaType="java.lang.Boolean"/>
+            <arg column="reference_date" javaType="java.time.LocalDate"/>
+            <arg column="raw_json" javaType="java.lang.String"/>
+            <arg column="active" javaType="_boolean"/>
+            <arg column="first_seen_at" javaType="java.time.Instant"/>
+            <arg column="last_seen_at" javaType="java.time.Instant"/>
+            <arg column="deactivated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="courseColumns">
+        id, source_key, raw_hash, instt_code, instt_name, lecture_name, instructor_name, lecture_content, place,
+        road_address, oper_institution_name, oper_phone, homepage_url, edc_start_date, edc_end_date, start_time,
+        end_time, array_to_string(oper_days, chr(31)) AS oper_days, array_to_string(target_types, chr(31)) AS target_types,
+        method, region_code, capacity, cost_amount, free, receipt_start_date, receipt_end_date, receipt_method,
+        selection_method, training_subsidy, credit_bank, learning_account, reference_date, raw::text AS raw_json,
+        active, first_seen_at, last_seen_at, deactivated_at
+    </sql>
+
+    <select id="selectStoredByInsttCode" resultMap="stored">
+        SELECT source_key, id, raw_hash, active FROM tb_public_courses WHERE instt_code = #{insttCode}
+    </select>
+
+    <insert id="insert">
+        INSERT INTO tb_public_courses (
+            id, source_key, raw_hash, instt_code, instt_name, lecture_name, instructor_name, lecture_content, place,
+            road_address, oper_institution_name, oper_phone, homepage_url, edc_start_date, edc_end_date, start_time,
+            end_time, oper_days, target_types, method, region_code, capacity, cost_amount, free, receipt_start_date,
+            receipt_end_date, receipt_method, selection_method, training_subsidy, credit_bank, learning_account,
+            reference_date, raw, active, first_seen_at, last_seen_at, deactivated_at, created_at, updated_at)
+        VALUES (
+            #{id}, #{sourceKey}, #{rawHash}, #{insttCode}, #{insttName}, #{lectureName}, #{instructorName},
+            #{lectureContent}, #{place}, #{roadAddress}, #{operInstitutionName}, #{operPhone}, #{homepageUrl},
+            #{edcStartDate}, #{edcEndDate}, #{startTime}, #{endTime},
+            string_to_array(#{operDays}, chr(31)), string_to_array(#{targetTypes}, chr(31)),
+            #{method}, #{regionCode}, #{capacity}, #{costAmount}, #{free}, #{receiptStartDate}, #{receiptEndDate},
+            #{receiptMethod}, #{selectionMethod}, #{trainingSubsidy}, #{creditBank}, #{learningAccount},
+            #{referenceDate}, CAST(#{rawJson} AS jsonb), #{active}, #{firstSeenAt}, #{lastSeenAt},
+            #{deactivatedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE}, #{lastSeenAt}, #{lastSeenAt})
+    </insert>
+
+    <!-- 원본이 바뀐 강좌. first_seen_at 은 그대로 두고 활성으로 되돌린다. -->
+    <update id="replace">
+        UPDATE tb_public_courses
+           SET raw_hash = #{rawHash}, instt_code = #{insttCode}, instt_name = #{insttName},
+               lecture_name = #{lectureName}, instructor_name = #{instructorName},
+               lecture_content = #{lectureContent}, place = #{place}, road_address = #{roadAddress},
+               oper_institution_name = #{operInstitutionName}, oper_phone = #{operPhone},
+               homepage_url = #{homepageUrl}, edc_start_date = #{edcStartDate}, edc_end_date = #{edcEndDate},
+               start_time = #{startTime}, end_time = #{endTime},
+               oper_days = string_to_array(#{operDays}, chr(31)), target_types = string_to_array(#{targetTypes}, chr(31)),
+               method = #{method}, region_code = #{regionCode}, capacity = #{capacity}, cost_amount = #{costAmount},
+               free = #{free}, receipt_start_date = #{receiptStartDate}, receipt_end_date = #{receiptEndDate},
+               receipt_method = #{receiptMethod}, selection_method = #{selectionMethod},
+               training_subsidy = #{trainingSubsidy}, credit_bank = #{creditBank},
+               learning_account = #{learningAccount}, reference_date = #{referenceDate},
+               raw = CAST(#{rawJson} AS jsonb), active = TRUE, deactivated_at = NULL,
+               last_seen_at = #{lastSeenAt}, updated_at = #{lastSeenAt}
+         WHERE source_key = #{sourceKey}
+    </update>
+
+    <update id="touch">
+        UPDATE tb_public_courses
+           SET last_seen_at = #{seenAt},
+               updated_at = CASE WHEN active THEN updated_at ELSE #{seenAt} END,
+               active = TRUE,
+               deactivated_at = NULL
+         WHERE source_key IN
+        <foreach collection="sourceKeys" item="key" open="(" separator="," close=")">#{key}</foreach>
+    </update>
+
+    <update id="deactivateUnseen">
+        UPDATE tb_public_courses
+           SET active = FALSE, deactivated_at = #{seenAt}, updated_at = #{seenAt}
+         WHERE instt_code = #{insttCode} AND active AND last_seen_at &lt; #{seenAt}
+    </update>
+
+    <select id="selectById" resultMap="course">
+        SELECT <include refid="courseColumns"/> FROM tb_public_courses WHERE id = #{id}
+    </select>
+
+    <sql id="searchWhere">
+        WHERE active
+        <if test="query.keyword != null">
+            AND (LOWER(lecture_name) LIKE '%' || #{query.keyword} || '%' ESCAPE '\'
+                 OR LOWER(COALESCE(lecture_content, '')) LIKE '%' || #{query.keyword} || '%' ESCAPE '\'
+                 OR LOWER(COALESCE(oper_institution_name, '')) LIKE '%' || #{query.keyword} || '%' ESCAPE '\')
+        </if>
+        <if test="query.method != null">AND method = #{query.method}</if>
+        <if test="query.targetTypes != null">AND target_types &amp;&amp; string_to_array(#{query.targetTypes}, chr(31))</if>
+        <if test="query.regionCode != null">AND region_code = #{query.regionCode}</if>
+        <if test="query.free != null">AND free = #{query.free}</if>
+        <if test="query.from != null">AND COALESCE(edc_end_date, edc_start_date) &gt;= #{query.from}</if>
+        <if test="query.to != null">AND COALESCE(edc_start_date, edc_end_date) &lt;= #{query.to}</if>
+        <if test="query.endedFrom != null">AND (edc_end_date IS NULL OR edc_end_date &gt;= #{query.endedFrom})</if>
+        <if test="query.receiptOpenOn != null">
+            AND receipt_end_date &gt;= #{query.receiptOpenOn}
+            AND (receipt_start_date IS NULL OR receipt_start_date &lt;= #{query.receiptOpenOn})
+        </if>
+        <if test="query.operDays != null">AND oper_days &amp;&amp; string_to_array(#{query.operDays}, chr(31))</if>
+        <if test="query.startTimeFrom != null">AND start_time &gt;= #{query.startTimeFrom}</if>
+        <if test="query.startTimeBefore != null">AND start_time &lt; #{query.startTimeBefore}</if>
+    </sql>
+
+    <!-- 접수 상태 묶음: 1 접수 중, 2 접수 예정, 3 접수 기간 모름, 4 접수 마감 (설계서 §5.1). -->
+    <sql id="receiptBucket">
+        CASE
+            WHEN receipt_end_date &gt;= #{query.receiptStatusOn}
+                 AND (receipt_start_date IS NULL OR receipt_start_date &lt;= #{query.receiptStatusOn}) THEN 1
+            WHEN receipt_start_date &gt; #{query.receiptStatusOn} THEN 2
+            WHEN receipt_end_date IS NULL THEN 3
+            ELSE 4
+        END
+    </sql>
+
+    <!-- sortColumn 은 저장소가 고정 목록에서 고른 컬럼명이다(사용자 입력이 아니다). -->
+    <select id="search" resultMap="course">
+        SELECT <include refid="courseColumns"/>
+          FROM tb_public_courses
+        <include refid="searchWhere"/>
+        <choose>
+            <when test="query.receiptStatusOn != null">
+         ORDER BY <include refid="receiptBucket"/> ASC,
+                  CASE <include refid="receiptBucket"/>
+                      WHEN 1 THEN receipt_end_date WHEN 2 THEN receipt_start_date WHEN 3 THEN edc_start_date
+                  END ASC NULLS LAST,
+                  CASE WHEN <include refid="receiptBucket"/> = 4 THEN receipt_end_date END DESC NULLS LAST,
+                  id ASC
+            </when>
+            <otherwise>
+         ORDER BY ${query.sortColumn} <choose><when test="query.ascending">ASC</when><otherwise>DESC</otherwise></choose>
+                  NULLS LAST, id ASC
+            </otherwise>
+        </choose>
+         LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*) FROM tb_public_courses <include refid="searchWhere"/>
+    </select>
+
+    <resultMap id="regionCount" type="com.adn.dabaeum.publiccourse.infrastructure.mybatis.PublicCourseMapper$RegionCountRow">
+        <constructor>
+            <arg column="region_code" javaType="java.lang.String"/>
+            <arg column="course_count" javaType="_long"/>
+        </constructor>
+    </resultMap>
+
+    <select id="countByRegion" resultMap="regionCount">
+        SELECT region_code, COUNT(*) AS course_count
+          FROM tb_public_courses
+        <include refid="searchWhere"/>
+           AND region_code IS NOT NULL
+         GROUP BY region_code
+    </select>
+</mapper>

@@ -60,7 +60,38 @@ class FlywayMigrationIntegrationTest
                    'tb_common_codes',
                    'tb_files',
                    'tb_institution_applications',
-                   'tb_password_reset_tokens'
+                   'tb_password_reset_tokens',
+                   'tb_institution_sign_keys',
+                   'tb_institution_sign_key_versions',
+                   'tb_kms_approvals',
+                   'tb_kms_operations',
+                   'tb_course_attachments',
+                   'tb_user_agreements',
+                   'tb_notice_attachments',
+                   'tb_banners',
+                   'tb_registration_tokens',
+                   'tb_admin_access_logs',
+                   'tb_course_classifications',
+                   'tb_badge_definitions',
+                   'tb_view_salts',
+                   'tb_course_views',
+                   'tb_course_popularity',
+                   'tb_portfolio_shares',
+                   'tb_content_pages',
+                   'tb_site_menus',
+                   'tb_learning_badge_events',
+                   'tb_public_courses',
+                   'tb_public_course_sync_runs',
+                   'tb_recommendation_impressions',
+                   'tb_recommendation_model_runs',
+                   'tb_course_recommendation_scores',
+                   'tb_nft_issuances',
+                   'tb_usage_events',
+                   'tb_usage_daily_stats',
+                   'tb_search_keyword_daily',
+                   'tb_usage_aggregated_days',
+                   'tb_usage_salts',
+                   'tb_user_interests'
                )
             """, Integer.class);
 
@@ -72,9 +103,9 @@ class FlywayMigrationIntegrationTest
             """, Integer.class);
 
         assertThat(history).isEqualTo(1);
-        assertThat(flyway().info().current().getVersion().getVersion()).isEqualTo("19");
-        assertThat(domainTables).isEqualTo(38);
-        assertThat(totalDomainTables).isEqualTo(38);
+        assertThat(flyway().info().current().getVersion().getVersion()).isEqualTo("62");
+        assertThat(domainTables).isEqualTo(69);
+        assertThat(totalDomainTables).isEqualTo(69);
     }
 
     @Test
@@ -88,7 +119,10 @@ class FlywayMigrationIntegrationTest
 
         assertThat(versions).containsExactly(
             "1", "1.1", "2", "3", "4", "5", "6", "7", "8", "9", "9.1", "9.2", "9.3",
-            "10", "10.1", "11", "12", "13", "14", "15", "16", "17", "18", "19"
+            "10", "10.1", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+            "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34",
+            "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53",
+            "54", "55", "56", "57", "58", "59", "60", "61", "62"
         );
     }
 

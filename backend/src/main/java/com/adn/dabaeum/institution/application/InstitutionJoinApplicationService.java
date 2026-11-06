@@ -15,6 +15,11 @@ public interface InstitutionJoinApplicationService {
         AuthenticatedUserContext actor, InstitutionJoinApplicationStatus status,
         int page, int size);
 
+    /** 신청자 본인의 신청 이력. */
+    InstitutionJoinApplicationPage listMine(
+        AuthenticatedUserContext actor, InstitutionJoinApplicationStatus status,
+        int page, int size);
+
     InstitutionJoinApplication approve(
         UUID applicationId, AuthenticatedUserContext actor);
 

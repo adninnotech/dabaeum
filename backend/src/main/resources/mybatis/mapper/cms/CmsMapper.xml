@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.cms.infrastructure.mybatis.CmsMapper">
+
+    <resultMap id="page" type="com.adn.dabaeum.cms.domain.CmsRecords$ContentPage">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="slug" javaType="java.lang.String"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="body_html" javaType="java.lang.String"/>
+            <arg column="status" javaType="com.adn.dabaeum.cms.domain.CmsRecords$PageStatus"/>
+            <arg column="published_at" javaType="java.time.Instant"/>
+            <arg column="created_by" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="updated_by" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="menu" type="com.adn.dabaeum.cms.domain.CmsRecords$SiteMenu">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="parent_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="link_type" javaType="com.adn.dabaeum.cms.domain.CmsRecords$LinkType"/>
+            <arg column="route_key" javaType="java.lang.String"/>
+            <arg column="content_page_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="external_url" javaType="java.lang.String"/>
+            <arg column="sort_order" javaType="_int"/>
+            <arg column="visible" javaType="_boolean"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="menuRow" type="com.adn.dabaeum.cms.infrastructure.mybatis.CmsMapper$MenuRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="parent_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="link_type" javaType="java.lang.String"/>
+            <arg column="route_key" javaType="java.lang.String"/>
+            <arg column="content_page_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="external_url" javaType="java.lang.String"/>
+            <arg column="sort_order" javaType="_int"/>
+            <arg column="visible" javaType="_boolean"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+            <arg column="content_slug" javaType="java.lang.String"/>
+            <arg column="content_status" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="pageColumns">
+        id, slug, title, body_html, status, published_at, created_by, updated_by, created_at, updated_at
+    </sql>
+
+    <insert id="insertPage">
+        INSERT INTO tb_content_pages (<include refid="pageColumns"/>)
+        VALUES (#{id}, #{slug}, #{title}, #{bodyHtml}, #{status}, #{publishedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+                #{createdBy}, #{updatedBy}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <select id="selectPage" resultMap="page">
+        SELECT <include refid="pageColumns"/> FROM tb_content_pages WHERE id = #{id}
+    </select>
+
+    <select id="selectPublishedPage" resultMap="page">
+        SELECT <include refid="pageColumns"/>
+          FROM tb_content_pages
+         WHERE slug = #{slug} AND status = 'PUBLISHED' AND published_at &lt;= #{now}
+    </select>
+
+    <!-- 목록에는 본문을 싣지 않는다. -->
+    <select id="selectPages" resultMap="page">
+        SELECT id, slug, title, '' AS body_html, status, published_at, created_by, updated_by, created_at, updated_at
+          FROM tb_content_pages
+         ORDER BY updated_at DESC, id
+    </select>
+
+    <update id="updatePage">
+        UPDATE tb_content_pages
+           SET slug = #{slug}, title = #{title}, body_html = #{bodyHtml}, status = #{status},
+               published_at = #{publishedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+               updated_by = #{updatedBy}, updated_at = #{updatedAt}
+         WHERE id = #{id}
+    </update>
+
+    <delete id="deletePage">
+        DELETE FROM tb_content_pages WHERE id = #{id}
+    </delete>
+
+    <select id="existsMenuForPage" resultType="boolean">
+        SELECT EXISTS (SELECT 1 FROM tb_site_menus WHERE content_page_id = #{pageId})
+    </select>
+
+    <sql id="menuColumns">
+        id, parent_id, name, link_type, route_key, content_page_id, external_url, sort_order, visible, created_at, updated_at
+    </sql>
+
+    <insert id="insertMenu">
+        INSERT INTO tb_site_menus (<include refid="menuColumns"/>)
+        VALUES (#{id}, #{parentId, jdbcType=OTHER}, #{name}, #{linkType}, #{routeKey, jdbcType=VARCHAR},
+                #{contentPageId, jdbcType=OTHER}, #{externalUrl, jdbcType=VARCHAR}, #{sortOrder}, #{visible},
+                #{createdAt}, #{updatedAt})
+    </insert>
+
+    <select id="selectMenu" resultMap="menu">
+        SELECT <include refid="menuColumns"/> FROM tb_site_menus WHERE id = #{id}
+    </select>
+
+    <select id="selectMenus" resultMap="menuRow">
+        SELECT m.id, m.parent_id, m.name, m.link_type, m.route_key, m.content_page_id, m.external_url, m.sort_order,
+               m.visible, m.created_at, m.updated_at, p.slug AS content_slug, p.status AS content_status
+          FROM tb_site_menus m
+          LEFT JOIN tb_content_pages p ON p.id = m.content_page_id
+         ORDER BY (m.parent_id IS NOT NULL), m.sort_order, m.created_at, m.id
+    </select>
+
+    <update id="updateMenu">
+        UPDATE tb_site_menus
+           SET parent_id = #{parentId, jdbcType=OTHER}, name = #{name}, link_type = #{linkType},
+               route_key = #{routeKey, jdbcType=VARCHAR}, content_page_id = #{contentPageId, jdbcType=OTHER},
+               external_url = #{externalUrl, jdbcType=VARCHAR}, sort_order = #{sortOrder}, visible = #{visible},
+               updated_at = #{updatedAt}
+         WHERE id = #{id}
+    </update>
+
+    <delete id="deleteMenu">
+        DELETE FROM tb_site_menus WHERE id = #{id}
+    </delete>
+
+    <select id="existsChild" resultType="boolean">
+        SELECT EXISTS (SELECT 1 FROM tb_site_menus WHERE parent_id = #{id})
+    </select>
+
+    <update id="updateMenuOrder">
+        UPDATE tb_site_menus
+           SET parent_id = #{parentId, jdbcType=OTHER}, sort_order = #{sortOrder}, updated_at = #{at}
+         WHERE id = #{id}
+    </update>
+
+</mapper>

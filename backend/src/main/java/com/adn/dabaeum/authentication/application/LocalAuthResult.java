@@ -16,11 +16,30 @@ public record LocalAuthResult(
     UUID userId,
     String provider,
     List<AuthenticatedRole> roles,
-    Instant expiresAt
+    Instant expiresAt,
+    boolean passwordExpired
 ) {
 
     public LocalAuthResult {
         roles = List.copyOf(roles);
+    }
+
+    public LocalAuthResult(
+        String accessToken,
+        String tokenType,
+        long expiresIn,
+        UUID userId,
+        String provider,
+        List<AuthenticatedRole> roles,
+        Instant expiresAt
+    ) {
+        this(accessToken, tokenType, expiresIn, userId, provider, roles, expiresAt, false);
+    }
+
+    /** 관리자 비밀번호 90일 안내(설계서 §10.3). 자체 로그인만 판정하고 나머지 경로는 false 다. */
+    public LocalAuthResult withPasswordExpired(boolean expired) {
+        return new LocalAuthResult(
+            accessToken, tokenType, expiresIn, userId, provider, roles, expiresAt, expired);
     }
 
     public static LocalAuthResult of(

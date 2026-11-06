@@ -15,6 +15,10 @@ public record InstitutionRow(
     String status,
     Instant createdAt,
     Instant updatedAt,
-    Instant deletedAt
+    Instant deletedAt,
+    String homepageUrl,
+    String region,
+    UUID logoFileId,
+    String introduction
 ) {
 }

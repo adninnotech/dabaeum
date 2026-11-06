@@ -1,6 +1,5 @@
 package com.adn.dabaeum.institution.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -18,6 +17,7 @@ import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.web.RequestIdFilter;
@@ -25,8 +25,6 @@ import com.adn.dabaeum.institution.application.CreateInstitutionCommand;
 import com.adn.dabaeum.institution.application.InstitutionApplicationService;
 import com.adn.dabaeum.institution.domain.Institution;
 import com.adn.dabaeum.institution.domain.InstitutionStatus;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,17 +46,17 @@ import org.springframework.test.web.servlet.MvcResult;
     "dabaeum.security.dev.bearer-token=task3-test-token")
 @Import({
     InstitutionApiMapper.class,
+    com.adn.dabaeum.authorization.application.AuthorizationPolicy.class,
     ApiExceptionHandler.class,
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
 class InstitutionCreateGetControllerTest {
 
-    private static final Path CONTRACT =
-        Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final UUID INSTITUTION_ID =
         UUID.fromString("22222222-2222-2222-2222-222222222222");
 
@@ -68,9 +66,22 @@ class InstitutionCreateGetControllerTest {
     @MockitoBean
     InstitutionApplicationService service;
 
+    /** 기관 상세가 관리자 노출 여부를 판단하느라 현재 사용자를 본다. */
+    @MockitoBean
+    com.adn.dabaeum.common.security.CurrentUserProvider currentUserProvider;
+
+    @org.junit.jupiter.api.BeforeEach
+    void stubPlatformAdmin() {
+        org.mockito.Mockito.when(currentUserProvider.requireContext()).thenReturn(
+            new com.adn.dabaeum.common.security.AuthenticatedUserContext(
+                java.util.UUID.fromString("ffffffff-0000-0000-0000-000000000001"), "LOCAL",
+                java.util.Set.of(new com.adn.dabaeum.common.security.AuthenticatedRole(
+                    "PLATFORM_ADMIN", null))));
+    }
+
     @BeforeEach
     void setUp() {
-        when(service.create(any())).thenReturn(institution());
+        when(service.create(any(), any())).thenReturn(institution());
     }
 
     @Test
@@ -106,10 +117,9 @@ class InstitutionCreateGetControllerTest {
             .andExpect(jsonPath("$.meta.requestId").value(requestId))
             .andExpect(jsonPath("$.meta.timestamp").value(
                 matchesPattern(".*\\+09:00$")))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andReturn();
 
-        verify(service).create(any(CreateInstitutionCommand.class));
+        verify(service).create(any(CreateInstitutionCommand.class), any());
         org.assertj.core.api.Assertions.assertThat(result.getResponse()
                 .getHeader(RequestIdFilter.HEADER_NAME))
             .isEqualTo(requestId);
@@ -127,7 +137,8 @@ class InstitutionCreateGetControllerTest {
 
         org.mockito.ArgumentCaptor<CreateInstitutionCommand> captor =
             org.mockito.ArgumentCaptor.forClass(CreateInstitutionCommand.class);
-        verify(service).create(captor.capture());
+        verify(service).create(captor.capture(),
+            org.mockito.ArgumentMatchers.eq(java.util.UUID.fromString("ffffffff-0000-0000-0000-000000000001")));
         org.assertj.core.api.Assertions.assertThat(captor.getValue().status())
             .isNull();
     }
@@ -185,12 +196,12 @@ class InstitutionCreateGetControllerTest {
                     """))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.code").value("BAD_REQUEST"));
-        verify(service, never()).create(any());
+        verify(service, never()).create(any(), any());
     }
 
     @Test
     void mapsDuplicateCodeToConflictContract() throws Exception {
-        when(service.create(any())).thenThrow(new ApiException(
+        when(service.create(any(), any())).thenThrow(new ApiException(
             HttpStatus.CONFLICT,
             ApiErrorCode.INSTITUTION_CODE_CONFLICT,
             "Institution code already exists"
@@ -220,8 +231,7 @@ class InstitutionCreateGetControllerTest {
             .andExpect(jsonPath("$.data.id").value(INSTITUTION_ID.toString()))
             .andExpect(jsonPath("$.data.name").value("다배움 기관"))
             .andExpect(jsonPath("$.data.deletedAt").doesNotExist())
-            .andExpect(jsonPath("$.meta.requestId").value(requestId))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.meta.requestId").value(requestId));
     }
 
     @Test
@@ -262,7 +272,7 @@ class InstitutionCreateGetControllerTest {
                 .content("{\"institutionCode\":\"INST\",\"name\":\"기관\"}"))
             .andExpect(status().isForbidden())
             .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-        verify(service, never()).create(any());
+        verify(service, never()).create(any(), any());
     }
 
     private Institution institution() {

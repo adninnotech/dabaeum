@@ -38,6 +38,23 @@ class AttendanceDomainTest {
         )).isInstanceOf(IllegalArgumentException.class);
     }
 
+    /**
+     * 다대구 출결도 학생 폰이 강사 QR(URL)을 찍어 시작하므로 일반 QR 과 같은 규칙을 쓴다.
+     * 본인 확인만 JWT 대신 다대구 DID 로 바뀔 뿐, 현장 증명은 여전히 우리 QR 토큰이 한다.
+     */
+    @Test
+    void qrDadaeguSharesQrInvariant() {
+        assertThat(attendance(UUID.randomUUID(), AttendanceMethod.QR_DADAEGU,
+            AttendanceStatus.PRESENT, AttendanceSource.APP, UUID.randomUUID())
+            .attendanceMethod()).isEqualTo(AttendanceMethod.QR_DADAEGU);
+        assertThatThrownBy(() -> attendance(UUID.randomUUID(), AttendanceMethod.QR_DADAEGU,
+            AttendanceStatus.PRESENT, AttendanceSource.APP, null))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> attendance(UUID.randomUUID(), AttendanceMethod.QR_DADAEGU,
+            AttendanceStatus.PRESENT, AttendanceSource.ADMIN_WEB, UUID.randomUUID()))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
     @Test
     void adminAttendanceRequiresAdminWebSourceAndNoToken() {
         assertThat(attendance(

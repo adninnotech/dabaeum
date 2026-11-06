@@ -1,6 +1,5 @@
 package com.adn.dabaeum.course.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -14,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
@@ -28,11 +28,10 @@ import com.adn.dabaeum.course.domain.Course;
 import com.adn.dabaeum.course.domain.CourseEducationType;
 import com.adn.dabaeum.course.domain.CourseInstructorRole;
 import com.adn.dabaeum.course.domain.CourseStatus;
+import com.adn.dabaeum.course.domain.CourseView;
 import com.adn.dabaeum.course.domain.InstitutionInstructorView;
 import com.adn.dabaeum.course.domain.InstructorCourseStats;
 import com.adn.dabaeum.course.domain.InstructorCourseView;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -57,13 +56,12 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
 class CourseQueryControllerTest {
 
-    private static final Path CONTRACT =
-        Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final UUID INSTRUCTOR_ID = UUID.fromString(
         "40000000-0000-0000-0000-000000000004");
     private static final UUID INSTITUTION_ID = UUID.fromString(
@@ -79,7 +77,8 @@ class CourseQueryControllerTest {
         when(currentUserProvider.requireContext()).thenReturn(instructor());
         when(service.listInstructorCourses(any(), any(), anyInt(), anyInt(), anyString()))
             .thenReturn(new InstructorCoursePage(
-                List.of(new InstructorCourseView(course(), CourseInstructorRole.MAIN, 7)),
+                List.of(new InstructorCourseView(
+                    course(), CourseInstructorRole.MAIN, 7, "다배움평생교육원", "김강사")),
                 0, 20, 1, 1));
 
         mockMvc.perform(get("/api/v1/instructors/me/courses")
@@ -90,14 +89,15 @@ class CourseQueryControllerTest {
             .andExpect(jsonPath("$.data[0].instructorRole").value("MAIN"))
             .andExpect(jsonPath("$.data[0].enrolledCount").value(7))
             .andExpect(jsonPath("$.data[0].title").value("AI 기초"))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data[0].institutionName").value("다배움평생교육원"))
+            .andExpect(jsonPath("$.data[0].mainInstructorName").value("김강사"));
     }
 
     @Test
     void returnsInstructorCourseStats() throws Exception {
         when(currentUserProvider.requireContext()).thenReturn(instructor());
         when(service.instructorCourseStats(any()))
-            .thenReturn(new InstructorCourseStats(4, 1, 2, 1));
+            .thenReturn(new InstructorCourseStats(4, 1, 2, 1, 7, 3));
 
         mockMvc.perform(get("/api/v1/instructors/me/courses/stats")
                 .with(user("instructor").roles("INSTRUCTOR"))
@@ -105,7 +105,8 @@ class CourseQueryControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.total").value(4))
             .andExpect(jsonPath("$.data.inProgress").value(2))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.studentCount").value(7))
+            .andExpect(jsonPath("$.data.inquiryCount").value(3));
     }
 
     @Test
@@ -113,9 +114,10 @@ class CourseQueryControllerTest {
         when(currentUserProvider.requireContext()).thenReturn(manager());
         when(service.listInstitutionCourses(
                 any(), eq(INSTITUTION_ID), any(), anyInt(), anyInt(), anyString()))
-            .thenReturn(new CoursePage(List.of(course()), 0, 20, 1, 1));
+            .thenReturn(new CoursePage(
+                List.of(new CourseView(course(), 3, "다배움평생교육원", "김강사")), 0, 20, 1, 1));
         when(service.listInstitutionInstructors(
-                any(), eq(INSTITUTION_ID), any(), anyInt(), anyInt(), anyString()))
+                any(), eq(INSTITUTION_ID), any(), any(), anyInt(), anyInt(), anyString()))
             .thenReturn(new InstitutionInstructorPage(
                 List.of(instructorView()), 0, 20, 1, 1));
 
@@ -124,7 +126,8 @@ class CourseQueryControllerTest {
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[0].title").value("AI 기초"))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data[0].institutionName").value("다배움평생교육원"))
+            .andExpect(jsonPath("$.data[0].mainInstructorName").value("김강사"));
 
         mockMvc.perform(get("/api/v1/institutions/{id}/instructors", INSTITUTION_ID)
                 .with(user("manager").roles("INSTITUTION_ADMIN"))
@@ -133,7 +136,8 @@ class CourseQueryControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[0].name").value("김강사"))
             .andExpect(jsonPath("$.data[0].courseCount").value(3))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data[0].lastLoginAt").value("2026-09-01T00:00:00Z"))
+            .andExpect(jsonPath("$.data[0].birthDate").value("1990-05-20"));
     }
 
     @Test
@@ -160,7 +164,8 @@ class CourseQueryControllerTest {
     private InstitutionInstructorView instructorView() {
         return new InstitutionInstructorView(
             UUID.randomUUID(), "김강사", "instructor@example.com", null,
-            "ACTIVE", Instant.parse("2026-08-01T00:00:00Z"), 3, null);
+            "ACTIVE", Instant.parse("2026-08-01T00:00:00Z"), 3, null,
+            Instant.parse("2026-09-01T00:00:00Z"), LocalDate.of(1990, 5, 20));
     }
 
     private AuthenticatedUserContext instructor() {

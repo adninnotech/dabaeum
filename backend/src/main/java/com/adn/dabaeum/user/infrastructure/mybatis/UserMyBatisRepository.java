@@ -1,6 +1,9 @@
 package com.adn.dabaeum.user.infrastructure.mybatis;
 
+import com.adn.dabaeum.user.domain.Gender;
 import com.adn.dabaeum.user.domain.User;
+import com.adn.dabaeum.user.domain.UserListItem;
+import com.adn.dabaeum.user.domain.UserListFilter;
 import com.adn.dabaeum.user.domain.UserPageCriteria;
 import com.adn.dabaeum.user.domain.UserRepository;
 import com.adn.dabaeum.user.domain.UserStatus;
@@ -34,16 +37,25 @@ public class UserMyBatisRepository implements UserRepository {
     }
 
     @Override
-    public List<User> findPage(UserPageCriteria criteria) {
-        return mapper.selectPage(criteria)
-            .stream()
+    public List<User> findActiveLearnersByPhone(
+        String phoneDigits, String name, LocalDate birthDate, UUID institutionId, int limit
+    ) {
+        return mapper.selectActiveLearnersByPhone(phoneDigits, name, birthDate, institutionId, limit).stream()
             .map(this::toDomain)
             .toList();
     }
 
     @Override
-    public long count(UserStatus status) {
-        return mapper.count(status);
+    public List<UserListItem> findPage(UserPageCriteria criteria) {
+        return mapper.selectPage(criteria)
+            .stream()
+            .map(this::toListItem)
+            .toList();
+    }
+
+    @Override
+    public long count(UserListFilter filter) {
+        return mapper.countFiltered(filter);
     }
 
     @Override
@@ -71,6 +83,31 @@ public class UserMyBatisRepository implements UserRepository {
         return mapper.updateAuthInvalidatedAt(id, at) == 1;
     }
 
+    @Override
+    public void recordLastLogin(UUID userId, Instant at) {
+        mapper.recordLastLogin(userId, at);
+    }
+
+    @Override
+    public boolean updateNotificationPreferences(
+        UUID id,
+        boolean emailNotificationEnabled,
+        boolean smsNotificationEnabled,
+        Instant updatedAt
+    ) {
+        return mapper.updateNotificationPreferences(
+            id,
+            emailNotificationEnabled,
+            smsNotificationEnabled,
+            updatedAt
+        ) == 1;
+    }
+
+    @Override
+    public boolean updateAdminMemo(UUID userId, String memo, Instant updatedAt) {
+        return mapper.updateAdminMemo(userId, memo, updatedAt) == 1;
+    }
+
     private UserRow toRow(User user) {
         return new UserRow(
             user.id(),
@@ -84,7 +121,12 @@ public class UserMyBatisRepository implements UserRepository {
             user.updatedAt(),
             user.career(),
             user.introduction(),
-            user.profileImageId()
+            user.profileImageId(),
+            user.gender() == null ? null : user.gender().name(),
+            user.lastLoginAt(),
+            user.emailNotificationEnabled(),
+            user.smsNotificationEnabled(),
+            user.adminMemo()
         );
     }
 
@@ -101,7 +143,39 @@ public class UserMyBatisRepository implements UserRepository {
             row.updatedAt(),
             row.career(),
             row.introduction(),
-            row.profileImageId()
+            row.profileImageId(),
+            row.gender() == null ? null : Gender.valueOf(row.gender()),
+            row.lastLoginAt(),
+            row.emailNotificationEnabled(),
+            row.smsNotificationEnabled(),
+            row.adminMemo()
+        );
+    }
+
+    private UserListItem toListItem(UserListRow row) {
+        User user = new User(
+            row.id(),
+            row.name(),
+            row.email(),
+            row.phone(),
+            row.birthDate(),
+            UserStatus.valueOf(row.status()),
+            row.withdrawnAt(),
+            row.createdAt(),
+            row.updatedAt(),
+            row.career(),
+            row.introduction(),
+            row.profileImageId(),
+            row.gender() == null ? null : Gender.valueOf(row.gender()),
+            row.lastLoginAt(),
+            row.emailNotificationEnabled(),
+            row.smsNotificationEnabled(),
+            row.adminMemo()
+        );
+        return new UserListItem(
+            user,
+            row.enrollmentCount() == null ? 0L : row.enrollmentCount(),
+            row.courseCount() == null ? 0L : row.courseCount()
         );
     }
 }

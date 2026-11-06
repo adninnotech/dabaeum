@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.banner.infrastructure.mybatis.BannerMapper">
+
+    <resultMap
+        id="bannerRowResultMap"
+        type="com.adn.dabaeum.banner.infrastructure.mybatis.BannerRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="badge_text" javaType="java.lang.String"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="subtitle" javaType="java.lang.String"/>
+            <arg column="button_text" javaType="java.lang.String"/>
+            <arg column="button_link" javaType="java.lang.String"/>
+            <arg column="visibility" javaType="java.lang.String"/>
+            <arg column="start_at" javaType="java.time.Instant"/>
+            <arg column="end_at" javaType="java.time.Instant"/>
+            <arg column="sort_order" javaType="java.lang.Integer"/>
+            <arg
+                column="pc_image_file_id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg
+                column="mobile_image_file_id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+            <arg column="deleted_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="bannerColumns">
+        id, badge_text, title, subtitle, button_text, button_link, visibility,
+        start_at, end_at, sort_order, pc_image_file_id, mobile_image_file_id,
+        created_at, updated_at, deleted_at
+    </sql>
+
+    <insert id="insert">
+        INSERT INTO tb_banners (
+            id, badge_text, title, subtitle, button_text, button_link, visibility,
+            start_at, end_at, sort_order, pc_image_file_id, mobile_image_file_id,
+            created_at, updated_at, deleted_at
+        ) VALUES (
+            #{id},
+            #{badgeText, jdbcType=VARCHAR},
+            #{title},
+            #{subtitle, jdbcType=VARCHAR},
+            #{buttonText, jdbcType=VARCHAR},
+            #{buttonLink, jdbcType=VARCHAR},
+            #{visibility},
+            #{startAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{endAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{sortOrder},
+            #{pcImageFileId, jdbcType=OTHER},
+            #{mobileImageFileId, jdbcType=OTHER},
+            #{createdAt},
+            #{updatedAt},
+            #{deletedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE}
+        )
+    </insert>
+
+    <select id="selectById" resultMap="bannerRowResultMap">
+        SELECT <include refid="bannerColumns"/>
+        FROM tb_banners
+        WHERE id = #{id}
+    </select>
+
+    <!--
+      노출 판정(BannerVisibility·기간)은 여기서 하지 않는다. 후보 행만 정렬해 돌려주고
+      판정은 Banner.isVisibleAt 한 곳에서 한다. 조건이 두 군데로 갈리면 관리자 목록과
+      공개 목록이 서로 다른 답을 내기 시작한다.
+    -->
+    <select id="selectAll" resultMap="bannerRowResultMap">
+        SELECT <include refid="bannerColumns"/>
+        FROM tb_banners
+        WHERE deleted_at IS NULL
+        ORDER BY sort_order ASC, created_at DESC
+    </select>
+
+    <update id="update">
+        UPDATE tb_banners
+           SET badge_text = #{badgeText, jdbcType=VARCHAR},
+               title = #{title},
+               subtitle = #{subtitle, jdbcType=VARCHAR},
+               button_text = #{buttonText, jdbcType=VARCHAR},
+               button_link = #{buttonLink, jdbcType=VARCHAR},
+               visibility = #{visibility},
+               start_at = #{startAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+               end_at = #{endAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+               sort_order = #{sortOrder},
+               pc_image_file_id = #{pcImageFileId, jdbcType=OTHER},
+               mobile_image_file_id = #{mobileImageFileId, jdbcType=OTHER},
+               updated_at = #{updatedAt}
+         WHERE id = #{id}
+           AND deleted_at IS NULL
+    </update>
+
+    <update id="softDelete">
+        UPDATE tb_banners
+           SET deleted_at = #{deletedAt},
+               updated_at = #{deletedAt}
+         WHERE id = #{id}
+           AND deleted_at IS NULL
+    </update>
+
+</mapper>

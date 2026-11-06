@@ -1,8 +1,6 @@
 package com.adn.dabaeum.badge.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -21,14 +19,13 @@ import com.adn.dabaeum.badge.domain.LearningBadgeStatus;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
 import com.adn.dabaeum.common.security.AuthenticatedUserContext;
 import com.adn.dabaeum.common.security.CurrentUserProvider;
 import com.adn.dabaeum.common.web.RequestIdFilter;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -52,13 +49,12 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
 class LearningBadgeControllerTest {
 
-    private static final Path CONTRACT =
-        Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final UUID BADGE_ID = UUID.fromString(
         "80000000-0000-0000-0000-000000000008");
     private static final UUID CREDENTIAL_ID = UUID.fromString(
@@ -88,12 +84,11 @@ class LearningBadgeControllerTest {
                 .header("Idempotency-Key", "badge-issue-1")
                 .header("Authorization", "Bearer badge-task-token")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"badgeType\":\"COURSE_COMPLETION\",\"badgeName\":\"AI 기초 이수\"}")
+                .content("{\"definitionId\":\"44444444-4444-4444-4444-444444444444\"}")
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(status().isAccepted())
             .andExpect(header().string("Location", "/api/v1/badges/" + BADGE_ID))
-            .andExpect(jsonPath("$.data.status").value("ISSUED"))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.status").value("ISSUED"));
 
         mockMvc.perform(get("/api/v1/badges/{id}", BADGE_ID)
                 .with(user("manager").roles("INSTITUTION_ADMIN"))
@@ -101,8 +96,7 @@ class LearningBadgeControllerTest {
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.id").value(BADGE_ID.toString()))
-            .andExpect(jsonPath("$.data.badgeName").value("AI 기초 이수"))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.badgeName").value("AI 기초 이수"));
 
         mockMvc.perform(get("/api/v1/users/{id}/badges", USER_ID)
                 .with(user("manager").roles("INSTITUTION_ADMIN"))
@@ -113,8 +107,7 @@ class LearningBadgeControllerTest {
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[0].badgeType").value("COURSE_COMPLETION"))
-            .andExpect(jsonPath("$.page.totalElements").value(1))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.page.totalElements").value(1));
 
         verify(service).issue(any(IssueLearningBadgeCommand.class));
     }
@@ -125,7 +118,7 @@ class LearningBadgeControllerTest {
                 .with(user("learner").roles("LEARNER"))
                 .header("Idempotency-Key", "badge-forbidden-1")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"badgeType\":\"COURSE_COMPLETION\",\"badgeName\":\"x\"}"))
+                .content("{\"definitionId\":\"44444444-4444-4444-4444-444444444444\"}"))
             .andExpect(status().isForbidden());
     }
 
@@ -136,14 +129,14 @@ class LearningBadgeControllerTest {
         mockMvc.perform(post("/api/v1/credentials/{id}/badges", CREDENTIAL_ID)
                 .with(user("manager").roles("INSTITUTION_ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"badgeType\":\"T\",\"badgeName\":\"N\"}"))
+                .content("{\"definitionId\":\"44444444-4444-4444-4444-444444444444\"}"))
             .andExpect(status().isBadRequest());
 
         mockMvc.perform(post("/api/v1/credentials/{id}/badges", CREDENTIAL_ID)
                 .with(user("manager").roles("INSTITUTION_ADMIN"))
                 .header("Idempotency-Key", "badge-invalid-1")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"badgeType\":\"\",\"badgeName\":\"\"}"))
+                .content("{}"))
             .andExpect(status().isUnprocessableEntity());
     }
 

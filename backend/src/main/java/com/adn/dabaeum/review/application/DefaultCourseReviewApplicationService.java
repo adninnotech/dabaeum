@@ -6,6 +6,7 @@ import com.adn.dabaeum.common.security.AuthenticatedUserContext;
 import com.adn.dabaeum.course.domain.CourseRepository;
 import com.adn.dabaeum.review.domain.CourseReview;
 import com.adn.dabaeum.review.domain.CourseReviewRepository;
+import com.adn.dabaeum.review.domain.CourseReviewSummary;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
@@ -66,10 +67,12 @@ public class DefaultCourseReviewApplicationService
 
     @Override
     @Transactional(readOnly = true)
-    public CourseReviewPage listMine(AuthenticatedUserContext actor, int page, int size) {
+    public CourseReviewPage listMine(
+        AuthenticatedUserContext actor, String keyword, int page, int size
+    ) {
         int offset = Math.multiplyExact(page, size);
-        var data = reviewRepository.findByUserId(actor.userId(), size, offset);
-        long totalElements = reviewRepository.countByUserId(actor.userId());
+        var data = reviewRepository.findByUserId(actor.userId(), keyword, size, offset);
+        long totalElements = reviewRepository.countByUserId(actor.userId(), keyword);
         return new CourseReviewPage(
             data, page, size, totalElements, totalPages(totalElements, size));
     }
@@ -82,6 +85,26 @@ public class DefaultCourseReviewApplicationService
         long totalElements = reviewRepository.countByCourseId(courseId);
         return new CourseReviewPage(
             data, page, size, totalElements, totalPages(totalElements, size));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CourseReviewSummary summarizeByCourse(UUID courseId) {
+        return reviewRepository.summarizeByCourseId(courseId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CourseReviewSummary summarizeMine(AuthenticatedUserContext actor) {
+        Objects.requireNonNull(actor, "actor");
+        return reviewRepository.summarizeByUserId(actor.userId());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public long countWritableReviews(AuthenticatedUserContext actor) {
+        Objects.requireNonNull(actor, "actor");
+        return reviewRepository.countWritable(actor.userId());
     }
 
     private ApiException reviewConflict() {

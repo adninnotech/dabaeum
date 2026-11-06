@@ -1,5 +1,7 @@
 package com.adn.dabaeum.role.api;
 
+import com.adn.dabaeum.accesslog.domain.AccessLogAction;
+import com.adn.dabaeum.accesslog.web.PersonalDataAccess;
 import com.adn.dabaeum.authorization.application.AuthorizationPolicy;
 import com.adn.dabaeum.common.api.ApiErrorCode;
 import com.adn.dabaeum.common.api.ApiException;
@@ -49,6 +51,7 @@ public class InstructorMemoController {
 
     @PatchMapping("/institutions/{institutionId}/instructors/{userId}")
     @Transactional
+    @PersonalDataAccess(action = AccessLogAction.UPDATE)
     public ApiResponse<InstructorMemoResponse> updateMemo(
         @PathVariable UUID institutionId,
         @PathVariable UUID userId,
@@ -61,7 +64,7 @@ public class InstructorMemoController {
             ? null : request.memo().trim();
         if (memo != null && (memo.isEmpty() || memo.length() > 1000)) {
             throw new ApiException(
-                HttpStatus.UNPROCESSABLE_ENTITY, ApiErrorCode.VALIDATION_FAILED,
+                HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.VALIDATION_FAILED,
                 "Request validation failed", List.of("memo"));
         }
         if (!userRoleRepository.updateInstructorMemo(institutionId, userId, memo)) {

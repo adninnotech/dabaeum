@@ -64,6 +64,7 @@ class EnrollmentCreateQueryServiceTest {
     @Mock UserRepository userRepository;
     @Mock UserRoleRepository userRoleRepository;
     @Mock CourseInstructorRepository instructorRepository;
+    @Mock com.adn.dabaeum.course.domain.CourseSessionRepository sessionRepository;
     @Mock EnrollmentIdGenerator idGenerator;
 
     private EnrollmentApplicationService service;
@@ -74,6 +75,10 @@ class EnrollmentCreateQueryServiceTest {
         service = new DefaultEnrollmentApplicationService(
             enrollmentRepository, courseRepository, userRepository, userRoleRepository,
             instructorRepository, idGenerator, new AuthorizationPolicy(),
+            new EnrollmentDecisionAuthority(instructorRepository, new AuthorizationPolicy()),
+            new EnrollmentWithdrawalPolicy(sessionRepository,
+                new com.adn.dabaeum.enrollment.config.EnrollmentWithdrawalProperties(
+                    java.time.Duration.ofHours(24))),
             Clock.fixed(NOW, ZoneOffset.UTC));
         course = course(CourseStatus.RECRUITING, 1);
         when(courseRepository.findActiveById(COURSE_ID)).thenReturn(Optional.of(course));
@@ -200,11 +205,11 @@ class EnrollmentCreateQueryServiceTest {
     @Test
     void listsForInstructorAndGetsForSubjectButRejectsOtherLearner() {
         when(instructorRepository.existsByCourseIdAndUserId(COURSE_ID, LEARNER_ID)).thenReturn(true);
-        when(enrollmentRepository.findPageByCourseId(any())).thenReturn(List.of());
+        when(enrollmentRepository.findEnrollmentListByCourseId(any())).thenReturn(List.of());
         EnrollmentPage page = service.list(
             new ListCourseEnrollmentsQuery(COURSE_ID, 0, 20, "createdAt,desc"), instructorContext());
         assertThat(page.totalElements()).isZero();
-        verify(enrollmentRepository).findPageByCourseId(new EnrollmentPageCriteria(
+        verify(enrollmentRepository).findEnrollmentListByCourseId(new EnrollmentPageCriteria(
             COURSE_ID, 0, 20, EnrollmentSort.CREATED_AT, EnrollmentSortDirection.DESC));
 
         Enrollment enrollment = enrollment(LEARNER_ID);

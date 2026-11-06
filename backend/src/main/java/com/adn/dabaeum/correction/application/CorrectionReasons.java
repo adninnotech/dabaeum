@@ -13,7 +13,7 @@ public final class CorrectionReasons {
 
     public static String require(String reason) {
         if (reason == null || reason.isBlank() || reason.trim().length() > 1000) {
-            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
                 ApiErrorCode.VALIDATION_FAILED, "Request validation failed", List.of("reason"));
         }
         return reason.trim();

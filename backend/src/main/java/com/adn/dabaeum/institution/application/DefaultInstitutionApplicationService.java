@@ -2,12 +2,20 @@ package com.adn.dabaeum.institution.application;
 
 import com.adn.dabaeum.common.api.ApiErrorCode;
 import com.adn.dabaeum.common.api.ApiException;
+import com.adn.dabaeum.file.domain.StoredFile;
+import com.adn.dabaeum.file.domain.StoredFilePurpose;
+import com.adn.dabaeum.file.domain.StoredFileRepository;
 import com.adn.dabaeum.institution.domain.Institution;
+import com.adn.dabaeum.institution.domain.InstitutionAdministrator;
+import com.adn.dabaeum.institution.domain.InstitutionListItem;
 import com.adn.dabaeum.institution.domain.InstitutionPageCriteria;
 import com.adn.dabaeum.institution.domain.InstitutionRepository;
+import com.adn.dabaeum.institution.domain.InstitutionSigningKeyRequest;
+import com.adn.dabaeum.institution.domain.InstitutionSigningKeyRequestRepository;
 import com.adn.dabaeum.institution.domain.InstitutionSort;
 import com.adn.dabaeum.institution.domain.InstitutionStatus;
 import com.adn.dabaeum.institution.domain.SortDirection;
+import com.adn.dabaeum.role.domain.UserRoleRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -26,23 +34,33 @@ public class DefaultInstitutionApplicationService
     private final InstitutionRepository repository;
     private final InstitutionIdGenerator idGenerator;
     private final Clock clock;
+    private final StoredFileRepository storedFileRepository;
+    private final UserRoleRepository userRoleRepository;
+    private final InstitutionSigningKeyRequestRepository signingKeyRequests;
 
     public DefaultInstitutionApplicationService(
         InstitutionRepository repository,
         InstitutionIdGenerator idGenerator,
-        Clock clock
+        Clock clock,
+        StoredFileRepository storedFileRepository,
+        UserRoleRepository userRoleRepository,
+        InstitutionSigningKeyRequestRepository signingKeyRequests
     ) {
         this.repository = repository;
         this.idGenerator = idGenerator;
         this.clock = clock;
+        this.storedFileRepository = storedFileRepository;
+        this.userRoleRepository = userRoleRepository;
+        this.signingKeyRequests = signingKeyRequests;
     }
 
     @Override
     @Transactional
-    public Institution create(CreateInstitutionCommand command) {
+    public Institution create(CreateInstitutionCommand command, UUID requestedBy) {
         if (command == null) {
             throw validation("requestBody");
         }
+        Objects.requireNonNull(requestedBy, "requestedBy");
 
         String institutionCode = normalizeRequired(
             command.institutionCode(),
@@ -52,6 +70,9 @@ public class DefaultInstitutionApplicationService
 
         if (repository.findActiveByCode(institutionCode).isPresent()) {
             throw conflict();
+        }
+        if (command.logoFileId() != null) {
+            requireInstitutionLogo(command.logoFileId());
         }
 
         Instant now = clock.instant();
@@ -69,7 +90,10 @@ public class DefaultInstitutionApplicationService
                 : command.status(),
             now,
             now,
-            null
+            null,
+            command.homepageUrl(),
+            command.region(),
+            command.logoFileId()
         );
 
         try {
@@ -77,6 +101,9 @@ public class DefaultInstitutionApplicationService
         } catch (DataIntegrityViolationException exception) {
             throw conflict();
         }
+        // 같은 트랜잭션에서 서명키 생성을 요청한다. 키는 커밋 뒤 워커가 OpenBao 에 만든다.
+        signingKeyRequests.save(new InstitutionSigningKeyRequest(
+            UUID.randomUUID(), institution.id(), requestedBy, now));
 
         return institution;
     }
@@ -112,10 +139,14 @@ public class DefaultInstitutionApplicationService
             offset,
             query.size(),
             sort,
-            direction
+            direction,
+            query.keyword(),
+            query.status(),
+            query.region()
         );
-        List<Institution> data = repository.findActivePage(criteria);
-        long totalElements = repository.countActive();
+        List<InstitutionListItem> data = repository.findActivePage(criteria);
+        long totalElements = repository.countActive(
+            query.keyword(), query.status(), query.region());
         int totalPages = totalElements == 0
             ? 0
             : Math.toIntExact(((totalElements - 1L) / query.size()) + 1L);
@@ -153,6 +184,10 @@ public class DefaultInstitutionApplicationService
         UpdateField<String> contactPhone = fieldOrAbsent(command.contactPhone());
         UpdateField<String> contactEmail = fieldOrAbsent(command.contactEmail());
         UpdateField<InstitutionStatus> status = fieldOrAbsent(command.status());
+        UpdateField<String> homepageUrl = fieldOrAbsent(command.homepageUrl());
+        UpdateField<String> region = fieldOrAbsent(command.region());
+        UpdateField<UUID> logoFileId = fieldOrAbsent(command.logoFileId());
+        UpdateField<String> introduction = fieldOrAbsent(command.introduction());
 
         String normalizedCode = existing.institutionCode();
         if (institutionCode.present()) {
@@ -179,6 +214,10 @@ public class DefaultInstitutionApplicationService
         if (status.present() && status.value() == null) {
             throw validation("status");
         }
+        UUID resolvedLogoFileId = valueOrExisting(logoFileId, existing.logoFileId());
+        if (logoFileId.present() && logoFileId.value() != null) {
+            requireInstitutionLogo(logoFileId.value());
+        }
 
         Instant now = clock.instant();
         Institution updated = new Institution(
@@ -193,7 +232,11 @@ public class DefaultInstitutionApplicationService
             valueOrExisting(status, existing.status()),
             existing.createdAt(),
             now,
-            existing.deletedAt()
+            existing.deletedAt(),
+            valueOrExisting(homepageUrl, existing.homepageUrl()),
+            valueOrExisting(region, existing.region()),
+            resolvedLogoFileId,
+            valueOrExisting(introduction, existing.introduction())
         );
 
         try {
@@ -205,6 +248,22 @@ public class DefaultInstitutionApplicationService
         }
 
         return updated;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<InstitutionAdministrator> administrators(UUID institutionId) {
+        // 상세 조회 전용. 목록 화면은 행마다 이걸 부르면 N+1 이 되므로 부르지 않는다.
+        return userRoleRepository.findInstitutionAdministrators(institutionId);
+    }
+
+    /** 로고는 존재하고 INSTITUTION_LOGO 용도로 올린 파일만 연결할 수 있다. */
+    private void requireInstitutionLogo(UUID fileId) {
+        StoredFile file = storedFileRepository.findById(fileId)
+            .orElseThrow(() -> validation("logoFileId"));
+        if (file.purpose() != StoredFilePurpose.INSTITUTION_LOGO) {
+            throw validation("logoFileId");
+        }
     }
 
     private String[] splitSort(String sort) {
@@ -255,7 +314,7 @@ public class DefaultInstitutionApplicationService
 
     private ApiException validation(String field) {
         return new ApiException(
-            HttpStatus.UNPROCESSABLE_ENTITY,
+            HttpStatus.UNPROCESSABLE_CONTENT,
             ApiErrorCode.VALIDATION_FAILED,
             "Request validation failed",
             List.of(field)

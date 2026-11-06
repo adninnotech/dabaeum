@@ -12,10 +12,13 @@ public interface InstitutionJoinApplicationRepository {
 
     Optional<InstitutionJoinApplication> findByIdForUpdate(UUID id);
 
+    /** applicantUserId 가 null 이면 모든 신청자를 본다. */
     List<InstitutionJoinApplication> findPage(
-        InstitutionJoinApplicationStatus status, int limit, int offset);
+        InstitutionJoinApplicationStatus status, UUID applicantUserId, int limit, int offset);
 
-    long count(InstitutionJoinApplicationStatus status);
+    long count(InstitutionJoinApplicationStatus status, UUID applicantUserId);
+
+    boolean existsPendingByApplicant(UUID applicantUserId);
 
     boolean updateDecision(
         InstitutionJoinApplication application,

@@ -39,16 +39,21 @@ public class InstitutionJoinApplicationMyBatisRepository
 
     @Override
     public List<InstitutionJoinApplication> findPage(
-        InstitutionJoinApplicationStatus status, int limit, int offset
+        InstitutionJoinApplicationStatus status, UUID applicantUserId, int limit, int offset
     ) {
         return mapper.selectPage(
-                status == null ? null : status.name(), limit, offset)
+                status == null ? null : status.name(), applicantUserId, limit, offset)
             .stream().map(this::toDomain).toList();
     }
 
     @Override
-    public long count(InstitutionJoinApplicationStatus status) {
-        return mapper.count(status == null ? null : status.name());
+    public long count(InstitutionJoinApplicationStatus status, UUID applicantUserId) {
+        return mapper.count(status == null ? null : status.name(), applicantUserId);
+    }
+
+    @Override
+    public boolean existsPendingByApplicant(UUID applicantUserId) {
+        return mapper.existsPendingByApplicant(applicantUserId);
     }
 
     @Override

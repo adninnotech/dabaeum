@@ -5,7 +5,7 @@ import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.security.AuthenticatedUserContext;
 import com.adn.dabaeum.credential.domain.Credential;
 import com.adn.dabaeum.credential.domain.CredentialHashVersion;
-import com.adn.dabaeum.credential.domain.CredentialProofService;
+import com.adn.dabaeum.credential.domain.CredentialSignatureVerifier;
 import com.adn.dabaeum.credential.domain.CredentialStatus;
 import com.adn.dabaeum.credential.domain.SignedCredentialEnvelope;
 import java.util.EnumSet;
@@ -29,18 +29,18 @@ public class DefaultCredentialDocumentDownloadService
         CredentialStatus.EXPIRED);
 
     private final CredentialApplicationService credentials;
-    private final CredentialProofService proofService;
+    private final CredentialSignatureVerifier verifier;
     private final CredentialHashService hashService;
     private final ObjectMapper objectMapper;
 
     public DefaultCredentialDocumentDownloadService(
         CredentialApplicationService credentials,
-        CredentialProofService proofService,
+        CredentialSignatureVerifier verifier,
         CredentialHashService hashService,
         ObjectMapper objectMapper
     ) {
         this.credentials = Objects.requireNonNull(credentials, "credentials");
-        this.proofService = proofService;
+        this.verifier = verifier;
         this.hashService = Objects.requireNonNull(hashService, "hashService");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
     }
@@ -48,11 +48,11 @@ public class DefaultCredentialDocumentDownloadService
     @Autowired
     public DefaultCredentialDocumentDownloadService(
         CredentialApplicationService credentials,
-        ObjectProvider<CredentialProofService> proofService,
+        ObjectProvider<CredentialSignatureVerifier> verifier,
         CredentialHashService hashService,
         ObjectMapper objectMapper
     ) {
-        this(credentials, proofService.getIfAvailable(), hashService, objectMapper);
+        this(credentials, verifier.getIfAvailable(), hashService, objectMapper);
     }
 
     @Override
@@ -66,7 +66,7 @@ public class DefaultCredentialDocumentDownloadService
         if (credential.vcPayload() == null || credential.vcHash() == null) {
             throw materialInvalid(ApiErrorCode.INTERNAL_SERVER_ERROR);
         }
-        if (proofService == null) {
+        if (verifier == null) {
             throw materialInvalid(ApiErrorCode.INTERNAL_SERVER_ERROR);
         }
         SignedCredentialEnvelope envelope;
@@ -84,7 +84,10 @@ public class DefaultCredentialDocumentDownloadService
             throw materialInvalid(ApiErrorCode.CREDENTIAL_HASH_MISMATCH);
         }
         try {
-            proofService.verify(envelope);
+            verifier.verifyCredential(envelope);
+        } catch (CredentialSignatureVerifier.VerificationFailure failure) {
+            throw materialInvalid(failure.unavailable()
+                ? ApiErrorCode.INTERNAL_SERVER_ERROR : ApiErrorCode.CREDENTIAL_PROOF_INVALID);
         } catch (RuntimeException exception) {
             throw materialInvalid(ApiErrorCode.CREDENTIAL_PROOF_INVALID);
         }

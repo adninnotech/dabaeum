@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- NFT 메타데이터 원천. 학습자 개인정보(이름·이메일 등)는 고르지 않는다. -->
+<mapper namespace="com.adn.dabaeum.nft.infrastructure.mybatis.NftSourceMapper">
+
+    <resultMap id="source" type="com.adn.dabaeum.nft.infrastructure.mybatis.NftSourceRow">
+        <constructor>
+            <idArg column="target_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="issued_at" javaType="java.time.Instant"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="description" javaType="java.lang.String"/>
+            <arg column="issuer_name" javaType="java.lang.String"/>
+            <arg column="image_file_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="content_hash" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="credentialSource">
+        SELECT c.id AS target_id, c.issued_at, co.title, CAST(NULL AS TEXT) AS description,
+               i.name AS issuer_name, CAST(NULL AS UUID) AS image_file_id, c.vc_hash AS content_hash
+          FROM tb_credentials c
+          JOIN tb_credential_groups g ON g.id = c.credential_group_id
+          JOIN tb_completions cp ON cp.id = g.completion_id
+          JOIN tb_enrollments e ON e.id = cp.enrollment_id
+          JOIN tb_courses co ON co.id = e.course_id
+          JOIN tb_institutions i ON i.id = co.institution_id
+    </sql>
+
+    <!-- 단계 배지는 현재 단계의 이름과 이미지를 쓴다. 단계 이미지가 없으면 대표 이미지. -->
+    <sql id="badgeSource">
+        SELECT b.id AS target_id, b.issued_at,
+               CASE WHEN lv.level_name IS NULL THEN COALESCE(d.name, b.badge_name)
+                    ELSE COALESCE(d.name, b.badge_name) || ' ' || lv.level_name END AS title,
+               d.description, CAST(NULL AS TEXT) AS issuer_name,
+               COALESCE(lv.image_file_id, d.image_file_id) AS image_file_id,
+               CAST(NULL AS TEXT) AS content_hash
+          FROM tb_learning_badges b
+          LEFT JOIN tb_badge_definitions d ON d.id = b.definition_id
+          LEFT JOIN LATERAL (
+              SELECT level_item ->> 'name' AS level_name,
+                     CAST(NULLIF(level_item ->> 'imageFileId', '') AS UUID) AS image_file_id
+                FROM jsonb_array_elements(COALESCE(d.rule_params -> 'levels', '[]'::jsonb)) AS level_item
+               WHERE b.tier_level IS NOT NULL
+                 AND (level_item ->> 'level') = CAST(b.tier_level AS TEXT)
+               LIMIT 1
+          ) lv ON TRUE
+    </sql>
+
+    <select id="selectUnrecordedCredentials" flushCache="true" resultMap="source">
+        <include refid="credentialSource"/>
+         WHERE c.status = 'ISSUED' AND c.issued_at &gt;= #{since}
+           AND NOT EXISTS (SELECT 1 FROM tb_nft_issuances n
+                            WHERE n.target_type = 'CREDENTIAL' AND n.target_id = c.id)
+         ORDER BY c.issued_at, c.id
+         LIMIT #{limit}
+    </select>
+
+    <select id="selectUnrecordedBadges" flushCache="true" resultMap="source">
+        <include refid="badgeSource"/>
+         WHERE b.status = 'ISSUED' AND b.issued_at &gt;= #{since}
+           AND NOT EXISTS (SELECT 1 FROM tb_nft_issuances n
+                            WHERE n.target_type = 'BADGE' AND n.target_id = b.id)
+         ORDER BY b.issued_at, b.id
+         LIMIT #{limit}
+    </select>
+
+    <select id="selectCredential" flushCache="true" resultMap="source">
+        <include refid="credentialSource"/> WHERE c.id = #{targetId}
+    </select>
+
+    <select id="selectBadge" flushCache="true" resultMap="source">
+        <include refid="badgeSource"/> WHERE b.id = #{targetId}
+    </select>
+</mapper>

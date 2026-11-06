@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.badge.infrastructure.mybatis.BadgeAwardMapper">
+
+    <select id="countCompleted" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_completions cp
+          JOIN tb_enrollments e ON e.id = cp.enrollment_id
+          JOIN tb_courses c ON c.id = e.course_id
+         WHERE e.user_id = #{userId}
+           AND cp.status = 'COMPLETED'
+        <if test="prefix != null">
+           AND c.classification_code LIKE #{prefix} || '%'
+        </if>
+    </select>
+
+    <select id="countCompletedCourse" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_completions cp
+          JOIN tb_enrollments e ON e.id = cp.enrollment_id
+         WHERE e.user_id = #{userId}
+           AND e.course_id = #{courseId}
+           AND cp.status = 'COMPLETED'
+    </select>
+
+    <resultMap id="awardedBadge" type="com.adn.dabaeum.badge.domain.BadgeAwardRepository$AwardedBadge">
+        <constructor>
+            <arg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="definition_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="status" javaType="com.adn.dabaeum.badge.domain.LearningBadgeStatus"/>
+            <arg column="tier_level" javaType="java.lang.Integer"/>
+            <arg column="credential_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="revoked_by_admin" javaType="_boolean"/>
+        </constructor>
+    </resultMap>
+
+    <!-- 가장 최근 변동이 행위자가 있는 폐기면 관리자가 폐기한 것이다. -->
+    <sql id="revokedByAdmin">
+        COALESCE((
+            SELECT e.event_type = 'REVOKED' AND e.actor_id IS NOT NULL
+              FROM tb_learning_badge_events e
+             WHERE e.badge_id = tb_learning_badges.id
+             ORDER BY e.occurred_at DESC, e.created_at DESC
+             LIMIT 1
+        ), FALSE) AS revoked_by_admin
+    </sql>
+
+    <select id="lockAwarded" resultMap="awardedBadge">
+        SELECT id, definition_id, status, tier_level, credential_id, <include refid="revokedByAdmin"/>
+          FROM tb_learning_badges
+         WHERE user_id = #{userId}
+           AND definition_id = #{definitionId}
+           FOR UPDATE
+    </select>
+
+    <select id="selectIssuedAutoBadges" resultMap="awardedBadge">
+        SELECT id, definition_id, status, tier_level, credential_id, FALSE AS revoked_by_admin
+          FROM tb_learning_badges
+         WHERE user_id = #{userId}
+           AND status = 'ISSUED'
+           AND definition_id IS NOT NULL
+           AND credential_id IS NULL
+         FOR UPDATE
+    </select>
+
+    <update id="revoke">
+        UPDATE tb_learning_badges
+           SET status = 'REVOKED', revoked_at = #{at}, updated_at = #{at}
+         WHERE id = #{id} AND status = 'ISSUED'
+    </update>
+
+    <!-- 확정 되돌리기로 폐기된 자동 배지를 다시 조건을 채우면 같은 행으로 되살린다(사람당 정의당 1행). -->
+    <update id="restore">
+        UPDATE tb_learning_badges
+           SET status = 'ISSUED', revoked_at = NULL, course_id = #{courseId, jdbcType=OTHER},
+               tier_level = #{tierLevel, jdbcType=SMALLINT}, issued_at = #{at}, updated_at = #{at}
+         WHERE id = #{id} AND status = 'REVOKED' AND credential_id IS NULL
+    </update>
+
+    <update id="changeLevel">
+        UPDATE tb_learning_badges
+           SET tier_level = #{tierLevel}, updated_at = #{at}
+         WHERE id = #{id} AND status = 'ISSUED'
+    </update>
+
+    <!-- 사람당 정의당 1회: 부분 유일 인덱스 uq_tb_learning_badges_user_definition 에 기댄다. -->
+    <insert id="insertIfAbsent">
+        INSERT INTO tb_learning_badges (
+            id, user_id, course_id, credential_id, badge_type, badge_name, status,
+            issued_at, created_at, updated_at, definition_id, tier_level
+        ) VALUES (
+            #{id}, #{userId}, #{courseId, jdbcType=OTHER}, NULL, #{badgeType}, #{badgeName}, 'ISSUED',
+            #{at}, #{at}, #{at}, #{definitionId}, #{tierLevel, jdbcType=SMALLINT}
+        )
+        ON CONFLICT (user_id, definition_id) WHERE definition_id IS NOT NULL DO NOTHING
+    </insert>
+
+</mapper>

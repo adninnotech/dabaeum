@@ -21,32 +21,36 @@
             <arg column="status" javaType="java.lang.String"/>
             <arg column="created_at" javaType="java.time.Instant"/>
             <arg column="updated_at" javaType="java.time.Instant"/>
+            <arg column="topic" javaType="java.lang.String"/>
         </constructor>
     </resultMap>
 
     <insert id="insert">
         INSERT INTO tb_course_sessions (
             id, course_id, session_no, starts_at, ends_at, location,
-            attendance_opens_at, attendance_closes_at, status, created_at, updated_at
+            attendance_opens_at, attendance_closes_at, status, created_at, updated_at, topic
         ) VALUES (
-            #{id}, #{courseId}, #{sessionNo}, #{startsAt}, #{endsAt},
+            #{id}, #{courseId}, #{sessionNo},
+            #{startsAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{endsAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
             #{location, jdbcType=VARCHAR},
             #{attendanceOpensAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
             #{attendanceClosesAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
-            #{status}, #{createdAt}, #{updatedAt}
+            #{status}, #{createdAt}, #{updatedAt},
+            #{topic, jdbcType=VARCHAR}
         )
     </insert>
 
     <select id="selectById" resultMap="courseSessionRowResultMap">
         SELECT id, course_id, session_no, starts_at, ends_at, location,
-               attendance_opens_at, attendance_closes_at, status, created_at, updated_at
+               attendance_opens_at, attendance_closes_at, status, created_at, updated_at, topic
           FROM tb_course_sessions
          WHERE id = #{id}
     </select>
 
     <select id="selectByIdForUpdate" resultMap="courseSessionRowResultMap">
         SELECT id, course_id, session_no, starts_at, ends_at, location,
-               attendance_opens_at, attendance_closes_at, status, created_at, updated_at
+               attendance_opens_at, attendance_closes_at, status, created_at, updated_at, topic
           FROM tb_course_sessions
          WHERE id = #{id}
          FOR UPDATE
@@ -54,10 +58,12 @@
 
     <select id="selectAttendanceEligibleByCourseId" resultMap="courseSessionRowResultMap">
         SELECT id, course_id, session_no, starts_at, ends_at, location,
-               attendance_opens_at, attendance_closes_at, status, created_at, updated_at
+               attendance_opens_at, attendance_closes_at, status, created_at, updated_at, topic
           FROM tb_course_sessions
          WHERE course_id = #{courseId}
            AND status &lt;&gt; 'CANCELLED'
+           <!-- 시간 없는 회차는 출결 개념이 없어 지표 계산 대상에서 제외한다 -->
+           AND starts_at IS NOT NULL
            AND (status = 'COMPLETED'
                 OR COALESCE(attendance_closes_at, ends_at) &lt;= #{evaluatedAt})
          ORDER BY session_no ASC, id ASC
@@ -69,6 +75,8 @@
               FROM tb_course_sessions
              WHERE course_id = #{courseId}
                AND status &lt;&gt; 'CANCELLED'
+               <!-- 시간 없는 회차는 출결 개념이 없어 지표 계산 대상에서 제외한다 -->
+               AND starts_at IS NOT NULL
                AND NOT (
                    status = 'COMPLETED'
                    OR COALESCE(attendance_closes_at, ends_at) &lt;= #{evaluatedAt}
@@ -78,15 +86,23 @@
 
     <select id="selectByCourseIdAndSessionNo" resultMap="courseSessionRowResultMap">
         SELECT id, course_id, session_no, starts_at, ends_at, location,
-               attendance_opens_at, attendance_closes_at, status, created_at, updated_at
+               attendance_opens_at, attendance_closes_at, status, created_at, updated_at, topic
           FROM tb_course_sessions
          WHERE course_id = #{courseId}
            AND session_no = #{sessionNo}
     </select>
 
+    <select id="selectByCourseId" resultMap="courseSessionRowResultMap">
+        SELECT id, course_id, session_no, starts_at, ends_at, location,
+               attendance_opens_at, attendance_closes_at, status, created_at, updated_at, topic
+          FROM tb_course_sessions
+         WHERE course_id = #{courseId}
+         ORDER BY session_no ASC
+    </select>
+
     <select id="selectPage" resultMap="courseSessionRowResultMap">
         SELECT id, course_id, session_no, starts_at, ends_at, location,
-               attendance_opens_at, attendance_closes_at, status, created_at, updated_at
+               attendance_opens_at, attendance_closes_at, status, created_at, updated_at, topic
           FROM tb_course_sessions
          WHERE course_id = #{criteria.courseId}
          ORDER BY
@@ -114,14 +130,69 @@
     <update id="update">
         UPDATE tb_course_sessions
            SET session_no = #{sessionNo},
-               starts_at = #{startsAt},
-               ends_at = #{endsAt},
+               starts_at = #{startsAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+               ends_at = #{endsAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
                location = #{location, jdbcType=VARCHAR},
                attendance_opens_at = #{attendanceOpensAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
                attendance_closes_at = #{attendanceClosesAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
                status = #{status},
-               updated_at = #{updatedAt}
+               updated_at = #{updatedAt},
+               topic = #{topic, jdbcType=VARCHAR}
          WHERE id = #{id}
            AND status NOT IN ('COMPLETED', 'CANCELLED')
+    </update>
+
+    <!-- 정정(재개). update 의 종료·취소 제외 조건을 피해 상태만 바꾼다. -->
+    <update id="reopen">
+        UPDATE tb_course_sessions
+           SET status = #{to},
+               updated_at = #{updatedAt}
+         WHERE id = #{id}
+           AND status = #{from}
+    </update>
+
+    <select id="existsSessionDependenciesByCourseId" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM tb_attendance_records
+             WHERE course_id = #{courseId}
+            UNION ALL
+            SELECT 1
+              FROM tb_attendance_qr_tokens qt
+              JOIN tb_course_sessions cs ON cs.id = qt.session_id
+             WHERE cs.course_id = #{courseId}
+        )
+    </select>
+
+    <select id="existsNonScheduledByCourseId" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM tb_course_sessions
+             WHERE course_id = #{courseId}
+               AND status != 'SCHEDULED'
+        )
+    </select>
+
+    <select id="selectFirstActiveStartByCourseId" flushCache="true" resultType="java.time.Instant">
+        SELECT MIN(starts_at)
+          FROM tb_course_sessions
+         WHERE course_id = #{courseId}
+           AND status &lt;&gt; 'CANCELLED'
+    </select>
+
+    <delete id="deleteAllByCourseId">
+        DELETE FROM tb_course_sessions WHERE course_id = #{courseId}
+    </delete>
+
+    <!-- 재정렬 1단계: (course_id, session_no) 유니크 제약을 피해 번호대를 비켜둔다.
+         session_no >= 1 CHECK 제약이 있어 음수로 밀 수 없으므로 오프셋을 더한다. -->
+    <update id="shiftSessionNoByOffset">
+        UPDATE tb_course_sessions
+           SET session_no = session_no + #{offset}
+         WHERE course_id = #{courseId}
+    </update>
+
+    <update id="updateSessionNo">
+        UPDATE tb_course_sessions
+           SET session_no = #{sessionNo}
+         WHERE id = #{id}
     </update>
 </mapper>

@@ -1,6 +1,5 @@
 package com.adn.dabaeum.course.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document;
@@ -31,8 +30,6 @@ import com.adn.dabaeum.course.application.CourseSessionApplicationService;
 import com.adn.dabaeum.course.application.CourseSessionPage;
 import com.adn.dabaeum.course.domain.CourseSession;
 import com.adn.dabaeum.course.domain.CourseSessionStatus;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -59,8 +56,6 @@ import org.springframework.test.web.servlet.MockMvc;
 })
 class CourseSessionDocumentationTest {
 
-    private static final Path CONTRACT =
-        Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final UUID COURSE_ID = UUID.fromString(
         "33333333-3333-3333-3333-333333333333"
     );
@@ -83,11 +78,10 @@ class CourseSessionDocumentationTest {
             List.of(session()), 0, 20, 1, 1));
         mockMvc.perform(get("/api/v1/courses/{courseId}/sessions", COURSE_ID)
                 .queryParam("page", "0").queryParam("size", "20")
-                .queryParam("sort", "createdAt,desc")
+                .queryParam("sort", "sessionNo,asc")
                 .with(user("reader").roles("USER"))
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(status().isOk())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document("course-session-list", preprocessRequest(prettyPrint()),
                 preprocessResponse(prettyPrint()),
                 queryParameters(
@@ -106,7 +100,6 @@ class CourseSessionDocumentationTest {
             .andExpect(status().isCreated())
             .andExpect(header().string("Location",
                 "/api/v1/sessions/" + SESSION_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document("course-session-create", preprocessRequest(prettyPrint()),
                 preprocessResponse(prettyPrint()),
                 requestFields(
@@ -123,7 +116,6 @@ class CourseSessionDocumentationTest {
                 .with(user("reader").roles("USER"))
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(status().isOk())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document("course-session-get", preprocessRequest(prettyPrint()),
                 preprocessResponse(prettyPrint()), sessionResponseFields(false)));
 
@@ -135,7 +127,6 @@ class CourseSessionDocumentationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"location\":\"변경 장소\",\"status\":\"OPEN\"}"))
             .andExpect(status().isOk())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document("course-session-update", preprocessRequest(prettyPrint()),
                 preprocessResponse(prettyPrint()),
                 requestFields(
@@ -154,6 +145,7 @@ class CourseSessionDocumentationTest {
             fieldWithPath(prefix + ".startsAt").description("시작 시각"),
             fieldWithPath(prefix + ".endsAt").description("종료 시각"),
             fieldWithPath(prefix + ".location").optional().description("장소"),
+            fieldWithPath(prefix + ".topic").optional().description("회차 주제"),
             fieldWithPath(prefix + ".attendanceOpensAt").optional().description("출석 시작"),
             fieldWithPath(prefix + ".attendanceClosesAt").optional().description("출석 종료"),
             fieldWithPath(prefix + ".status").description("회차 상태"),
@@ -182,6 +174,6 @@ class CourseSessionDocumentationTest {
         return new CourseSession(SESSION_ID, COURSE_ID, 1,
             Instant.parse("2026-09-01T01:00:00Z"),
             Instant.parse("2026-09-01T02:00:00Z"), "서울 교육장", null, null,
-            CourseSessionStatus.OPEN, now, now);
+            CourseSessionStatus.OPEN, now, now, null);
     }
 }

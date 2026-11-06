@@ -1,6 +1,7 @@
 package com.adn.dabaeum.attendance.application;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.UUID;
 
 public record AttendanceMetrics(
@@ -14,6 +15,6 @@ public record AttendanceMetrics(
     int completedMinutes
 ) {
     public AttendanceMetrics {
-        attendanceRate = attendanceRate.setScale(2);
+        attendanceRate = attendanceRate.setScale(2, RoundingMode.HALF_UP);
     }
 }

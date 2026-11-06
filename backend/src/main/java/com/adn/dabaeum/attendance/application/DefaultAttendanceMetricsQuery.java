@@ -5,10 +5,10 @@ import com.adn.dabaeum.attendance.domain.AttendanceRepository;
 import com.adn.dabaeum.attendance.domain.AttendanceStatus;
 import com.adn.dabaeum.course.domain.CourseSession;
 import com.adn.dabaeum.course.domain.CourseSessionRepository;
+import com.adn.dabaeum.course.domain.CourseSessionStatus;
 import com.adn.dabaeum.enrollment.domain.Enrollment;
 import com.adn.dabaeum.enrollment.domain.EnrollmentRepository;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -46,8 +46,8 @@ public class DefaultAttendanceMetricsQuery implements AttendanceMetricsQuery {
         // 출결 기록이 있을 때만 세고, 기록이 없으면 결석이 아니라 대상 밖으로 본다.
         // 그렇지 않으면 중도 합류자나 뒤늦게 추가된 회차가 소급 결석으로 잡힌다.
         Instant approvedAt = enrollment.approvedAt();
-        var sessions = sessionRepository.findAttendanceEligibleByCourseId(
-                enrollment.courseId(), evaluatedAt).stream()
+        var sessions = sessionRepository.findByCourseId(enrollment.courseId()).stream()
+            .filter(session -> counted(session, bySession.containsKey(session.id()), evaluatedAt))
             .filter(session -> bySession.containsKey(session.id())
                 || approvedAt == null
                 || !session.startsAt().isBefore(approvedAt))
@@ -79,14 +79,23 @@ public class DefaultAttendanceMetricsQuery implements AttendanceMetricsQuery {
             throw new IllegalStateException("completed minutes overflow");
         }
         int total = sessions.size();
-        BigDecimal rate = total == 0
-            ? BigDecimal.ZERO.setScale(2)
-            : BigDecimal.valueOf(present + late)
-                .multiply(BigDecimal.valueOf(100))
-                .divide(BigDecimal.valueOf(total), 2, RoundingMode.HALF_UP);
+        BigDecimal rate = AttendanceRateRule.rate(present, late, excused, total);
         return new AttendanceMetrics(
             enrollmentId, total, present, late, absent, excused, rate,
             (int) completedMinutes);
+    }
+
+    /**
+     * 센 회차: 취소되지 않았고 시간이 있는 회차 중 종료됐거나 출결 창이 지난 회차, 그리고 진행 중·시작 전이라도
+     * 이 수강에 출결 기록이 이미 있는 회차. 진행 중 회차의 기록을 빼면 출석률이 0% 로 보였다(QA ATT-09).
+     */
+    private static boolean counted(CourseSession session, boolean hasRecord, Instant evaluatedAt) {
+        if (session.status() == CourseSessionStatus.CANCELLED || session.startsAt() == null) {
+            return false;
+        }
+        return hasRecord
+            || session.status() == CourseSessionStatus.COMPLETED
+            || !session.attendanceClosesAtOrEnd().isAfter(evaluatedAt);
     }
 
     private long minutes(CourseSession session) {

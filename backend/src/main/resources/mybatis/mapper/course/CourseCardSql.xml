@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- 강좌 목록 카드 공통 조각. 학습 목록 4탭(수강 중·관심·문의·후기)이 여기서 include 한다.
+     네 매퍼 모두 courses 를 `c` 별칭으로 조인해 두었다는 전제로 만들었다.
+     institution 조인은 매퍼마다 이미 있거나 별칭이 다를 수 있어 별도 조각으로 뺐다. -->
+<mapper namespace="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql">
+
+    <!-- MAIN 강사 1명(uq_tb_course_instructors_main 로 강좌당 유일)과 취소 아닌 회차 수.
+         둘 다 강좌당 최대 1행이라 LEFT JOIN 해도 행이 부풀지 않는다. -->
+    <sql id="cardJoins">
+        LEFT JOIN (
+            SELECT ci.course_id, u.name AS instructor_name
+              FROM tb_course_instructors ci
+              JOIN tb_users u ON u.id = ci.user_id
+             WHERE ci.instructor_role = 'MAIN'
+        ) card_mi ON card_mi.course_id = c.id
+        LEFT JOIN (
+            SELECT course_id, COUNT(*) AS session_count
+              FROM tb_course_sessions
+             WHERE status &lt;&gt; 'CANCELLED'
+             GROUP BY course_id
+        ) card_sc ON card_sc.course_id = c.id
+    </sql>
+
+    <!-- institutionName·classification_code·educationType 은 매퍼마다 이미 select 하고 있을 수 있어
+         뺐다. cardJoins 로 얻는 값과 c 의 나머지 카드 컬럼만 담는다. -->
+    <sql id="cardColumns">
+        card_mi.instructor_name AS card_instructor_name,
+        COALESCE(card_sc.session_count, 0) AS card_session_count,
+        c.tags AS card_tags,
+        c.tuition_type AS card_tuition_type,
+        c.tuition_amount AS card_tuition_amount,
+        c.thumbnail_file_id AS card_thumbnail_file_id
+    </sql>
+
+    <!-- institution 조인이 없는 매퍼(문의·후기)가 쓴다. 문의는 course_id 가 없을 수 있어
+         LEFT JOIN 으로 통일한다(후기는 항상 course 가 있어도 문제 없다). -->
+    <sql id="institutionJoin">
+        LEFT JOIN tb_institutions card_inst ON card_inst.id = c.institution_id
+    </sql>
+
+    <sql id="institutionNameColumn">
+        card_inst.name AS institution_name
+    </sql>
+
+    <!-- 학습 목록 4탭(수강 중·관심·문의·후기) 공통 검색(q): 강의명·기관명·강사명.
+         네 매퍼 모두 courses 를 `c` 별칭으로 조인해 두었다는 전제로, 기관·강사 조인
+         별칭이 매퍼마다 달라도(또는 count 쿼리처럼 아예 없어도) 동작하도록 EXISTS 로 뗀다.
+         foundation Task 7 의 CourseMapper.xml 검색 조건과 같은 패턴이다. -->
+    <sql id="keywordFilter">
+        <if test="keyword != null">
+            AND (
+                LOWER(c.title) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+                OR EXISTS (
+                    SELECT 1 FROM tb_institutions kw_inst
+                     WHERE kw_inst.id = c.institution_id
+                       AND LOWER(kw_inst.name) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+                )
+                OR EXISTS (
+                    SELECT 1 FROM tb_course_instructors kw_ci
+                      JOIN tb_users kw_u ON kw_u.id = kw_ci.user_id
+                     WHERE kw_ci.course_id = c.id
+                       AND LOWER(kw_u.name) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+                )
+            )
+        </if>
+    </sql>
+
+</mapper>

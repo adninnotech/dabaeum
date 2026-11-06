@@ -36,9 +36,16 @@
             <arg column="created_at" javaType="java.time.Instant"/>
             <arg column="course_title" javaType="java.lang.String"/>
             <arg column="institution_name" javaType="java.lang.String"/>
-            <arg column="category" javaType="java.lang.String"/>
+            <arg column="classification_code" javaType="java.lang.String"/>
             <arg column="education_type" javaType="java.lang.String"/>
             <arg column="course_status" javaType="java.lang.String"/>
+            <arg column="card_instructor_name" javaType="java.lang.String"/>
+            <arg column="card_session_count" javaType="java.lang.Integer"/>
+            <arg column="card_tags" javaType="java.lang.String"/>
+            <arg column="card_tuition_type" javaType="java.lang.String"/>
+            <arg column="card_tuition_amount" javaType="java.math.BigDecimal"/>
+            <arg column="card_thumbnail_file_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
         </constructor>
     </resultMap>
 
@@ -66,19 +73,24 @@
     <select id="selectByUserId" resultMap="courseInterestViewRowResultMap">
         SELECT i.id, i.course_id, i.created_at,
                c.title AS course_title, ins.name AS institution_name,
-               c.category, c.education_type, c.status AS course_status
+               c.classification_code, c.education_type, c.status AS course_status,
+               <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.cardColumns"/>
           FROM tb_course_interests i
           JOIN tb_courses c ON c.id = i.course_id
           JOIN tb_institutions ins ON ins.id = c.institution_id
+          <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.cardJoins"/>
          WHERE i.user_id = #{userId}
+        <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.keywordFilter"/>
         ORDER BY i.created_at DESC, i.id ASC
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
     <select id="countByUserId" resultType="long">
         SELECT COUNT(*)
-        FROM tb_course_interests
-        WHERE user_id = #{userId}
+        FROM tb_course_interests i
+        JOIN tb_courses c ON c.id = i.course_id
+        WHERE i.user_id = #{userId}
+        <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.keywordFilter"/>
     </select>
 
     <delete id="deleteById">

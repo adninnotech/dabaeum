@@ -37,13 +37,13 @@ class CourseSortTest {
     @Test
     void enforcesPageBounds() {
         assertThatThrownBy(() -> new CoursePageCriteria(
-            -1, 20, CourseSort.CREATED_AT, CourseSortDirection.DESC))
+            -1, 20, CourseSort.CREATED_AT, CourseSortDirection.DESC, null, null, null, null, true, null))
             .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new CoursePageCriteria(
-            0, 0, CourseSort.CREATED_AT, CourseSortDirection.DESC))
+            0, 0, CourseSort.CREATED_AT, CourseSortDirection.DESC, null, null, null, null, true, null))
             .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new CoursePageCriteria(
-            0, 101, CourseSort.CREATED_AT, CourseSortDirection.DESC))
+            0, 101, CourseSort.CREATED_AT, CourseSortDirection.DESC, null, null, null, null, true, null))
             .isInstanceOf(IllegalArgumentException.class);
     }
 

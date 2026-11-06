@@ -73,3 +73,48 @@ export async function removeCourseInstructor(courseId, userId) {
   });
   return unwrapData(payload);
 }
+
+export async function listInstructorCourses({ page = 0, size = 50, sort, status } = {}) {
+  const payload = await apiRequest('/instructors/me/courses', {
+    query: { page, size, sort, status },
+  });
+  return asPage(payload);
+}
+
+export async function getInstructorCourseStats() {
+  const payload = await apiRequest('/instructors/me/courses/stats');
+  return unwrapData(payload);
+}
+
+/** 강사 상세용 — 특정 강사에게 배정된 과정 목록 (관리자 전용).
+ * ⚠ 기존 `listInstructorCourses`(내 강좌, `/instructors/me/courses`)와 다른 함수다 — 오버로드 아님. */
+export async function listInstructorCoursesOf(userId, { page = 0, size = 20, status } = {}) {
+  const payload = await apiRequest(`/instructors/${userId}/courses`, {
+    query: { page, size, status },
+  });
+  return asPage(payload);
+}
+
+/** 강사 상세용 — 배정 과정 상태별 통계 (관리자 전용) */
+export async function getInstructorCourseStatsOf(userId) {
+  const payload = await apiRequest(`/instructors/${userId}/courses/stats`);
+  return unwrapData(payload);
+}
+
+/** 강사 상세용 — 특정 강사 담당 과정 수강 현황 (관리자 전용) */
+export async function listInstructorEnrollmentStatusOf(
+  userId,
+  { page = 0, size = 50, courseId } = {},
+) {
+  const payload = await apiRequest(`/instructors/${userId}/enrollment-status`, {
+    query: { page, size, courseId },
+  });
+  return asPage(payload);
+}
+
+export async function listInstructorEnrollmentStatus({ page = 0, size = 50, courseId } = {}) {
+  const payload = await apiRequest('/instructors/me/enrollment-status', {
+    query: { page, size, courseId },
+  });
+  return asPage(payload);
+}

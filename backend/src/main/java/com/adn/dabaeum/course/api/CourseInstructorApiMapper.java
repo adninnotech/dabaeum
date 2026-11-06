@@ -53,13 +53,26 @@ public class CourseInstructorApiMapper {
         return new ApiResponse<>(toResponse(view), meta(requestId));
     }
 
+    /** 비로그인 공개 조회({@code includeEmail=false})에는 강사 이메일을 싣지 않는다. */
     public ApiResponse<List<CourseInstructorResponse>> toListResponse(
         List<CourseInstructorView> views,
-        String requestId
+        String requestId,
+        boolean includeEmail
     ) {
         return new ApiResponse<>(
-            views.stream().map(this::toResponse).toList(),
+            views.stream()
+                .map(this::toResponse)
+                .map(response -> includeEmail ? response : withoutEmail(response))
+                .toList(),
             meta(requestId)
+        );
+    }
+
+    private static CourseInstructorResponse withoutEmail(CourseInstructorResponse response) {
+        return new CourseInstructorResponse(
+            response.id(), response.courseId(), response.userId(), response.instructorName(),
+            null, response.role(), response.assignedAt(), response.createdAt(),
+            response.introduction(), response.career(), response.profileImageId()
         );
     }
 
@@ -67,7 +80,8 @@ public class CourseInstructorApiMapper {
         return new CourseInstructorResponse(
             view.id(), view.courseId(), view.userId(), view.instructorName(),
             view.instructorEmail(), view.role(),
-            view.assignedAt(), view.createdAt()
+            view.assignedAt(), view.createdAt(),
+            view.introduction(), view.career(), view.profileImageId()
         );
     }
 

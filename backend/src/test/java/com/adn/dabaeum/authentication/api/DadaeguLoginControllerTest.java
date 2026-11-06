@@ -1,18 +1,23 @@
 package com.adn.dabaeum.authentication.api;
 
+import static org.hamcrest.Matchers.endsWith;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.adn.dabaeum.authentication.application.DadaeguLoginOutcome;
 import com.adn.dabaeum.authentication.application.DadaeguLoginProperties;
 import com.adn.dabaeum.authentication.application.DadaeguLoginService;
 import com.adn.dabaeum.authentication.application.LocalAuthResult;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
@@ -43,6 +48,7 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class,
     DadaeguLoginControllerTest.Properties.class
@@ -88,7 +94,8 @@ class DadaeguLoginControllerTest {
 
     @Test
     void loginIsPublicAndReturnsDadaeguTokenSession() throws Exception {
-        when(service.login(any(), any(), any(), any())).thenReturn(result());
+        when(service.login(any(), any(), any(), any()))
+            .thenReturn(new DadaeguLoginOutcome.LoggedIn(result()));
 
         mockMvc.perform(post("/api/v1/auth/dadaegu/login")
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID)
@@ -112,7 +119,50 @@ class DadaeguLoginControllerTest {
             .andExpect(jsonPath("$.data.session.roles[0].role").value("LEARNER"))
             .andExpect(jsonPath("$.data.session.expiresAt")
                 .value(EXPIRES_AT.toString()))
+            .andExpect(jsonPath("$.data.registrationRequired").value(false))
             .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID));
+    }
+
+    @Test
+    void firstLoginReturnsRegistrationRequiredWithoutAccessToken() throws Exception {
+        when(service.login(any(), any(), any(), any())).thenReturn(
+            new DadaeguLoginOutcome.RegistrationRequired("raw-token", EXPIRES_AT, "홍*동"));
+
+        mockMvc.perform(post("/api/v1/auth/dadaegu/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"did\": \"ZW5jcnlwdGVkLWRpZA==\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.registrationRequired").value(true))
+            .andExpect(jsonPath("$.data.registrationToken").value("raw-token"))
+            .andExpect(jsonPath("$.data.expiresAt").value(EXPIRES_AT.toString()))
+            .andExpect(jsonPath("$.data.maskedName").value("홍*동"))
+            .andExpect(jsonPath("$.data.accessToken").doesNotExist());
+    }
+
+    @Test
+    void signupIsPublicAndReturnsCreatedToken() throws Exception {
+        when(service.signup(any())).thenReturn(result());
+
+        mockMvc.perform(post("/api/v1/auth/dadaegu/signup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"registrationToken": "raw-token", "interestCodes": ["TSIX_040000"], "agreedToInterest": true,
+                     "agreedToUsage": true, "agreedToPrivacy": true, "agreedToMarketing": false}
+                    """))
+            .andExpect(status().isCreated())
+            .andExpect(header().string("Location", endsWith("/api/v1/users/" + USER_ID)))
+            .andExpect(jsonPath("$.data.accessToken").value("signed-token"))
+            .andExpect(jsonPath("$.data.session.provider").value("DADAEGU"));
+    }
+
+    @Test
+    void signupRejectsMissingRequiredFieldsBeforeTheService() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/dadaegu/signup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"registrationToken\": \"raw-token\"}"))
+            .andExpect(status().isUnprocessableEntity())
+            .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        verifyNoInteractions(service);
     }
 
     @Test

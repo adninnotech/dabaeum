@@ -8,18 +8,25 @@ import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import tools.jackson.databind.exc.InvalidFormatException;
 
 @RestControllerAdvice
@@ -59,7 +66,7 @@ public class ApiExceptionHandler {
     ) {
         if (containsEnumFormatFailure(exception)) {
             return respond(
-                HttpStatus.UNPROCESSABLE_ENTITY,
+                HttpStatus.UNPROCESSABLE_CONTENT,
                 ApiErrorCode.VALIDATION_FAILED,
                 "Request validation failed",
                 List.of("requestBody"),
@@ -107,7 +114,7 @@ public class ApiExceptionHandler {
             .toList();
 
         return respond(
-            HttpStatus.UNPROCESSABLE_ENTITY,
+            HttpStatus.UNPROCESSABLE_CONTENT,
             ApiErrorCode.VALIDATION_FAILED,
             "Request validation failed",
             details.isEmpty() ? List.of("requestBody") : details,
@@ -149,6 +156,73 @@ public class ApiExceptionHandler {
             ApiErrorCode.BAD_REQUEST,
             "Request parameter is invalid",
             List.of("request"),
+            request,
+            response
+        );
+    }
+
+    /**
+     * 매핑이 없는 경로. 이 핸들러가 없으면 아래 포괄 핸들러가 잡아 500 이 나가고, 호출하는 쪽에서
+     * "오타 난 경로" 와 "서버 장애" 를 구분할 수 없다.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleNoResource(
+        NoResourceFoundException exception,
+        HttpServletRequest request,
+        HttpServletResponse response
+    ) {
+        return respond(
+            HttpStatus.NOT_FOUND,
+            ApiErrorCode.ENDPOINT_NOT_FOUND,
+            "No endpoint for this path",
+            List.of(),
+            request,
+            response
+        );
+    }
+
+    /**
+     * 경로는 있지만 메서드가 다르다(POST 전용 경로에 GET 등). 포괄 핸들러로 가면 500 이 나가므로
+     * 405 와 Allow 헤더로 답한다(QA 이슈 #50).
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiErrorResponse> handleMethodNotSupported(
+        HttpRequestMethodNotSupportedException exception,
+        HttpServletRequest request,
+        HttpServletResponse response
+    ) {
+        Set<HttpMethod> supported = exception.getSupportedHttpMethods();
+        if (supported != null && !supported.isEmpty()) {
+            response.setHeader(HttpHeaders.ALLOW, supported.stream()
+                .map(HttpMethod::name)
+                .sorted()
+                .collect(Collectors.joining(", ")));
+        }
+        return respond(
+            HttpStatus.METHOD_NOT_ALLOWED,
+            ApiErrorCode.METHOD_NOT_ALLOWED,
+            "Method not allowed for this path",
+            List.of(),
+            request,
+            response
+        );
+    }
+
+    /**
+     * multipart 한도(spring.servlet.multipart, 파일 10MB·요청 12MB)는 컨트롤러에 닿기 전에 걸린다.
+     * 서비스의 크기 검사와 같은 422 FILE_SIZE_EXCEEDED 로 답한다(QA FILE-01, 전에는 500).
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiErrorResponse> handleUploadTooLarge(
+        MaxUploadSizeExceededException exception,
+        HttpServletRequest request,
+        HttpServletResponse response
+    ) {
+        return respond(
+            HttpStatus.UNPROCESSABLE_CONTENT,
+            ApiErrorCode.FILE_SIZE_EXCEEDED,
+            "File exceeds the maximum upload size",
+            List.of("file"),
             request,
             response
         );

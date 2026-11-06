@@ -17,6 +17,7 @@ import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
@@ -55,6 +56,7 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
@@ -116,7 +118,7 @@ class FileControllerTest {
     void propagatesUnsupportedTypeFromService() throws Exception {
         when(currentUserProvider.requireContext()).thenReturn(learner());
         when(service.upload(any(UploadFileCommand.class))).thenThrow(new ApiException(
-            HttpStatus.UNPROCESSABLE_ENTITY, ApiErrorCode.FILE_TYPE_NOT_SUPPORTED,
+            HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.FILE_TYPE_NOT_SUPPORTED,
             "File type is not supported", List.of("file")));
 
         mockMvc.perform(multipart("/api/v1/files")
@@ -137,8 +139,8 @@ class FileControllerTest {
 
     @Test
     void servesContentPubliclyWithStoredTypeAndCacheHeaders() throws Exception {
-        when(service.download(FILE_ID)).thenReturn(
-            new FileDownload(storedFile(), new ByteArrayInputStream(PNG)));
+        when(service.download(FILE_ID, null)).thenReturn(
+            new FileDownload(storedFile(), new ByteArrayInputStream(PNG), true));
 
         mockMvc.perform(get("/api/v1/files/{id}/content", FILE_ID))
             .andExpect(status().isOk())
@@ -149,8 +151,18 @@ class FileControllerTest {
     }
 
     @Test
+    void privateContentIsNeverCachedPublicly() throws Exception {
+        when(service.download(FILE_ID, null)).thenReturn(
+            new FileDownload(storedFile(), new ByteArrayInputStream(PNG), false));
+
+        mockMvc.perform(get("/api/v1/files/{id}/content", FILE_ID))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Cache-Control", "no-store"));
+    }
+
+    @Test
     void returnsNotFoundForUnknownFile() throws Exception {
-        when(service.download(FILE_ID)).thenThrow(new ApiException(
+        when(service.download(FILE_ID, null)).thenThrow(new ApiException(
             HttpStatus.NOT_FOUND, ApiErrorCode.FILE_NOT_FOUND, "File not found"));
 
         mockMvc.perform(get("/api/v1/files/{id}/content", FILE_ID))

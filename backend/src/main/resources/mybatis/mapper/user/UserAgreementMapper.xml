@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.user.infrastructure.mybatis.UserAgreementMapper">
+
+    <resultMap
+        id="userAgreementRowResultMap"
+        type="com.adn.dabaeum.user.infrastructure.mybatis.UserAgreementRow">
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg
+                column="user_id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="agreement_type" javaType="java.lang.String"/>
+            <arg column="agreed" javaType="java.lang.Boolean"/>
+            <arg column="agreed_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO tb_user_agreements (
+            id,
+            user_id,
+            agreement_type,
+            agreed,
+            agreed_at
+        ) VALUES (
+            #{id},
+            #{userId},
+            #{agreementType},
+            #{agreed},
+            #{agreedAt}
+        )
+    </insert>
+
+    <select
+        id="selectByUserId"
+        resultMap="userAgreementRowResultMap">
+        SELECT
+            id,
+            user_id,
+            agreement_type,
+            agreed,
+            agreed_at
+        FROM tb_user_agreements
+        WHERE user_id = #{userId}
+        ORDER BY agreed_at DESC
+    </select>
+
+</mapper>

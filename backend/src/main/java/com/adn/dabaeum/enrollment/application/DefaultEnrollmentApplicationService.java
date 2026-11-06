@@ -3,6 +3,7 @@ package com.adn.dabaeum.enrollment.application;
 import com.adn.dabaeum.authorization.application.AuthorizationPolicy;
 import com.adn.dabaeum.common.api.ApiErrorCode;
 import com.adn.dabaeum.common.api.ApiException;
+import com.adn.dabaeum.common.api.SortParameter;
 import com.adn.dabaeum.common.security.AuthenticatedUserContext;
 import com.adn.dabaeum.course.domain.Course;
 import com.adn.dabaeum.course.domain.CourseInstructorRepository;
@@ -23,7 +24,10 @@ import com.adn.dabaeum.user.domain.UserRepository;
 import com.adn.dabaeum.user.domain.UserStatus;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -34,6 +38,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class DefaultEnrollmentApplicationService implements EnrollmentApplicationService {
 
+    private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
+
     private final EnrollmentRepository enrollmentRepository;
     private final CourseRepository courseRepository;
     private final UserRepository userRepository;
@@ -41,6 +47,8 @@ public class DefaultEnrollmentApplicationService implements EnrollmentApplicatio
     private final CourseInstructorRepository instructorRepository;
     private final EnrollmentIdGenerator idGenerator;
     private final AuthorizationPolicy authorizationPolicy;
+    private final EnrollmentDecisionAuthority decisionAuthority;
+    private final EnrollmentWithdrawalPolicy withdrawalPolicy;
     private final Clock clock;
 
     public DefaultEnrollmentApplicationService(
@@ -51,6 +59,8 @@ public class DefaultEnrollmentApplicationService implements EnrollmentApplicatio
         CourseInstructorRepository instructorRepository,
         EnrollmentIdGenerator idGenerator,
         AuthorizationPolicy authorizationPolicy,
+        EnrollmentDecisionAuthority decisionAuthority,
+        EnrollmentWithdrawalPolicy withdrawalPolicy,
         Clock clock
     ) {
         this.enrollmentRepository = Objects.requireNonNull(enrollmentRepository, "enrollmentRepository");
@@ -60,6 +70,8 @@ public class DefaultEnrollmentApplicationService implements EnrollmentApplicatio
         this.instructorRepository = Objects.requireNonNull(instructorRepository, "instructorRepository");
         this.idGenerator = Objects.requireNonNull(idGenerator, "idGenerator");
         this.authorizationPolicy = Objects.requireNonNull(authorizationPolicy, "authorizationPolicy");
+        this.decisionAuthority = Objects.requireNonNull(decisionAuthority, "decisionAuthority");
+        this.withdrawalPolicy = Objects.requireNonNull(withdrawalPolicy, "withdrawalPolicy");
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
@@ -129,8 +141,9 @@ public class DefaultEnrollmentApplicationService implements EnrollmentApplicatio
         } catch (ArithmeticException exception) {
             throw badRequest("page");
         }
-        List<Enrollment> data = enrollmentRepository.findPageByCourseId(
-            new EnrollmentPageCriteria(query.courseId(), offset, query.size(), sort, direction));
+        List<com.adn.dabaeum.enrollment.domain.EnrollmentListItem> data =
+            enrollmentRepository.findEnrollmentListByCourseId(
+                new EnrollmentPageCriteria(query.courseId(), offset, query.size(), sort, direction));
         long total = enrollmentRepository.countByCourseId(query.courseId());
         int pages = total == 0 ? 0 : Math.toIntExact(((total - 1) / query.size()) + 1);
         return new EnrollmentPage(data, query.page(), query.size(), total, pages);
@@ -160,10 +173,10 @@ public class DefaultEnrollmentApplicationService implements EnrollmentApplicatio
             .orElseThrow(this::courseNotFound);
         Enrollment latest = enrollmentRepository.findByIdForUpdate(enrollmentId)
             .orElseThrow(this::enrollmentNotFound);
-        requireDecisionManager(context, lockedCourse);
+        decisionAuthority.require(context, lockedCourse);
         requirePending(latest);
         long approved = enrollmentRepository.countApprovedByCourseId(lockedCourse.id());
-        if (approved >= lockedCourse.capacity()) {
+        if (approved >= Objects.requireNonNull(lockedCourse.capacity(), "capacity")) {
             throw new ApiException(HttpStatus.CONFLICT, ApiErrorCode.COURSE_CAPACITY_EXCEEDED,
                 "Course capacity has been reached");
         }
@@ -190,7 +203,7 @@ public class DefaultEnrollmentApplicationService implements EnrollmentApplicatio
         Course course = findCourse(initial.courseId());
         Enrollment latest = enrollmentRepository.findByIdForUpdate(command.enrollmentId())
             .orElseThrow(this::enrollmentNotFound);
-        requireDecisionManager(context, course);
+        decisionAuthority.require(context, course);
         requirePending(latest);
         Instant now = clock.instant();
         Enrollment updated = new Enrollment(
@@ -229,6 +242,7 @@ public class DefaultEnrollmentApplicationService implements EnrollmentApplicatio
             throw enrollmentStatusConflict();
         }
         Instant now = clock.instant();
+        requireWithdrawable(latest, course, context, now);
         Enrollment updated = new Enrollment(
             latest.id(), latest.courseId(), latest.userId(), latest.appliedBy(),
             latest.applicationType(), EnrollmentStatus.WITHDRAWN, latest.appliedAt(),
@@ -249,11 +263,18 @@ public class DefaultEnrollmentApplicationService implements EnrollmentApplicatio
             throw new ApiException(HttpStatus.CONFLICT, ApiErrorCode.COURSE_STATUS_CONFLICT,
                 "Course status does not allow enrollment");
         }
+        // 모집 마감일은 날짜라 서울 기준 그날 자정까지 받는다. 상태 전환이 자동이 아니어서 상태만으로는 못 거른다.
+        LocalDate today = LocalDate.ofInstant(clock.instant(), SEOUL);
+        if (locked.recruitEndDate() != null && today.isAfter(locked.recruitEndDate())) {
+            throw new ApiException(HttpStatus.CONFLICT, ApiErrorCode.COURSE_RECRUITMENT_ENDED,
+                "Course recruitment has ended",
+                List.of("recruitEndDate=" + locked.recruitEndDate()));
+        }
         if (enrollmentRepository.findActiveByCourseIdAndUserId(courseId, userId).isPresent()) {
             throw enrollmentConflict();
         }
         long approved = enrollmentRepository.countApprovedByCourseId(courseId);
-        EnrollmentStatus status = approved >= locked.capacity()
+        EnrollmentStatus status = approved >= Objects.requireNonNull(locked.capacity(), "capacity")
             ? EnrollmentStatus.WAITLISTED : EnrollmentStatus.APPLIED;
         Instant now = clock.instant();
         Enrollment enrollment = new Enrollment(
@@ -275,14 +296,6 @@ public class DefaultEnrollmentApplicationService implements EnrollmentApplicatio
             .orElseThrow(this::enrollmentNotFound);
     }
 
-    private void requireDecisionManager(AuthenticatedUserContext context, Course course) {
-        boolean mainInstructor = context != null
-            && instructorRepository.existsByCourseIdAndUserIdAndRole(
-                course.id(), context.userId(), CourseInstructorRole.MAIN);
-        authorizationPolicy.requireEnrollmentDecisionManager(
-            context, course.institutionId(), mainInstructor);
-    }
-
     private void requireSubjectOrDecisionManager(
         AuthenticatedUserContext context,
         Enrollment enrollment,
@@ -293,6 +306,31 @@ public class DefaultEnrollmentApplicationService implements EnrollmentApplicatio
                 course.id(), context.userId(), CourseInstructorRole.MAIN);
         authorizationPolicy.requireEnrollmentSubjectOrDecisionManager(
             context, enrollment.userId(), course.institutionId(), mainInstructor);
+    }
+
+    /**
+     * 이수가 평가·확정된 수강은 수료·수료증과 어긋나므로 누구도 철회할 수 없다(이수 확정 취소 정정이 먼저).
+     * 학습자 본인은 수업 시작 마감(EnrollmentWithdrawalPolicy) 전까지만, 그리고 출석한 회차가 없을 때만
+     * 철회할 수 있다. 그 뒤는 수강 결정 권한자(관리자·MAIN 강사)만 처리한다.
+     */
+    private void requireWithdrawable(Enrollment enrollment, Course course,
+                                     AuthenticatedUserContext context, Instant now) {
+        if (enrollmentRepository.hasCompletionDecision(enrollment.id())) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                ApiErrorCode.ENROLLMENT_WITHDRAW_AFTER_COMPLETION,
+                "Enrollment with a completion decision cannot be withdrawn");
+        }
+        if (decisionAuthority.allows(context, course)) {
+            return;
+        }
+        Optional<Instant> deadline = withdrawalPolicy.selfWithdrawDeadline(course);
+        boolean pastDeadline = deadline.isPresent() && !now.isBefore(deadline.get());
+        if (pastDeadline || enrollmentRepository.hasAttendance(enrollment.id())) {
+            throw new ApiException(HttpStatus.FORBIDDEN,
+                ApiErrorCode.ENROLLMENT_WITHDRAW_REQUIRES_MANAGER,
+                "Enrollment must be withdrawn by a manager after the self-withdrawal deadline",
+                deadline.map(value -> List.of("selfWithdrawDeadline=" + value)).orElse(List.of()));
+        }
     }
 
     private void requirePending(Enrollment enrollment) {
@@ -341,18 +379,11 @@ public class DefaultEnrollmentApplicationService implements EnrollmentApplicatio
     }
 
     private String[] splitSort(String value) {
-        if (value == null) {
-            throw badRequest("sort");
-        }
-        String[] parts = value.split(",", -1);
-        if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
-            throw badRequest("sort");
-        }
-        return parts;
+        return SortParameter.split(value).orElseThrow(() -> badRequest("sort"));
     }
 
     private ApiException validation(String detail) {
-        return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, ApiErrorCode.VALIDATION_FAILED,
+        return new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.VALIDATION_FAILED,
             "Request validation failed", List.of(detail));
     }
 

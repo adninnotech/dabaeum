@@ -2,6 +2,7 @@ package com.adn.dabaeum.authentication;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.adn.dabaeum.authentication.application.LocalAccountApplicationService;
 import com.adn.dabaeum.authentication.application.LocalAuthResult;
@@ -26,9 +27,14 @@ import com.adn.dabaeum.institution.domain.Institution;
 import com.adn.dabaeum.institution.domain.InstitutionRepository;
 import com.adn.dabaeum.institution.domain.InstitutionStatus;
 import com.adn.dabaeum.support.RemotePostgresIntegrationTestSupport;
+import com.adn.dabaeum.user.domain.AgreementType;
+import com.adn.dabaeum.user.domain.UserAgreement;
+import com.adn.dabaeum.user.domain.UserAgreementRepository;
+import com.adn.dabaeum.user.domain.User;
 import com.adn.dabaeum.user.domain.UserRepository;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,6 +47,7 @@ class LocalAccountIntegrationTest extends RemotePostgresIntegrationTestSupport {
     @Autowired LocalAccountApplicationService localAccountService;
     @Autowired LocalJwtTokenService localJwtTokenService;
     @Autowired UserRepository userRepository;
+    @Autowired UserAgreementRepository userAgreementRepository;
     @Autowired InstitutionRepository institutionRepository;
     @Autowired CourseRepository courseRepository;
     @Autowired EnrollmentApplicationService enrollmentService;
@@ -55,10 +62,15 @@ class LocalAccountIntegrationTest extends RemotePostgresIntegrationTestSupport {
             password,
             "통합 학습자",
             "010-0000-0000",
-            LocalDate.of(1995, 5, 10)
+            LocalDate.of(1995, 5, 10),
+            true,
+            true,
+            false
         );
 
         LocalAuthResult signup = localAccountService.signup(signupCommand);
+        User registered = userRepository.findById(signup.userId()).orElseThrow();
+        assertThat(registered.email()).isEqualTo(email.toLowerCase());
         UUID userId = signup.userId();
         assertThat(signup.provider()).isEqualTo("LOCAL");
         assertThat(signup.roles()).containsExactly(
@@ -164,5 +176,49 @@ class LocalAccountIntegrationTest extends RemotePostgresIntegrationTestSupport {
                 assertThat(exception.status()).isEqualTo(HttpStatus.CONFLICT);
                 assertThat(exception.code()).isEqualTo(ApiErrorCode.IDENTITY_CONFLICT);
             });
+    }
+
+    @Test
+    void 가입_시_동의_이력을_저장하고_같은_타입으로_다시_append할_수_있다() {
+        String email = "agreement-" + UUID.randomUUID() + "@example.com";
+        SignupCommand signupCommand = new SignupCommand(
+            email,
+            "learning-2026!",
+            "동의 이력 학습자",
+            null,
+            null,
+            true,
+            true,
+            false
+        );
+
+        LocalAuthResult signup = localAccountService.signup(signupCommand);
+        UUID userId = signup.userId();
+
+        List<UserAgreement> afterSignup = userAgreementRepository.findByUserId(userId);
+        assertThat(afterSignup)
+            .extracting(UserAgreement::agreementType, UserAgreement::agreed)
+            .containsExactlyInAnyOrder(
+                tuple(AgreementType.USAGE, true),
+                tuple(AgreementType.PRIVACY, true),
+                tuple(AgreementType.MARKETING, false));
+
+        // 매퍼 <arg> 순서·타입이 UserAgreement 레코드와 어긋나면 여기서만 죽는다(단위 테스트는 통과한다).
+        UserAgreement readBack = afterSignup.get(0);
+        assertThat(readBack.userId()).isEqualTo(userId);
+        assertThat(readBack.id()).isNotNull();
+        assertThat(readBack.agreedAt()).isNotNull();
+
+        // append-only: 같은 사용자·같은 타입으로 두 번째 행을 넣을 수 있어야 한다(유니크 제약 없음).
+        UserAgreement withdrawal = new UserAgreement(
+            UUID.randomUUID(), userId, AgreementType.MARKETING, false, Instant.now()
+        );
+        userAgreementRepository.saveAll(List.of(withdrawal));
+
+        List<UserAgreement> afterWithdrawal = userAgreementRepository.findByUserId(userId);
+        assertThat(afterWithdrawal).hasSize(4);
+        assertThat(afterWithdrawal)
+            .filteredOn(agreement -> agreement.agreementType() == AgreementType.MARKETING)
+            .hasSize(2);
     }
 }

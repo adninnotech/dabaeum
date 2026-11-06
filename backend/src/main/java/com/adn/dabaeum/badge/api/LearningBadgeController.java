@@ -1,5 +1,7 @@
 package com.adn.dabaeum.badge.api;
 
+import com.adn.dabaeum.accesslog.domain.AccessLogAction;
+import com.adn.dabaeum.accesslog.web.PersonalDataAccess;
 import com.adn.dabaeum.badge.application.LearningBadgeApplicationService;
 import com.adn.dabaeum.badge.application.LearningBadgePage;
 import com.adn.dabaeum.common.api.ApiErrorCode;
@@ -70,6 +72,7 @@ public class LearningBadgeController {
     }
 
     @GetMapping("/users/{userId}/badges")
+    @PersonalDataAccess(action = AccessLogAction.READ)
     public LearningBadgePageResponse listByUser(
         @PathVariable UUID userId,
         @RequestParam(defaultValue = "0") int page,

@@ -1,15 +1,22 @@
 package com.adn.dabaeum.inquiry.api;
 
+import org.springframework.beans.factory.ObjectProvider;
+import com.adn.dabaeum.classification.application.CourseClassificationService;
 import com.adn.dabaeum.common.api.ApiErrorCode;
 import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.api.ApiMeta;
 import com.adn.dabaeum.common.api.PageMeta;
 import com.adn.dabaeum.common.security.AuthenticatedUserContext;
+import com.adn.dabaeum.common.text.NameMask;
+import com.adn.dabaeum.enrollment.api.CourseCardFields;
+import com.adn.dabaeum.enrollment.domain.EnrolleeProfile;
+import com.adn.dabaeum.inquiry.application.CourseInquiryViewPage;
 import com.adn.dabaeum.inquiry.application.CreateInquiryCommand;
 import com.adn.dabaeum.inquiry.application.InquiryViewPage;
 import com.adn.dabaeum.inquiry.application.ReplyInquiryCommand;
 import com.adn.dabaeum.inquiry.domain.Inquiry;
 import com.adn.dabaeum.inquiry.domain.InquiryStatus;
+import com.adn.dabaeum.inquiry.domain.InquiryType;
 import com.adn.dabaeum.inquiry.domain.InquiryView;
 import java.time.Clock;
 import java.time.OffsetDateTime;
@@ -27,7 +34,11 @@ public class InquiryApiMapper {
 
     private final Clock clock;
 
-    public InquiryApiMapper(Clock clock) {
+    // 분류 서비스는 local/dev 에만 있다. 없으면(컨트롤러 테스트) 경로는 빈 배열.
+    private final ObjectProvider<CourseClassificationService> classifications;
+
+    public InquiryApiMapper(Clock clock, ObjectProvider<CourseClassificationService> classifications) {
+        this.classifications = classifications;
         this.clock = clock;
     }
 
@@ -52,6 +63,19 @@ public class InquiryApiMapper {
         }
     }
 
+    public InquiryType parseType(String type) {
+        if (type == null || type.isBlank()) {
+            return null;
+        }
+        try {
+            return InquiryType.valueOf(type.trim());
+        } catch (IllegalArgumentException exception) {
+            throw new ApiException(
+                HttpStatus.BAD_REQUEST, ApiErrorCode.BAD_REQUEST,
+                "Request parameter is invalid", List.of("type"));
+        }
+    }
+
     public CreateInquiryCommand toCreateCommand(
         InquiryCreateRequest request, AuthenticatedUserContext actor
     ) {
@@ -70,8 +94,9 @@ public class InquiryApiMapper {
         if (!invalid.isEmpty()) {
             throw validation(invalid);
         }
+        InquiryType type = request.type() == null ? InquiryType.COURSE : request.type();
         return new CreateInquiryCommand(
-            title, content, request.courseId(), actor, clock.instant());
+            title, content, request.courseId(), actor, clock.instant(), type);
     }
 
     public ReplyInquiryCommand toReplyCommand(
@@ -89,20 +114,44 @@ public class InquiryApiMapper {
         return new InquiryResponse(
             inquiry.id(), inquiry.userId(), inquiry.courseId(), inquiry.title(),
             inquiry.content(), inquiry.status(), inquiry.answer(),
-            inquiry.answeredAt(), inquiry.createdAt());
+            inquiry.answeredAt(), inquiry.createdAt(), inquiry.type());
     }
 
     public InquiryPageResponse toPageResponse(InquiryViewPage page, String requestId) {
         return new InquiryPageResponse(
-            page.data().stream().map(this::toSummary).toList(),
+            page.data().stream().map(view -> toSummary(view, true)).toList(),
             new PageMeta(page.page(), page.size(), page.totalElements(), page.totalPages()),
             meta(requestId));
     }
 
-    private InquirySummaryResponse toSummary(InquiryView view) {
+    /**
+     * C-6 · E-2 공유 강좌별 문의 목록. 같은 엔드포인트를 관리자와 학습자가 함께 쓴다.
+     * 실명·연락처를 보여줄지는 <b>서비스가 강좌의 기관을 보고</b> 판정해 넘겨준다 —
+     * 여기서 역할 이름으로 판정하면 다른 기관 강사에게도 열린다.
+     */
+    public InquiryPageResponse toCoursePageResponse(
+        CourseInquiryViewPage result, String requestId
+    ) {
+        InquiryViewPage page = result.page();
+        return new InquiryPageResponse(
+            page.data().stream().map(view -> toSummary(view, result.manager())).toList(),
+            new PageMeta(page.page(), page.size(), page.totalElements(), page.totalPages()),
+            meta(requestId));
+    }
+
+    private InquirySummaryResponse toSummary(InquiryView view, boolean manager) {
+        EnrolleeProfile profile = view.profile();
         return new InquirySummaryResponse(
-            view.id(), view.courseId(), view.title(), view.status(),
-            view.createdAt(), view.courseTitle(), view.userName());
+            view.id(), view.courseId(), view.title(), view.status(), view.inquiryType(),
+            view.createdAt(), view.courseTitle(),
+            manager ? profile.userName() : NameMask.mask(profile.userName()),
+            manager ? profile.email() : null,
+            manager ? profile.phone() : null,
+            manager ? profile.profileImageId() : null,
+            new CourseCardFields(
+                view.institutionName(), view.instructorName(), view.classificationCode(), classificationPath(view.classificationCode()),
+                view.educationType(), view.sessionCount(), view.tags(),
+                view.tuitionType(), view.tuitionAmount(), view.thumbnailFileId()));
     }
 
     public ApiMeta meta(String requestId) {
@@ -111,7 +160,12 @@ public class InquiryApiMapper {
 
     private ApiException validation(List<String> fields) {
         return new ApiException(
-            HttpStatus.UNPROCESSABLE_ENTITY, ApiErrorCode.VALIDATION_FAILED,
+            HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.VALIDATION_FAILED,
             "Request validation failed", fields);
     }
+    private List<String> classificationPath(String code) {
+        CourseClassificationService service = classifications.getIfAvailable();
+        return service == null ? List.of() : service.pathOf(code);
+    }
 }
+

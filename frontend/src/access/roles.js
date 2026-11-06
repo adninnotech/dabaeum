@@ -46,7 +46,7 @@ export function homePathForRole(role) {
   return ROLE_HOME_PATHS[role] || '/';
 }
 
-/** API Role → AppRoleLayout currentRole prop */
+/** API Role → 콘솔 레이아웃 currentRole prop */
 export const ROLE_LAYOUT_KEYS = {
   [ROLES.LEARNER]: 'learner',
   [ROLES.INSTRUCTOR]: 'instructor',
@@ -69,19 +69,6 @@ export const ROLE_CONSOLE_ICONS = {
   [ROLES.INSTRUCTOR]: 'school',
 };
 
-const CONSOLE_ROLE_ORDER = [ROLES.PLATFORM_ADMIN, ROLES.INSTITUTION_ADMIN, ROLES.INSTRUCTOR];
-
-/** 보유 역할 중 현재 레이아웃과 다른 운영 콘솔 목록 */
-export function listOwnedConsoleEntries(userRoles, currentLayoutKey) {
-  const owned = new Set(Array.isArray(userRoles) ? userRoles.filter(Boolean) : []);
-  return CONSOLE_ROLE_ORDER.filter(
-    (role) => owned.has(role) && layoutKeyForRole(role) !== currentLayoutKey,
-  ).map((role) => ({
-    role,
-    label: labelForRole(role),
-    icon: ROLE_CONSOLE_ICONS[role] || 'dashboard',
-  }));
-}
 
 /** 로그인 직후 이동 경로 (보유 역할 기준, 플랫폼 관리자 우선) */
 export function homePathAfterLogin(userRoles, preferredRole) {

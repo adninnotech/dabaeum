@@ -15,6 +15,7 @@ import com.adn.dabaeum.credential.application.ReissueCredentialCommand;
 import com.adn.dabaeum.credential.application.RevokeCredentialCommand;
 import com.adn.dabaeum.credential.domain.Credential;
 import com.adn.dabaeum.credential.domain.CredentialCourseView;
+import com.adn.dabaeum.credential.domain.CredentialStatus;
 import com.adn.dabaeum.credential.domain.CredentialVerification;
 import com.adn.dabaeum.credential.domain.CredentialView;
 import java.time.Clock;
@@ -171,6 +172,7 @@ public class CredentialApiMapper {
             credential.subjectIdentifier(), credential.credentialType(), credential.status(),
             credential.validFrom(), credential.validUntil(), credential.vcHash(),
             credential.issuedAt(), credential.revokedAt(), credential.revocationReason(),
+            credential.status() == CredentialStatus.FAILED ? credential.failureCode() : null,
             credential.createdAt(), credential.updatedAt(),
             course == null ? null : course.courseId(),
             course == null ? null : course.courseTitle(),
@@ -197,7 +199,11 @@ public class CredentialApiMapper {
         return new CredentialVerificationResponse(
             verification.id(), verification.credentialId(), verification.presentedCredentialNo(),
             verification.verificationType(), verification.requesterType(), verification.requesterId(),
-            verification.result(), verification.verifiedAt(), verification.createdAt());
+            verification.result(),
+            verification.platformConditional()
+                ? CredentialVerification.PLATFORM_CONDITIONAL : CredentialVerification.PLATFORM,
+            verification.verifiedAt(), verification.createdAt(), verification.issuerName(),
+            verification.issuedAt());
     }
 
     public CredentialVerificationPageResponse toVerificationPageResponse(
@@ -226,7 +232,7 @@ public class CredentialApiMapper {
     private String requireReason(String value) {
         if (value == null || value.isBlank() || value.trim().length() > 1000) {
             throw new ApiException(
-                org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY,
+                org.springframework.http.HttpStatus.UNPROCESSABLE_CONTENT,
                 ApiErrorCode.VALIDATION_FAILED,
                 "Request validation failed", List.of("reason"));
         }
@@ -238,7 +244,7 @@ public class CredentialApiMapper {
     }
 
     private ApiException invalidVerification(String... fields) {
-        return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, ApiErrorCode.VALIDATION_FAILED,
+        return new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.VALIDATION_FAILED,
             "Request validation failed", List.of(fields));
     }
 
@@ -247,7 +253,7 @@ public class CredentialApiMapper {
 
     private ApiException invalidDate() {
         return new ApiException(
-            org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY,
+            org.springframework.http.HttpStatus.UNPROCESSABLE_CONTENT,
             ApiErrorCode.VALIDATION_FAILED,
             "Request validation failed",
             List.of("validUntil"));

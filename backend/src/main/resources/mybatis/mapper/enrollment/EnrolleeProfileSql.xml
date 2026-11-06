@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- 신청자 인적 사항 공통 조각(횡단 이슈 X-2). tb_users 를 u 로 조인해 두었다는 전제. -->
+<mapper namespace="com.adn.dabaeum.enrollment.infrastructure.mybatis.EnrolleeProfileSql">
+
+    <sql id="columns">
+        u.name AS enrollee_name,
+        u.birth_date AS enrollee_birth_date,
+        u.gender AS enrollee_gender,
+        u.email AS enrollee_email,
+        u.phone AS enrollee_phone,
+        u.profile_image_id AS enrollee_profile_image_id
+    </sql>
+
+    <!-- JOIN(LEFT 아님) 이유: 수강신청·수강 현황·문의 조회에는 반드시 사용자가 있다.
+         LEFT 로 두면 데이터가 깨졌을 때 조용히 빈 행이 나가고 문제를 늦게 발견한다.
+         ${ownerAlias} 는 user_id 를 갖는 쪽 테이블의 별칭이다(enrollments 는 e, inquiries 는 i). -->
+    <sql id="join">
+        JOIN tb_users u ON u.id = ${ownerAlias}.user_id
+    </sql>
+
+</mapper>

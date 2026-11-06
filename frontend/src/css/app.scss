@@ -1,23 +1,138 @@
+@import './tokens';
+
 :root {
-  --dabaeum-primary: #1a479f;
+  --dabaeum-primary: var(--db-primary);
   --dabaeum-primary-soft: #eef4ff;
   --dabaeum-surface: #ffffff;
   --dabaeum-ink: #1f2937;
+  --dabaeum-scroll-track: #f0f4fa;
+  --dabaeum-scroll-thumb: #b8c9e6;
+  --dabaeum-scroll-thumb-hover: #7a9bcf;
 }
 
 @import './role-shell.scss';
+
+/* 다크 모드 — app.scss 자체 토큰과, 토큰을 쓰지 않는 Quasar 색 클래스(bg-white 187곳 등)를 토큰으로 돌린다 */
+body.body--dark {
+  --dabaeum-primary-soft: var(--db-accent-soft);
+  --dabaeum-surface: var(--db-bg-white);
+  --dabaeum-ink: var(--db-text-title);
+  --dabaeum-scroll-track: #161a20;
+  --dabaeum-scroll-thumb: #3a4250;
+  --dabaeum-scroll-thumb-hover: #4f5a6c;
+
+  .bg-white {
+    background: var(--db-bg-white) !important;
+  }
+
+  .bg-grey-1,
+  .bg-grey-2 {
+    background: var(--db-bg-subtle) !important;
+  }
+
+  .bg-blue-1 {
+    background: var(--db-accent-soft) !important;
+  }
+
+  .text-dark,
+  .text-black {
+    color: var(--db-text-title) !important;
+  }
+
+  .text-grey-6,
+  .text-grey-7,
+  .text-grey-8,
+  .text-grey-9 {
+    color: var(--db-text-sub) !important;
+  }
+
+  /* 사이트 푸터 — 다크에선 밝힌 남색 띠가 화면 끝에서 튀었다. 어두운 면 + 위 경계선 */
+  .learner-footer {
+    background: var(--db-bg-white);
+    border-top: 1px solid var(--db-border);
+  }
+
+  /* 입력칸 테두리 — Quasar 다크 기본은 반투명 흰색이라 선택 칸만 하얗게 떴다 */
+  .q-field--outlined:not(.q-field--focused):not(.q-field--error) .q-field__control:before {
+    border-color: var(--db-border-rt);
+  }
+
+  /* Quasar 카드·목록 기본 테두리 */
+  .q-card--bordered,
+  .q-list--bordered,
+  .q-table--bordered {
+    border-color: var(--db-border);
+  }
+
+  /* 창 — 기본 가림막(검정 40%)은 어두운 화면에서 거의 안 보여 창이 뒤 카드와 한 덩어리로 보였다 */
+  .q-dialog__backdrop {
+    background: rgba(0, 0, 0, 0.65);
+  }
+
+  .q-dialog__inner > .q-card {
+    border: 1px solid var(--db-border-rt);
+  }
+}
+
+/* 표 '데이터 없음' — Quasar 기본은 경고(⚠) 아이콘이라 빈 목록이 오류처럼 보였다 */
+.q-table__bottom--nodata .q-icon {
+  display: none;
+}
+
+/* 기본 select 펼친 목록 — 바탕이 투명이면 Windows 크롬은 흰 목록에 다크 글자색(밝음)을 얹어 안 보였다 */
+select option {
+  background: var(--db-bg-white);
+  color: var(--db-text-title);
+}
+
+/* 사진 없는 프로필 — 이름 첫 글자 동그라미 */
+.letter-avatar {
+  background: var(--db-avatar-bg);
+  color: var(--db-avatar-text);
+}
 
 html,
 body,
 #q-app {
   min-height: 100%;
   font-family:
-    'Pretendard',
-    'Noto Sans KR',
-    'Apple SD Gothic Neo',
-    sans-serif;
+    'Pretendard Variable', 'Pretendard', 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif;
   color: var(--dabaeum-ink);
-  background: #f7faff;
+  background: var(--db-bg-page);
+}
+
+/* 사이트 톤에 맞춘 스크롤바 (Firefox) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--dabaeum-scroll-thumb) var(--dabaeum-scroll-track);
+}
+
+/* WebKit (Chrome, Edge, Safari) */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--dabaeum-scroll-track);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #b8c9e6 0%, #8eabdb 100%);
+  border-radius: 999px;
+  border: 2px solid var(--dabaeum-scroll-track);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #7a9bcf 0%, var(--dabaeum-primary) 100%);
+  border: 2px solid var(--dabaeum-scroll-track);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 a {
@@ -40,4 +155,322 @@ a {
     font-size: 0.875rem;
     line-height: 1.43;
   }
+}
+
+/* ---------- 버튼: 컴포넌트 대신 크기 클래스 (q-btn에 얹어 쓴다) ---------- */
+.q-btn {
+  text-transform: none;
+}
+
+.btn-lg {
+  height: 48px;
+  padding: 0 20px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 8px;
+}
+
+.btn-md {
+  height: 40px;
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 6px;
+}
+
+.btn-sm {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+}
+
+/* ---------- 목록 테이블 셀 조합 ---------- */
+.cell-course,
+.cell-user,
+.cell-inquiry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  min-width: 0;
+}
+
+.cell-user__avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--db-border-avatar);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--db-text-body);
+  overflow: hidden;
+}
+
+/* 프로필 사진이 원래 크기로 그려져 칸 전체를 덮었다(단색 사진이면 칸이 통째로 초록) — 동그라미에 맞춘다 */
+.cell-user__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 두 줄 셀 합 = 22 + 16 = 38, 행 64 = 38 + padding 26 (gap 없음) */
+.cell-title {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 700;
+  color: var(--db-text-body);
+}
+
+.cell-note {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+  color: var(--db-text-body);
+}
+
+/* 두 줄 셀 묶음 — gap 0, 첫 줄 기본 line-height 22 */
+.cell-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  font-size: 16px;
+  line-height: 22px;
+}
+
+.cell-note--sub {
+  color: var(--db-text-sub);
+}
+
+/* 학습자 사이트 콘텐츠 폭 */
+/* 좌우 여백이 너무 넓다는 피드백 — 1200 → 1440 */
+:root {
+  --db-learner-width: 1440px;
+}
+
+.learner-container {
+  width: var(--db-learner-width);
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+/* 화면 끝에 붙지 않도록 좌우 16 (plan.main.mobile.png 비율) — 콘텐츠 폭 1440 + 32 보다 좁으면.
+   예전엔 1023px 까지만이라 1024~1231px 에서 카드·패널이 화면 끝에 붙었다 */
+@media (max-width: 1471px) {
+  .learner-container {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+/* 학습자 화면 공통 셸 — 오래된 화면(q-page padding + page-inner)을 새 화면과 같은 폭·배경으로 */
+.learner-page {
+  position: relative;
+  padding: 32px 0 48px;
+  background: var(--db-bg-page);
+}
+
+.learner-page__body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  /* .learner-container 의 max-width: 100% 를 덮지 않는다 */
+  max-width: min(960px, 100%);
+}
+
+/* 안내(로그인 필요 등) 배너 — Quasar bg-blue-1 대신 토큰 */
+.learner-notice {
+  border: 1px solid color-mix(in srgb, var(--db-accent) 25%, transparent);
+  border-radius: 8px;
+  background: var(--db-accent-soft);
+  color: var(--db-text-body);
+}
+
+@media (max-width: 599px) {
+  .learner-page {
+    padding-top: 20px;
+  }
+}
+
+/* 저장된 리치 텍스트 본문(sanitizeRichText를 거친 v-html 전용) — 본문색이라 링크가 구분이 안 된다 */
+.rich-text a {
+  color: var(--db-accent);
+  text-decoration: underline;
+}
+
+/* 편집기(q-editor) 본문 — 붙여 넣은 마크다운·위저드 본문의 제목·표·인용·코드가 본문 크기로 읽히게.
+   Quasar 전역 h1(6rem)을 되돌린다 */
+.q-editor__content {
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    margin: 0.8em 0 0.4em;
+    font-size: 17px;
+    line-height: 1.4;
+    font-weight: 700;
+    letter-spacing: normal;
+  }
+
+  h1 {
+    font-size: 20px;
+  }
+
+  p {
+    margin: 0 0 0.6em;
+  }
+}
+
+/* 강좌 상세·미리보기 본문 — Quasar 전역 h1(6rem)이 붙여 넣은 `# 제목`을 화면만 하게 키운다 */
+.rich-text {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    margin: 1.2em 0 0.5em;
+    font-size: 16px;
+    line-height: 1.5;
+    font-weight: 700;
+    letter-spacing: normal;
+    color: var(--db-text-title);
+  }
+
+  h1 {
+    font-size: 20px;
+  }
+
+  h2 {
+    font-size: 18px;
+  }
+
+  > :first-child {
+    margin-top: 0;
+  }
+}
+
+/* 편집기·공개 본문 공용 — 마크다운으로 들어오는 블록 */
+.q-editor__content,
+.rich-body,
+.rich-text {
+  /* 폰에서 칸이 글자 하나 폭까지 줄어 세로로 쌓였다 — 칸에 최소 폭을 두고 넘치면 표만 가로로 민다 */
+  table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    margin: 0 0 1em;
+  }
+
+  td,
+  th {
+    min-width: 4.5em;
+    padding: 6px 10px;
+    border: 1px solid var(--db-border);
+    vertical-align: top;
+    text-align: left;
+  }
+
+  th {
+    font-weight: 700;
+    background: var(--db-bg-subtle);
+  }
+
+  blockquote {
+    margin: 0 0 1em;
+    padding: 4px 0 4px 12px;
+    border-left: 3px solid var(--db-border);
+    color: var(--db-text-sub);
+  }
+
+  code {
+    padding: 1px 4px;
+    font-size: 0.9em;
+    background: var(--db-bg-subtle);
+    border-radius: 4px;
+  }
+
+  pre {
+    margin: 0 0 1em;
+    padding: 10px 12px;
+    overflow-x: auto;
+    background: var(--db-bg-subtle);
+    border-radius: 6px;
+
+    code {
+      padding: 0;
+      background: none;
+    }
+  }
+
+  hr {
+    margin: 1.2em 0;
+    border: 0;
+    border-top: 1px solid var(--db-border);
+  }
+}
+
+/* 강좌 상세(폰·태블릿)의 아래 고정 신청 줄(48 + 위아래 10 + 테두리 1 = 69px)이 떠 있을 때 —
+   사이트 푸터를 탭바 몫(59px)에 더해 그만큼 올려 가리지 않게 한다. CourseDetailPage 가 body 에 클래스를 단다 */
+body.has-bottom-cta .learner-footer.learner-footer--tabs {
+  padding-bottom: calc(59px + 69px + env(safe-area-inset-bottom));
+}
+
+/* 학습자 화면 — 중장년 이용자가 많다(2026-10-12 점검).
+ * Quasar 기본값이 작은 곳만 학습자 셸 안에서 덮는다(운영 콘솔은 그대로):
+ * - text-caption 12px → 13px
+ * - 입력 글자 16px — 16px 아래면 iOS 가 입력할 때 화면을 확대한다(손가락 확대를 다시 허용했다)
+ * - 켜고 끄는 스위치·체크박스 줄 높이 40px — 누르는 자리 */
+.learner-shell .text-caption {
+  font-size: 13px;
+}
+
+.learner-shell .q-field__native,
+.learner-shell .q-field__input,
+.learner-shell textarea {
+  font-size: 16px;
+}
+
+.learner-shell .q-toggle,
+.learner-shell .q-checkbox,
+.learner-shell .q-radio {
+  min-height: 40px;
+}
+
+/* 학습자 본문은 늘 1.125배(중장년 이용자 — '항상 크게'). 글자 크기가 px 라 rem 으로는 안 커진다 —
+ * zoom 으로 본문 전체(여백·누르는 자리 포함)를 함께 키운다. 머리·푸터는 폭이 빠듯해 그대로.
+ * 본문 안 learner-container 는 커진 만큼 폭을 줄여 화면에선 머리·푸터와 같은 폭(--db-learner-width)으로 줄을 맞춘다 */
+/* --db-content-zoom: 본문 안에서 화면 px 로 맞춰야 하는 값(붙박이 top·scroll-margin 등)은 이것으로 나눈다 —
+   top: 68px 이 화면에선 76.5px 가 되어 머리와 붙박이 탭 사이로 본문 글자가 비쳤다 */
+.learner-shell {
+  --db-content-zoom: 1.125;
+}
+
+.learner-shell .q-page-container > * {
+  zoom: var(--db-content-zoom);
+}
+
+.learner-shell .q-page-container .learner-container {
+  width: calc(var(--db-learner-width) / var(--db-content-zoom));
 }

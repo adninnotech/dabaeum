@@ -3,6 +3,7 @@ package com.adn.dabaeum.authentication.application;
 import com.adn.dabaeum.authentication.application.port.PasswordResetMailSender;
 import com.adn.dabaeum.authentication.domain.LocalAccountCredential;
 import com.adn.dabaeum.authentication.domain.LocalAccountRepository;
+import com.adn.dabaeum.authentication.domain.LoginAttemptRepository;
 import com.adn.dabaeum.authentication.domain.PasswordResetToken;
 import com.adn.dabaeum.authentication.domain.PasswordResetTokenRepository;
 import com.adn.dabaeum.authorization.application.AuthorizationPolicy;
@@ -12,6 +13,7 @@ import com.adn.dabaeum.common.security.AuthenticatedUserContext;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import com.adn.dabaeum.user.domain.EmailAddress;
 import com.adn.dabaeum.user.domain.UserRepository;
 import java.security.SecureRandom;
 import java.time.Clock;
@@ -20,7 +22,6 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -36,9 +37,6 @@ public class DefaultAccountRecoveryService implements AccountRecoveryService {
 
     private static final Duration TOKEN_TTL = Duration.ofMinutes(30);
     private static final int MIN_PASSWORD_LENGTH = 10;
-    private static final char[] TEMP_PASSWORD_ALPHABET =
-        "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$"
-            .toCharArray();
 
     private final LocalAccountRepository localAccountRepository;
     private final PasswordResetTokenRepository tokenRepository;
@@ -46,6 +44,7 @@ public class DefaultAccountRecoveryService implements AccountRecoveryService {
     private final PasswordEncoder passwordEncoder;
     private final AuthorizationPolicy authorizationPolicy;
     private final UserRepository userRepository;
+    private final LoginAttemptRepository loginAttempts;
     private final Clock clock;
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -56,6 +55,7 @@ public class DefaultAccountRecoveryService implements AccountRecoveryService {
         PasswordEncoder passwordEncoder,
         AuthorizationPolicy authorizationPolicy,
         UserRepository userRepository,
+        LoginAttemptRepository loginAttempts,
         Clock clock
     ) {
         this.localAccountRepository = localAccountRepository;
@@ -64,20 +64,24 @@ public class DefaultAccountRecoveryService implements AccountRecoveryService {
         this.passwordEncoder = passwordEncoder;
         this.authorizationPolicy = authorizationPolicy;
         this.userRepository = userRepository;
+        this.loginAttempts = loginAttempts;
         this.clock = clock;
     }
 
     @Override
     @Transactional(readOnly = true)
     public boolean isEmailAvailable(String email) {
-        String normalized = normalizeEmail(email);
+        // 가입과 같은 규칙: 가입할 수 없는 모양이면 사용 가능 여부도 묻지 않는다.
+        String normalized = EmailAddress.deliverable(email)
+            .orElseThrow(this::validation);
         return localAccountRepository.findByNormalizedEmail(normalized).isEmpty();
     }
 
     @Override
     @Transactional
     public void requestPasswordReset(String email) {
-        String normalized = normalizeEmail(email);
+        String normalized = EmailAddress.normalized(email)
+            .orElseThrow(this::validation);
         Optional<LocalAccountCredential> account =
             localAccountRepository.findByNormalizedEmail(normalized);
         if (account.isEmpty()) {
@@ -116,6 +120,8 @@ public class DefaultAccountRecoveryService implements AccountRecoveryService {
         }
         // 비밀번호가 바뀌면 이전 비밀번호로 얻은 토큰은 만료 전이라도 더 이상 유효하지 않아야 한다.
         userRepository.invalidateTokens(resetToken.userId(), now);
+        // 이메일로 본인을 확인했으니 로그인 잠금도 푼다.
+        loginAttempts.clear(resetToken.userId());
     }
 
     @Override
@@ -130,7 +136,7 @@ public class DefaultAccountRecoveryService implements AccountRecoveryService {
                 HttpStatus.NOT_FOUND, ApiErrorCode.USER_NOT_FOUND,
                 "Local account not found"));
         String password = temporaryPassword == null || temporaryPassword.isBlank()
-            ? generateTemporaryPassword()
+            ? TemporaryPasswords.generate(secureRandom)
             : temporaryPassword.trim();
         validatePassword(password);
         Instant now = clock.instant();
@@ -140,41 +146,23 @@ public class DefaultAccountRecoveryService implements AccountRecoveryService {
                 HttpStatus.NOT_FOUND, ApiErrorCode.USER_NOT_FOUND,
                 "Local account not found");
         }
+        // 관리자가 정한 비밀번호도 임시로 본다 — 관리자 계정이면 곧바로 변경 안내가 뜬다.
+        localAccountRepository.markPasswordTemporary(userId);
         userRepository.invalidateTokens(userId, now);
+        // 관리자 초기화가 잠긴 계정을 푸는 경로다.
+        loginAttempts.clear(userId);
         return new AdminResetResult(now, password);
-    }
-
-    private String generateTemporaryPassword() {
-        StringBuilder builder = new StringBuilder(14);
-        for (int index = 0; index < 14; index++) {
-            builder.append(TEMP_PASSWORD_ALPHABET[
-                secureRandom.nextInt(TEMP_PASSWORD_ALPHABET.length)]);
-        }
-        return builder.toString();
     }
 
     private void validatePassword(String password) {
         if (password == null || password.trim().length() < MIN_PASSWORD_LENGTH
             || password.length() > 128) {
             throw new ApiException(
-                HttpStatus.UNPROCESSABLE_ENTITY, ApiErrorCode.VALIDATION_FAILED,
+                HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.VALIDATION_FAILED,
                 "Request validation failed", List.of("password"));
         }
     }
 
-    private String normalizeEmail(String value) {
-        if (value == null) {
-            throw validation("email");
-        }
-        String normalized = value.trim().toLowerCase(Locale.ROOT);
-        int at = normalized.indexOf('@');
-        if (normalized.isBlank() || normalized.length() > 320
-            || at < 1 || at == normalized.length() - 1
-            || normalized.indexOf('@', at + 1) >= 0) {
-            throw validation("email");
-        }
-        return normalized;
-    }
 
     private String sha256Hex(String value) {
         try {
@@ -188,15 +176,15 @@ public class DefaultAccountRecoveryService implements AccountRecoveryService {
 
     private ApiException invalidToken() {
         return new ApiException(
-            HttpStatus.UNPROCESSABLE_ENTITY,
+            HttpStatus.UNPROCESSABLE_CONTENT,
             ApiErrorCode.PASSWORD_RESET_TOKEN_INVALID,
             "Password reset token is invalid or expired",
             List.of("token"));
     }
 
-    private ApiException validation(String field) {
+    private ApiException validation() {
         return new ApiException(
-            HttpStatus.UNPROCESSABLE_ENTITY, ApiErrorCode.VALIDATION_FAILED,
-            "Request validation failed", List.of(field));
+            HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.VALIDATION_FAILED,
+            "Request validation failed", List.of("email"));
     }
 }

@@ -1,6 +1,9 @@
 package com.adn.dabaeum.identity.api;
 
+import com.adn.dabaeum.accesslog.domain.AccessLogAction;
+import com.adn.dabaeum.accesslog.web.PersonalDataAccess;
 import com.adn.dabaeum.common.api.ApiResponse;
+import com.adn.dabaeum.common.security.CurrentUserProvider;
 import com.adn.dabaeum.common.web.RequestIdFilter;
 import com.adn.dabaeum.identity.application.IdentityApplicationService;
 import com.adn.dabaeum.identity.domain.UserIdentity;
@@ -25,16 +28,28 @@ public class IdentityController {
 
     private final IdentityApplicationService service;
     private final IdentityApiMapper mapper;
+    private final CurrentUserProvider currentUserProvider;
 
     public IdentityController(
         IdentityApplicationService service,
-        IdentityApiMapper mapper
+        IdentityApiMapper mapper,
+        CurrentUserProvider currentUserProvider
     ) {
         this.service = service;
         this.mapper = mapper;
+        this.currentUserProvider = currentUserProvider;
+    }
+
+    @GetMapping("/me/identities")
+    public ApiResponse<List<IdentityResponse>> listMine(HttpServletRequest servletRequest) {
+        return mapper.toListResponse(
+            service.list(currentUserProvider.requireUserId()),
+            requestId(servletRequest)
+        );
     }
 
     @GetMapping("/{userId}/identities")
+    @PersonalDataAccess(action = AccessLogAction.READ)
     public ApiResponse<List<IdentityResponse>> list(
         @PathVariable UUID userId,
         HttpServletRequest servletRequest
@@ -46,6 +61,7 @@ public class IdentityController {
     }
 
     @PostMapping("/{userId}/identities")
+    @PersonalDataAccess(action = AccessLogAction.UPDATE)
     public ResponseEntity<ApiResponse<IdentityResponse>> link(
         @PathVariable UUID userId,
         @Valid @RequestBody IdentityLinkRequest request,
@@ -61,6 +77,7 @@ public class IdentityController {
     }
 
     @DeleteMapping("/{userId}/identities/{identityId}")
+    @PersonalDataAccess(action = AccessLogAction.DELETE)
     public ApiResponse<IdentityResponse> unlink(
         @PathVariable UUID userId,
         @PathVariable UUID identityId,

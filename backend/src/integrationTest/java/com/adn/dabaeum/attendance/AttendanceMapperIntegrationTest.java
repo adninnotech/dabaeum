@@ -3,6 +3,7 @@ package com.adn.dabaeum.attendance;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.adn.dabaeum.attendance.domain.Attendance;
+import com.adn.dabaeum.attendance.domain.AttendanceLearner;
 import com.adn.dabaeum.attendance.domain.AttendanceMethod;
 import com.adn.dabaeum.attendance.domain.AttendancePageCriteria;
 import com.adn.dabaeum.attendance.domain.AttendanceRepository;
@@ -98,6 +99,25 @@ class AttendanceMapperIntegrationTest extends RemotePostgresIntegrationTestSuppo
             base.plusSeconds(30))).isTrue();
         assertThat(attendanceRepository.findById(first.id()))
             .get().extracting(Attendance::status).isEqualTo(AttendanceStatus.ABSENT);
+    }
+
+    /** 출결 목록이 수강신청 id 만 내보내면 강사가 누가 출석했는지 모른다. 이름을 한 번에 싣는다. */
+    @Test
+    void findsLearnerNamesForEnrollmentsInOneQuery() {
+        Fixture fixture = fixture();
+
+        List<AttendanceLearner> learners = attendanceRepository.findLearners(
+            List.of(fixture.enrollmentId(), fixture.adminEnrollmentId(), UUID.randomUUID()));
+
+        assertThat(learners).extracting(AttendanceLearner::enrollmentId)
+            .containsExactlyInAnyOrder(fixture.enrollmentId(), fixture.adminEnrollmentId());
+        AttendanceLearner learner = learners.stream()
+            .filter(item -> item.enrollmentId().equals(fixture.enrollmentId()))
+            .findFirst().orElseThrow();
+        assertThat(learner.userId()).isEqualTo(fixture.userId());
+        assertThat(learner.name()).isEqualTo(jdbcTemplate.queryForObject(
+            "SELECT name FROM tb_users WHERE id = ?", String.class, fixture.userId()));
+        assertThat(attendanceRepository.findLearners(List.of())).isEmpty();
     }
 
     @Test

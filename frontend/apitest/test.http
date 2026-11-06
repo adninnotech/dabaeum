@@ -1,10 +1,13 @@
 ### 다배움 API 테스트 (REST Client)
-### Spec: http://<api-host>:8080/openapi/dabaeum-api-v1.yaml
-### Swagger: http://<api-host>:8080/swagger-ui/index.html#/
+### 인증/가입/재설정/공개 검증은 IP별 초과 시 429 RATE_LIMITED + Retry-After(초)
+### 강좌 첨부 본문은 Bearer 필요. 게시된 공지 첨부 본문은 공개.
+### 기존 INQUIRY 파일은 업로더만 조회 가능하며 새 INQUIRY 업로드는 거부.
+### Spec: http://<API_SERVER>:8080/openapi/dabaeum-api-v1.yaml
+### Swagger: http://<API_SERVER>:8080/swagger-ui/index.html#/
 ### Local copy: apitest/dabaeum-api-v1.yaml
 
-@baseUrl = http://<api-host>:8080/api/v1
-@token = <bearer-token>
+@baseUrl = http://<API_SERVER>:8080/api/v1
+@token = <YOUR_TOKEN>
 @institutionId = 00000000-0000-0000-0000-000000000001
 @userId = 31b19a98-1982-45a4-96d1-3903856d0c77
 @courseId = 00000000-0000-0000-0000-000000000003
@@ -65,9 +68,10 @@ Content-Type: application/json
 Accept: application/json
 
 {
-  "name": "서울평생교육원",
   "contactPhone": "02-1234-5679",
-  "status": "ACTIVE"
+  "contactEmail": "contact@seoul-llc.example",
+  "introduction": "기관 소개",
+  "logoFileId": null
 }
 
 ### =========================
@@ -79,7 +83,7 @@ GET {{baseUrl}}/auth/session
 Authorization: Bearer {{token}}
 Accept: application/json
 
-### 일반 회원가입
+### 강사·기관 관리자 이메일 회원가입 — agreedToUsage·agreedToPrivacy 필수(없으면 400/422), 마케팅 선택. 구·군은 #142 에서 없앴다
 POST {{baseUrl}}/auth/signup
 Content-Type: application/json
 Accept: application/json
@@ -88,10 +92,14 @@ Accept: application/json
   "email": "learner@example.com",
   "password": "password12",
   "name": "홍길동",
-  "phone": "010-1234-5678"
+  "phone": "010-1234-5678",
+  "agreedToUsage": true,
+  "agreedToPrivacy": true,
+  "agreedToMarketing": false
 }
 
-### 일반 로그인
+### 일반 로그인 — 5회 연속 실패 → 30분 잠금. 5번째 실패·잠긴 동안은 401 code=ACCOUNT_LOCKED (비밀번호가 맞아도)
+### 응답 data.session.passwordExpired: 관리자 비밀번호 90일 경과·임시 비밀번호면 true
 POST {{baseUrl}}/auth/login
 Content-Type: application/json
 Accept: application/json
@@ -99,6 +107,61 @@ Accept: application/json
 {
   "email": "learner@example.com",
   "password": "password12"
+}
+
+### 관리자 목록 (PLATFORM_ADMIN) — q: 이름·이메일 부분일치
+GET {{baseUrl}}/admin/administrators?page=0&size=20&role=INSTITUTION_ADMIN&status=ACTIVE
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 관리자 생성 (PLATFORM_ADMIN) — data.temporaryPassword 는 이 응답에서만. 409 이메일 중복·404 기관 없음·503 학번 소진
+POST {{baseUrl}}/admin/administrators
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "기관관리자",
+  "email": "inst-admin@example.com",
+  "role": "INSTITUTION_ADMIN",
+  "institutionId": "{{institutionId}}"
+}
+
+### 관리자 접속기록 (PLATFORM_ADMIN) — from·to 서울 날짜, 둘 다 포함
+GET {{baseUrl}}/admin/access-logs?page=0&size=20&action=READ&from=2026-09-22&to=2026-09-28
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 다대구 QR 로그인 설정 (siteId, 인증 없음 · local/dev 전용)
+GET {{baseUrl}}/auth/dadaegu/config
+Accept: application/json
+
+### 다대구 DID 로그인 — didLogin.js 콜백 암호문을 그대로 (복호화 실패·비활성 = 401)
+### 항상 200. 처음 보는 DID 면 data.registrationRequired=true + registrationToken(10분·1회용)·maskedName
+POST {{baseUrl}}/auth/dadaegu/login
+Content-Type: application/json
+Accept: application/json
+
+{
+  "did": "<Base64 암호문>",
+  "name": "<Base64 암호문>",
+  "birthdate": "<Base64 암호문>",
+  "phoneNumber": "<Base64 암호문>"
+}
+
+### 다대구 첫 로그인 가입 완료 — 201 토큰 응답. 만료·재사용 401, 동시 가입 409
+# interestCodes 선택 0~3개(GET /course-classifications 1단계). 값이 있으면 agreedToInterest true 필수, 아니면 422 VALIDATION_FAILED (#142)
+POST {{baseUrl}}/auth/dadaegu/signup
+Content-Type: application/json
+Accept: application/json
+
+{
+  "registrationToken": "<dadaegu/login 응답의 registrationToken>",
+  "interestCodes": ["TSIX_040000", "TSIX_050000"],
+  "agreedToInterest": true,
+  "agreedToUsage": true,
+  "agreedToPrivacy": true,
+  "agreedToMarketing": false
 }
 
 ### =========================
@@ -150,6 +213,16 @@ GET {{baseUrl}}/users?page=0&size=20&status=ACTIVE&sort=createdAt,desc
 Authorization: Bearer {{token}}
 Accept: application/json
 
+### 학생 목록 서버 필터 — 성별·수강·최근 접속·가입일 (dabaeum-issues #52, 구·군은 #142 에서 뺐다)
+GET {{baseUrl}}/users?page=0&size=10&role=LEARNER&gender=FEMALE&hasEnrollment=false&lastLogin=OVER_90&createdFrom=2026-01-01&createdTo=2026-10-23&sort=lastLoginAt,desc
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 요약 카드 — 조건만 주고 size=1 로 page.totalElements 를 읽는다
+GET {{baseUrl}}/users?page=0&size=1&role=LEARNER&status=DORMANT
+Authorization: Bearer {{token}}
+Accept: application/json
+
 ### 사용자 생성
 POST {{baseUrl}}/users
 Authorization: Bearer {{token}}
@@ -169,7 +242,7 @@ GET {{baseUrl}}/users/me
 Authorization: Bearer {{token}}
 Accept: application/json
 
-### 내 사용자 정보 수정
+### 내 사용자 정보 수정 — 학습자 관심 분야: interestCodes 생략=그대로, []=지우고 동의 철회. 동의 전 회원이 값을 넣으려면 agreedToInterest true (#142)
 PUT {{baseUrl}}/users/me
 Authorization: Bearer {{token}}
 Content-Type: application/json
@@ -177,8 +250,9 @@ Accept: application/json
 
 {
   "name": "홍길동",
-  "email": "hong@example.com",
-  "phone": "010-1234-5678"
+  "phone": "010-1234-5678",
+  "interestCodes": ["TSIX_040000"],
+  "agreedToInterest": true
 }
 
 ### 사용자 상세 조회
@@ -264,7 +338,7 @@ Accept: application/json
   "courseCode": "DATA-101",
   "title": "데이터 분석 기초와 실무",
   "description": "파이썬 기반 데이터 분석 입문 과정",
-  "category": "IT/디지털",
+  "classificationCode": "TSIX_030101",
   "educationType": "ONLINE",
   "startDate": "2026-09-01",
   "endDate": "2026-10-31",
@@ -293,6 +367,11 @@ Accept: application/json
   "capacity": 35,
   "status": "RECRUITING"
 }
+
+### 임시저장(DRAFT) 과정 삭제 — DRAFT 가 아니면 409 COURSE_STATUS_CONFLICT, 없으면 404 COURSE_NOT_FOUND (soft delete)
+DELETE {{baseUrl}}/courses/{{courseId}}
+Authorization: Bearer {{token}}
+Accept: application/json
 
 ### 과정 게시
 POST {{baseUrl}}/courses/{{courseId}}/publish
@@ -395,6 +474,21 @@ Accept: application/json
   "applicationType": "SELF"
 }
 
+### 기관 관리자용 학습자 정확 일치 조회 (중앙 #56 → #142, lookupInstitutionLearner) — name + birthDate + phone 셋 다 필수
+# POST 본문 — 개인정보가 접근 로그에 남지 않게. 모르는 필드는 400. 이름은 앞뒤 공백 제외 일치, 휴대전화는 숫자만 비교
+# 200 { userId, name } · 404 없음/불일치/같은 값 2명 이상/신청 불가 모두 같음
+# 429 RATE_LIMITED(+Retry-After) — IP 분당 30회·계정 하루 200회·같은 휴대전화는 누가 조회하든 하루 10회
+POST {{baseUrl}}/institutions/{{institutionId}}/learners/lookup
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "홍길동",
+  "birthDate": "1990-01-15",
+  "phone": "01012345678"
+}
+
 ### 대리 수강신청
 POST {{baseUrl}}/courses/{{courseId}}/proxy-enrollments
 Authorization: Bearer {{token}}
@@ -442,6 +536,19 @@ Accept: application/json
 ### QR 토큰 발급
 POST {{baseUrl}}/sessions/{{sessionId}}/qr-token
 Authorization: Bearer {{token}}
+Accept: application/json
+
+### 학생 다대구 출석 세션 열기 (무인증 · local/dev) — token 은 attendUrl 의 t 값 그대로
+POST {{baseUrl}}/attend-sessions
+Content-Type: application/json
+Accept: application/json
+
+{
+  "token": "{{attendQrToken}}"
+}
+
+### 학생 다대구 출석 결과 (무인증) — 앱 복귀·버튼에서만 호출, 폴링 금지
+GET {{baseUrl}}/attend-sessions/{{attendId}}
 Accept: application/json
 
 ### 출결 목록
@@ -586,7 +693,7 @@ Accept: application/json
 ### Badge (향후 구현 예정 계약 포함)
 ### =========================
 
-### Badge 발급 요청
+### Badge 수동 발급 — 정의로만 준다(badgeType·badgeName 은 400). 이미 가진 정의면 기존 배지, 사용 중지 정의는 422
 POST {{baseUrl}}/credentials/{{credentialId}}/badges
 Authorization: Bearer {{token}}
 Idempotency-Key: {{idempotencyKey}}-badge
@@ -594,9 +701,68 @@ Content-Type: application/json
 Accept: application/json
 
 {
-  "badgeType": "COMPLETION",
-  "badgeName": "데이터 분석 기초 수료 배지",
+  "definitionId": "{{badgeDefinitionId}}",
   "courseId": "{{courseId}}"
+}
+
+### 학습배지 상세 — 단계(tierLevel·tierName)·이수기준·수혜자·발급기관·lastEvent 포함
+GET {{baseUrl}}/badges/{{badgeId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 학습배지 변동 이력 — 발급·갱신·취소·복구 + 사유, 최근 것부터
+GET {{baseUrl}}/badges/{{badgeId}}/history
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### NFT 학습배지 현황 (PLATFORM_ADMIN) — q 는 이름 부분일치
+GET {{baseUrl}}/admin/badges?page=0&size=10&status=ISSUED&tierLevel=1
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 학습배지 폐기 (PLATFORM_ADMIN) — 사유 1~200자, 이미 폐기면 409 BADGE_CONFLICT, 폐기한 배지는 자동 복구 안 됨
+POST {{baseUrl}}/admin/badges/{{badgeId}}/revoke
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "reason": "테스트 배지 정리"
+}
+
+### 사용자 수강 내역 (PLATFORM_ADMIN)
+GET {{baseUrl}}/users/{{userId}}/enrollments?page=0&size=100
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 배지 도감 (사용 중 정의, 인증 없음)
+GET {{baseUrl}}/badge-definitions
+Accept: application/json
+
+### 배지 정의 생성 (PLATFORM_ADMIN) — rule: COURSE_COMPLETION(courseId | classificationCode) · CUMULATIVE(count, classificationCode?)
+POST {{baseUrl}}/admin/badge-definitions
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "code": "CULTURE_3",
+  "name": "문화예술 3과목",
+  "description": "문화예술교육 분야 강좌 세 개를 수료하면 받습니다.",
+  "rule": { "type": "CUMULATIVE", "count": 3, "classificationCode": "TSIX_040000" }
+}
+
+### 배지 정의 수정 (PUT 통째 교체, code 무시) — 발급된 배지가 있으면 규칙 변경 409 BADGE_DEFINITION_IN_USE
+PUT {{baseUrl}}/admin/badge-definitions/{{badgeDefinitionId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "문화예술 3과목",
+  "description": null,
+  "imageFileId": null,
+  "rule": { "type": "CUMULATIVE", "count": 3, "classificationCode": "TSIX_040000" }
 }
 
 ### 사용자 Badge 목록
@@ -606,6 +772,76 @@ Accept: application/json
 
 ### Badge 상세
 GET {{baseUrl}}/badges/{{badgeId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+Accept: application/json
+
+### 과정 수강평 목록
+GET {{baseUrl}}/courses/{{courseId}}/reviews?page=0&size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 수강평 등록
+POST {{baseUrl}}/courses/{{courseId}}/reviews
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "rating": 5,
+  "content": "유익한 강의였습니다."
+}
+
+### 내 수강평 목록
+GET {{baseUrl}}/users/me/reviews?page=0&size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### =========================
+### Learner / Support (2026-08-29 추가)
+### =========================
+
+### 학습 현황 요약
+GET {{baseUrl}}/users/me/learning-summary
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 나의 강의
+GET {{baseUrl}}/users/me/learning-courses?page=0&size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 내 수강신청
+GET {{baseUrl}}/users/me/enrollments?page=0&size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### FAQ
+GET {{baseUrl}}/support/faqs?page=0&size=20
+Accept: application/json
+
+### 이용약관
+GET {{baseUrl}}/contents/terms?type=USAGE
+Accept: application/json
+
+### 플랫폼 대시보드
+GET {{baseUrl}}/admin/dashboard
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 기관 대시보드
+GET {{baseUrl}}/institutions/{{institutionId}}/dashboard
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 강사 배정 과정
+GET {{baseUrl}}/instructors/me/courses?page=0&size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 기관 등록 신청 목록
+GET {{baseUrl}}/institution-applications?page=0&size=20&status=PENDING
 Authorization: Bearer {{token}}
 Accept: application/json
 
@@ -627,4 +863,344 @@ Accept: application/json
 
 ### Credential 공개 상태
 GET {{baseUrl}}/vc/status/VC-2026-000001
+Accept: application/json
+
+### --- Blockchain / Notification / File / Codes (2026-08-31) ---
+
+### 블록체인 메트릭
+GET {{baseUrl}}/blockchain/metrics
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 블록체인 트랜잭션
+GET {{baseUrl}}/blockchain/transactions?page=0&size=10&sort=occurredAt,desc
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 블록체인 알림
+GET {{baseUrl}}/blockchain/alerts?page=0&size=10&sort=occurredAt,desc
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 내 알림 목록
+GET {{baseUrl}}/users/me/notifications?page=0&size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 공개 내비게이션 (공개) — 숨김·미게시 페이지 메뉴는 서버가 뺐다
+GET {{baseUrl}}/menus
+Accept: application/json
+
+### 공개 콘텐츠 페이지 (공개) — 없거나 초안이면 404 CONTENT_PAGE_NOT_FOUND
+GET {{baseUrl}}/contents/pages/about
+Accept: application/json
+
+### 메뉴 트리 (PLATFORM_ADMIN, 숨김 포함 2단계) / 화면 키
+GET {{baseUrl}}/admin/menus
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 메뉴 추가 — linkType ROUTE|CONTENT|EXTERNAL 에 맞는 대상 하나
+POST {{baseUrl}}/admin/menus
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "parentId": null,
+  "name": "인기 강좌",
+  "linkType": "ROUTE",
+  "routeKey": "POPULAR_COURSES",
+  "visible": true
+}
+
+### 메뉴 순서 전체 배치 — 3단계·모르는 id 는 422 (아무것도 안 바뀜)
+PUT {{baseUrl}}/admin/menus/order
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+[
+  { "id": "{{menuId}}", "parentId": null, "sortOrder": 10 }
+]
+
+### 콘텐츠 페이지 만들기 (DRAFT) — slug 중복 409 CONTENT_PAGE_CONFLICT, 메뉴가 가리키면 삭제 409 CONTENT_PAGE_IN_USE
+POST {{baseUrl}}/admin/content-pages
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "slug": "about",
+  "title": "다배움 소개",
+  "bodyHtml": "<p>대구 시민을 위한 평생학습 포털입니다.</p>"
+}
+
+### 통합검색 (공개) — q 는 공백 뺀 2~100자(아니면 400), limit 은 탭당 1~20 (기본 5)
+GET {{baseUrl}}/search?q=교육&limit=5
+Accept: application/json
+
+### 내 학습 포트폴리오
+GET {{baseUrl}}/users/me/portfolio
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 포트폴리오 공유 링크 생성 — 목록을 빼면 전부, 1~365일(기본 30). token 은 이 응답에서만 → {origin}/portfolio/{token}
+POST {{baseUrl}}/users/me/portfolio/shares
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "credentialIds": ["{{credentialId}}"],
+  "badgeIds": [],
+  "expiresInDays": 30
+}
+
+### 공유 링크 목록 (토큰 없음) / 폐기
+GET {{baseUrl}}/users/me/portfolio/shares
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 공개 포트폴리오 (공개) — 만료·폐기·없는 토큰은 404, 열 때마다 조회 수 증가
+GET {{baseUrl}}/public/portfolios/{{shareToken}}
+Accept: application/json
+
+### 강좌 상세 조회 기록 (공개) — 상세 화면 진입 때 한 번. 같은 사람 하루 1회. 항상 200 {accepted:true}
+POST {{baseUrl}}/courses/{{courseId}}/views
+Accept: application/json
+
+### 인기 강좌 (공개) — ageBand 가 있으면 그 나이대, 없으면 전체(regionCode 는 #142 에서 뺐다). 매시 5분 재계산, 첫 계산 전 빈 목록
+GET {{baseUrl}}/courses/popular?ageBand=30&limit=12
+Accept: application/json
+
+### 홈 추천 강좌 — 인증 선택(학습자 토큰이면 개인화·노출 로그). exclude 는 인기 섹션 강좌 id 쉼표 하나(최대 20)
+GET {{baseUrl}}/courses/recommended?limit=4&exclude=
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 추천 카드 클릭 기록 (LEARNER) — 404 는 남의 노출·없음·이미 클릭
+POST {{baseUrl}}/courses/recommended/{{impressionId}}/click
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 수강 통계 (PLATFORM_ADMIN) — groupBy CONTENT|YEAR|MONTH|REGION|AGE_BAND, 서울 날짜 양끝 포함, 최대 5년. format=csv 면 CSV(BOM)
+GET {{baseUrl}}/admin/statistics/enrollments?groupBy=MONTH&from=2026-01-01&to=2026-09-30
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 배지 발급 통계 (PLATFORM_ADMIN) — groupBy YEAR|MONTH|DEFINITION (정의 없는 배지 key NONE)
+GET {{baseUrl}}/admin/statistics/badges?groupBy=DEFINITION&format=csv
+Authorization: Bearer {{token}}
+
+### 표준 강좌 분류 트리 (사용 중만, 인증 없음) — 대·중·소 TSIX_AABBCC
+GET {{baseUrl}}/course-classifications
+Accept: application/json
+
+### 강좌 목록 분류 필터 — 어느 단계든, 하위 포함 (TSIX_040000 = 문화예술교육 전체)
+GET {{baseUrl}}/courses?page=0&size=20&classificationCode=TSIX_040000
+Accept: application/json
+
+### 강좌 분류 전체 트리 (PLATFORM_ADMIN, 사용 중지 포함)
+GET {{baseUrl}}/admin/course-classifications
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 강좌 분류 사용 중지 / 사용 (PLATFORM_ADMIN) — 코드·이름은 못 바꾼다
+POST {{baseUrl}}/admin/course-classifications/TSIX_010100/disable
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 비밀번호 재설정 확정
+POST {{baseUrl}}/auth/password/reset
+Content-Type: application/json
+Accept: application/json
+
+{
+  "token": "reset-token-from-email",
+  "password": "NewPassword12!"
+}
+
+### 관리자 비밀번호 초기화
+POST {{baseUrl}}/users/{{userId}}/password/reset
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{}
+
+### 관심 강좌 추가
+POST {{baseUrl}}/users/me/interests
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "courseId": "{{courseId}}"
+}
+
+### 기관 등록 신청
+POST {{baseUrl}}/institution-applications
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "institutionName": "테스트 평생교육원",
+  "representativeName": "홍길동",
+  "contactEmail": "admin@example.com",
+  "contactPhone": "010-1234-5678"
+}
+
+### 내 identity 목록 조회 (본인 전용)
+GET {{baseUrl}}/users/me/identities
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 특정 강사 담당 과정 문의 목록 (관리자)
+GET {{baseUrl}}/instructors/{{userId}}/inquiries?page=0&size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 특정 강사 담당 과정 수강 현황 (관리자)
+GET {{baseUrl}}/instructors/{{userId}}/enrollment-status?page=0&size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 본인 회원 탈퇴 — 실행하면 현재 토큰 계정이 WITHDRAWN 이 된다. 이미 탈퇴면 409
+POST {{baseUrl}}/users/me/withdraw
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "reason": "테스트"
+}
+
+
+### ── 이수 확정 취소 (관리자 정정, PLATFORM_ADMIN) ──
+POST {{baseUrl}}/enrollments/{{enrollmentId}}/completion/revert
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "reason": "출결 오기록 정정"
+}
+
+### ── FAQ 관리 (PLATFORM_ADMIN) ──
+GET {{baseUrl}}/admin/faqs?page=0&size=100
+Authorization: Bearer {{token}}
+Accept: application/json
+
+###
+POST {{baseUrl}}/admin/faqs
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "question": "수강 취소는 어떻게 하나요?",
+  "answer": "학습관리 > 수강신청 목록에서 취소할 수 있습니다.",
+  "sortOrder": 10
+}
+
+###
+PUT {{baseUrl}}/admin/faqs/{{faqId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "question": "수강 취소는 어떻게 하나요?",
+  "answer": "학습관리 > 수강신청 목록에서 모집 마감 전까지 취소할 수 있습니다.",
+  "sortOrder": 10
+}
+
+###
+DELETE {{baseUrl}}/admin/faqs/{{faqId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### ── 공개 공지 (학습자 /notices) ──
+GET {{baseUrl}}/notices?page=0&size=15&audience=PUBLIC
+Accept: application/json
+
+
+### ── 관리자 정정: 과정 모집 재개 / 회차 재개 (PLATFORM_ADMIN) ──
+POST {{baseUrl}}/courses/{{courseId}}/reopen
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "reason": "모집 마감일 오입력 정정"
+}
+
+###
+POST {{baseUrl}}/sessions/{{sessionId}}/reopen
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "reason": "회차 종료 처리 오류 정정"
+}
+
+### ── 약관 새 버전 등록 (PLATFORM_ADMIN) ──
+POST {{baseUrl}}/admin/terms
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "type": "USAGE",
+  "version": "1.1",
+  "title": "다배움 서비스 이용약관",
+  "body": "제1조 (목적)\n..."
+}
+
+### ── 내 계정에 이메일·비밀번호 연결 (다대구 가입자, local/dev 전용) ──
+POST {{baseUrl}}/users/me/identities/local
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "email": "linked-user@example.com",
+  "password": "change-me-1234"
+}
+
+### ── 수강 진도 상세 ──
+GET {{baseUrl}}/enrollments/{{enrollmentId}}/progress
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### ── 대구 다른 기관 강좌 목록 (공공데이터, 공개) ──
+GET {{baseUrl}}/public-courses?page=0&size=20&q=독서&method=OFFLINE&targetType=어르신,성인&regionCode=26&free=true&sort=edcStartDate,asc
+Accept: application/json
+
+### ── 대구 다른 기관 강좌 상세 ──
+GET {{baseUrl}}/public-courses/{{publicCourseId}}
+Accept: application/json
+
+### ── 대구 다른 기관 강좌 — 접수 중·요일·시간대 ──
+GET {{baseUrl}}/public-courses?size=6&receiptOpen=true&operDay=토,일&timeOfDay=EVENING&sort=receiptEndDate,asc
+Accept: application/json
+
+### ── 대구 다른 기관 강좌 구·군별 건수 (목록과 같은 조건, regionCode 제외) ──
+GET {{baseUrl}}/public-courses/facets?q=요가&free=true
+Accept: application/json
+
+### ── 대구 다른 기관 강좌 — 접수 상태순(접수 중 → 예정 → 모름 → 마감, asc 만) ──
+GET {{baseUrl}}/public-courses?size=12&sort=receiptStatus,asc
+Accept: application/json
+
+### =========================
+### Notices (관리자)
+### =========================
+
+### 관리자 공지 상세 — 초안·예약 공지도 온다(공개 GET /notices/{id} 는 게시된 것만). PLATFORM_ADMIN 전용, 없으면 404 NOTICE_NOT_FOUND
+GET {{baseUrl}}/admin/notices/{{noticeId}}
+Authorization: Bearer {{token}}
 Accept: application/json

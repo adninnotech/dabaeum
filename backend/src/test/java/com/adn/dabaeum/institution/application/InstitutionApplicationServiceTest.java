@@ -12,8 +12,11 @@ import static org.mockito.Mockito.when;
 import com.adn.dabaeum.common.api.ApiErrorCode;
 import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.institution.domain.Institution;
+import com.adn.dabaeum.institution.domain.InstitutionListItem;
 import com.adn.dabaeum.institution.domain.InstitutionPageCriteria;
 import com.adn.dabaeum.institution.domain.InstitutionRepository;
+import com.adn.dabaeum.institution.domain.InstitutionSigningKeyRequest;
+import com.adn.dabaeum.institution.domain.InstitutionSigningKeyRequestRepository;
 import com.adn.dabaeum.institution.domain.InstitutionSort;
 import com.adn.dabaeum.institution.domain.InstitutionStatus;
 import com.adn.dabaeum.institution.domain.SortDirection;
@@ -36,6 +39,8 @@ class InstitutionApplicationServiceTest {
 
     private static final UUID FIXED_ID =
         UUID.fromString("11111111-1111-1111-1111-111111111111");
+    private static final UUID REQUESTED_BY =
+        UUID.fromString("99999999-9999-9999-9999-999999999999");
     private static final Instant FIXED_INSTANT =
         Instant.parse("2026-08-03T00:00:00Z");
 
@@ -45,6 +50,15 @@ class InstitutionApplicationServiceTest {
     @Mock
     InstitutionIdGenerator idGenerator;
 
+    @Mock
+    com.adn.dabaeum.file.domain.StoredFileRepository storedFileRepository;
+
+    @Mock
+    com.adn.dabaeum.role.domain.UserRoleRepository userRoleRepository;
+
+    @Mock
+    InstitutionSigningKeyRequestRepository signingKeyRequests;
+
     private InstitutionApplicationService service;
 
     @BeforeEach
@@ -52,7 +66,10 @@ class InstitutionApplicationServiceTest {
         service = new DefaultInstitutionApplicationService(
             repository,
             idGenerator,
-            Clock.fixed(FIXED_INSTANT, ZoneOffset.UTC)
+            Clock.fixed(FIXED_INSTANT, ZoneOffset.UTC),
+            storedFileRepository,
+            userRoleRepository,
+            signingKeyRequests
         );
     }
 
@@ -62,13 +79,44 @@ class InstitutionApplicationServiceTest {
         when(repository.findActiveByCode("INST-001"))
             .thenReturn(Optional.empty());
 
-        Institution created = service.create(commandWithoutStatus());
+        Institution created = service.create(commandWithoutStatus(), REQUESTED_BY);
 
         assertThat(created.id()).isEqualTo(FIXED_ID);
         assertThat(created.status()).isEqualTo(InstitutionStatus.ACTIVE);
         assertThat(created.createdAt()).isEqualTo(FIXED_INSTANT);
         assertThat(created.updatedAt()).isEqualTo(FIXED_INSTANT);
         verify(repository).save(created);
+    }
+
+    @Test
+    void requestsSigningKeysForCreatedInstitutionInTheSameTransaction() {
+        when(idGenerator.generate()).thenReturn(FIXED_ID);
+        when(repository.findActiveByCode("INST-001"))
+            .thenReturn(Optional.empty());
+
+        service.create(commandWithoutStatus(), REQUESTED_BY);
+
+        ArgumentCaptor<InstitutionSigningKeyRequest> request =
+            ArgumentCaptor.forClass(InstitutionSigningKeyRequest.class);
+        verify(signingKeyRequests).save(request.capture());
+        assertThat(request.getValue().institutionId()).isEqualTo(FIXED_ID);
+        assertThat(request.getValue().requestedBy()).isEqualTo(REQUESTED_BY);
+        assertThat(request.getValue().requestedAt()).isEqualTo(FIXED_INSTANT);
+    }
+
+    @Test
+    void doesNotRequestSigningKeysWhenCreationFails() {
+        when(idGenerator.generate()).thenReturn(FIXED_ID);
+        when(repository.findActiveByCode("INST-001"))
+            .thenReturn(Optional.empty());
+        doThrow(new DataIntegrityViolationException("duplicate"))
+            .when(repository).save(any());
+
+        catchThrowableOfType(
+            () -> service.create(commandWithoutStatus(), REQUESTED_BY),
+            ApiException.class);
+
+        verify(signingKeyRequests, never()).save(any());
     }
 
     @Test
@@ -84,10 +132,13 @@ class InstitutionApplicationServiceTest {
             "서울시 중구",
             "02-1234-5678",
             "contact@example.com",
-            InstitutionStatus.SUSPENDED
+            InstitutionStatus.SUSPENDED,
+            null,
+            null,
+            null
         );
 
-        Institution created = service.create(command);
+        Institution created = service.create(command, REQUESTED_BY);
 
         assertThat(created.institutionCode()).isEqualTo("INST-002");
         assertThat(created.name()).isEqualTo("기관명");
@@ -110,13 +161,16 @@ class InstitutionApplicationServiceTest {
                 null,
                 null,
                 null,
+                null,
+                null,
+                null,
                 null
-            )),
+            ), REQUESTED_BY),
             ApiException.class
         );
 
         assertThat(exception.status()).isEqualTo(
-            org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY);
+            org.springframework.http.HttpStatus.UNPROCESSABLE_CONTENT);
         assertThat(exception.code()).isEqualTo(ApiErrorCode.VALIDATION_FAILED);
     }
 
@@ -148,8 +202,11 @@ class InstitutionApplicationServiceTest {
                 null,
                 null,
                 null,
+                null,
+                null,
+                null,
                 null
-            )),
+            ), REQUESTED_BY),
             ApiException.class
         );
 
@@ -178,8 +235,11 @@ class InstitutionApplicationServiceTest {
                 null,
                 null,
                 null,
+                null,
+                null,
+                null,
                 null
-            )),
+            ), REQUESTED_BY),
             ApiException.class
         );
 
@@ -229,21 +289,21 @@ class InstitutionApplicationServiceTest {
 
     @Test
     void listsInstitutionsUsingTypedCriteriaAndCalculatesTotalPages() {
-        List<Institution> institutions = List.of(
-            institution("INST-001", "첫 기관"),
-            institution("INST-002", "둘 기관")
+        List<InstitutionListItem> institutions = List.of(
+            new InstitutionListItem(institution("INST-001", "첫 기관"), 0, 0, 0, 0, null),
+            new InstitutionListItem(institution("INST-002", "둘 기관"), 0, 0, 0, 0, null)
         );
         when(repository.findActivePage(any())).thenReturn(institutions);
-        when(repository.countActive()).thenReturn(21L);
+        when(repository.countActive(null, null, null)).thenReturn(21L);
 
         InstitutionPage page = service.list(
-            new ListInstitutionsQuery(2, 10, "name,asc")
+            new ListInstitutionsQuery(2, 10, "name,asc", null, null, null)
         );
 
         ArgumentCaptor<InstitutionPageCriteria> criteria =
             ArgumentCaptor.forClass(InstitutionPageCriteria.class);
         verify(repository).findActivePage(criteria.capture());
-        verify(repository).countActive();
+        verify(repository).countActive(null, null, null);
         assertThat(criteria.getValue().offset()).isEqualTo(20);
         assertThat(criteria.getValue().limit()).isEqualTo(10);
         assertThat(criteria.getValue().sort()).isEqualTo(InstitutionSort.NAME);
@@ -258,10 +318,10 @@ class InstitutionApplicationServiceTest {
     @Test
     void calculatesZeroPagesForEmptyResult() {
         when(repository.findActivePage(any())).thenReturn(List.of());
-        when(repository.countActive()).thenReturn(0L);
+        when(repository.countActive(null, null, null)).thenReturn(0L);
 
         InstitutionPage page = service.list(
-            new ListInstitutionsQuery(0, 20, "createdAt,desc")
+            new ListInstitutionsQuery(0, 20, "createdAt,desc", null, null, null)
         );
 
         assertThat(page.totalPages()).isZero();
@@ -276,7 +336,7 @@ class InstitutionApplicationServiceTest {
             "name,up"
         )) {
             ApiException exception = catchThrowableOfType(
-                () -> service.list(new ListInstitutionsQuery(0, 20, sort)),
+                () -> service.list(new ListInstitutionsQuery(0, 20, sort, null, null, null)),
                 ApiException.class
             );
             assertThat(exception.status()).isEqualTo(
@@ -289,10 +349,10 @@ class InstitutionApplicationServiceTest {
     @Test
     void rejectsInvalidListPageSizeAndOffsetOverflow() {
         for (ListInstitutionsQuery query : List.of(
-            new ListInstitutionsQuery(-1, 20, "createdAt,desc"),
-            new ListInstitutionsQuery(0, 0, "createdAt,desc"),
-            new ListInstitutionsQuery(0, 101, "createdAt,desc"),
-            new ListInstitutionsQuery(Integer.MAX_VALUE, 2, "createdAt,desc")
+            new ListInstitutionsQuery(-1, 20, "createdAt,desc", null, null, null),
+            new ListInstitutionsQuery(0, 0, "createdAt,desc", null, null, null),
+            new ListInstitutionsQuery(0, 101, "createdAt,desc", null, null, null),
+            new ListInstitutionsQuery(Integer.MAX_VALUE, 2, "createdAt,desc", null, null, null)
         )) {
             ApiException exception = catchThrowableOfType(
                 () -> service.list(query),
@@ -333,7 +393,11 @@ class InstitutionApplicationServiceTest {
             UpdateField.present("새 주소"),
             UpdateField.absent(),
             UpdateField.absent(),
-            UpdateField.absent()
+            UpdateField.absent(),
+            UpdateField.absent(),
+            UpdateField.absent(),
+            UpdateField.absent(),
+            UpdateField.present("기관 소개")
         ));
 
         assertThat(updated.id()).isEqualTo(existing.id());
@@ -341,6 +405,7 @@ class InstitutionApplicationServiceTest {
         assertThat(updated.name()).isEqualTo(existing.name());
         assertThat(updated.businessNumber()).isNull();
         assertThat(updated.address()).isEqualTo("새 주소");
+        assertThat(updated.introduction()).isEqualTo("기관 소개");
         assertThat(updated.createdAt()).isEqualTo(existing.createdAt());
         assertThat(updated.deletedAt()).isEqualTo(existing.deletedAt());
         assertThat(updated.updatedAt()).isEqualTo(FIXED_INSTANT);
@@ -361,11 +426,17 @@ class InstitutionApplicationServiceTest {
                 UpdateField.absent(),
                 UpdateField.absent(),
                 UpdateField.absent(),
+                UpdateField.absent(),
+                UpdateField.absent(),
+                UpdateField.absent(),
                 UpdateField.absent()
             ),
             new UpdateInstitutionCommand(
                 FIXED_ID,
                 UpdateField.present("  "),
+                UpdateField.absent(),
+                UpdateField.absent(),
+                UpdateField.absent(),
                 UpdateField.absent(),
                 UpdateField.absent(),
                 UpdateField.absent(),
@@ -383,6 +454,9 @@ class InstitutionApplicationServiceTest {
                 UpdateField.absent(),
                 UpdateField.absent(),
                 UpdateField.absent(),
+                UpdateField.absent(),
+                UpdateField.absent(),
+                UpdateField.absent(),
                 UpdateField.absent()
             ),
             new UpdateInstitutionCommand(
@@ -394,7 +468,10 @@ class InstitutionApplicationServiceTest {
                 UpdateField.absent(),
                 UpdateField.absent(),
                 UpdateField.absent(),
-                UpdateField.present(null)
+                UpdateField.present(null),
+                UpdateField.absent(),
+                UpdateField.absent(),
+                UpdateField.absent()
             )
         )) {
             ApiException exception = catchThrowableOfType(
@@ -402,7 +479,7 @@ class InstitutionApplicationServiceTest {
                 ApiException.class
             );
             assertThat(exception.status()).isEqualTo(
-                org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY);
+                org.springframework.http.HttpStatus.UNPROCESSABLE_CONTENT);
             assertThat(exception.code()).isEqualTo(ApiErrorCode.VALIDATION_FAILED);
         }
     }
@@ -417,6 +494,9 @@ class InstitutionApplicationServiceTest {
         service.update(new UpdateInstitutionCommand(
             FIXED_ID,
             UpdateField.present(" INST-SAME "),
+            UpdateField.absent(),
+            UpdateField.absent(),
+            UpdateField.absent(),
             UpdateField.absent(),
             UpdateField.absent(),
             UpdateField.absent(),
@@ -497,6 +577,9 @@ class InstitutionApplicationServiceTest {
             UpdateField.absent(),
             UpdateField.absent(),
             UpdateField.absent(),
+            UpdateField.absent(),
+            UpdateField.absent(),
+            UpdateField.absent(),
             UpdateField.absent()
         );
     }
@@ -505,6 +588,9 @@ class InstitutionApplicationServiceTest {
         return new UpdateInstitutionCommand(
             FIXED_ID,
             UpdateField.present(code),
+            UpdateField.absent(),
+            UpdateField.absent(),
+            UpdateField.absent(),
             UpdateField.absent(),
             UpdateField.absent(),
             UpdateField.absent(),
@@ -616,6 +702,9 @@ class InstitutionApplicationServiceTest {
         return new CreateInstitutionCommand(
             " INST-001 ",
             " 다배움 기관 ",
+            null,
+            null,
+            null,
             null,
             null,
             null,

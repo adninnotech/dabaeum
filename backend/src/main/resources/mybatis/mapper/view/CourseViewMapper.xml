@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.view.infrastructure.mybatis.CourseViewMapper">
+
+    <!-- 인기 대상과 같은 기준: 삭제되지 않았고 DRAFT·CANCELLED 가 아닌 강좌. -->
+    <select id="isPublicCourse" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM tb_courses
+             WHERE id = #{courseId}
+               AND deleted_at IS NULL
+               AND status NOT IN ('DRAFT', 'CANCELLED')
+        )
+    </select>
+
+    <insert id="insertIfAbsent">
+        INSERT INTO tb_course_views (course_id, viewer_key, view_date, user_id, viewed_at)
+        VALUES (#{courseId}, #{viewerKey}, #{viewDate}, #{userId, jdbcType=OTHER}, #{at})
+        ON CONFLICT (course_id, viewer_key, view_date) DO NOTHING
+    </insert>
+
+    <delete id="deleteViewsBefore">
+        DELETE FROM tb_course_views WHERE view_date &lt; #{date}
+    </delete>
+
+    <insert id="insertSaltIfAbsent">
+        INSERT INTO tb_view_salts (view_date, salt) VALUES (#{date}, #{salt})
+        ON CONFLICT (view_date) DO NOTHING
+    </insert>
+
+    <resultMap id="saltRow" type="com.adn.dabaeum.view.infrastructure.mybatis.ViewSaltRow">
+        <constructor>
+            <arg column="salt" javaType="_byte[]"/>
+        </constructor>
+    </resultMap>
+
+    <select id="selectSalt" resultMap="saltRow">
+        SELECT salt FROM tb_view_salts WHERE view_date = #{date}
+    </select>
+
+    <delete id="deleteSaltsBefore">
+        DELETE FROM tb_view_salts WHERE view_date &lt; #{date}
+    </delete>
+
+</mapper>

@@ -1,5 +1,7 @@
 package com.adn.dabaeum.course.api;
 
+import com.adn.dabaeum.accesslog.domain.AccessLogAction;
+import com.adn.dabaeum.accesslog.web.PersonalDataAccess;
 import com.adn.dabaeum.common.api.ApiResponse;
 import com.adn.dabaeum.common.security.CurrentUserProvider;
 import com.adn.dabaeum.common.web.RequestIdFilter;
@@ -60,6 +62,37 @@ public class CourseQueryController {
             mapper.toStatsResponse(stats), mapper.meta(requestId(servletRequest)));
     }
 
+    /*
+     * B-4 회원 상세용 플랫폼 관리자 전용. /instructors/me/... 와 경로 모양이 겹치지만
+     * Spring 은 리터럴 세그먼트(me)를 변수 세그먼트보다 먼저 고르므로 me 가 가려지지 않는다.
+     * 인가 규칙표에서는 순서가 곧 우선순위라 와일드카드 규칙을 me 규칙 뒤에 두어야 한다.
+     */
+    @GetMapping("/instructors/{userId}/courses")
+    public InstructorCoursePageResponse listInstructorCoursesByUser(
+        @PathVariable UUID userId,
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "20") int size,
+        @RequestParam(defaultValue = "createdAt,desc") String sort,
+        @RequestParam(required = false) String status,
+        HttpServletRequest servletRequest
+    ) {
+        CourseQueryApiMapper.CoursePageQuery query =
+            mapper.toCoursePageQuery(page, size, sort, status);
+        var result = service.listInstructorCoursesOf(
+            userId, query.status(), query.page(), query.size(), query.sort());
+        return mapper.toInstructorCoursePageResponse(result, requestId(servletRequest));
+    }
+
+    @GetMapping("/instructors/{userId}/courses/stats")
+    public ApiResponse<InstructorCourseStatsResponse> instructorCourseStatsByUser(
+        @PathVariable UUID userId,
+        HttpServletRequest servletRequest
+    ) {
+        var stats = service.instructorCourseStatsOf(userId);
+        return new ApiResponse<>(
+            mapper.toStatsResponse(stats), mapper.meta(requestId(servletRequest)));
+    }
+
     @GetMapping("/institutions/{institutionId}/courses")
     public CoursePageResponse listInstitutionCourses(
         @PathVariable UUID institutionId,
@@ -78,19 +111,21 @@ public class CourseQueryController {
     }
 
     @GetMapping("/institutions/{institutionId}/instructors")
+    @PersonalDataAccess(action = AccessLogAction.READ, targetField = "userId")
     public InstitutionInstructorPageResponse listInstitutionInstructors(
         @PathVariable UUID institutionId,
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "20") int size,
         @RequestParam(defaultValue = "joinedAt,desc") String sort,
         @RequestParam(required = false) String status,
+        @RequestParam(required = false) String q,
         HttpServletRequest servletRequest
     ) {
         CourseQueryApiMapper.InstructorPageQuery query =
-            mapper.toInstructorPageQuery(page, size, sort, status);
+            mapper.toInstructorPageQuery(page, size, sort, status, q);
         var result = service.listInstitutionInstructors(
             currentUserProvider.requireContext(), institutionId, query.status(),
-            query.page(), query.size(), query.sort());
+            query.keyword(), query.page(), query.size(), query.sort());
         return mapper.toInstitutionInstructorPageResponse(result, requestId(servletRequest));
     }
 

@@ -56,7 +56,9 @@ class DefaultLearningBadgeApplicationServiceTest {
         service = new DefaultLearningBadgeApplicationService(
             badgeRepository, credentialRepository, groupRepository,
             completionRepository, enrollmentRepository, courseRepository,
-            authorizationPolicy);
+            authorizationPolicy,
+            mock(com.adn.dabaeum.badge.domain.BadgeDefinitionRepository.class),
+            mock(com.adn.dabaeum.badge.domain.LearningBadgeEventRepository.class));
     }
 
     @Test
@@ -105,7 +107,7 @@ class DefaultLearningBadgeApplicationServiceTest {
 
     private IssueLearningBadgeCommand command() {
         return new IssueLearningBadgeCommand(
-            CREDENTIAL_ID, "COURSE_COMPLETION", "AI 기초 이수", null,
+            CREDENTIAL_ID, UUID.randomUUID(), null,
             "badge-idem-key-1", learner(), Instant.parse("2026-08-27T00:00:00Z"));
     }
 

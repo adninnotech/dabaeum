@@ -10,7 +10,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  */
 @ConfigurationProperties(prefix = "dabaeum.attendance.qr-token")
 public record AttendanceQrTokenProperties(
-    @DefaultValue("60s") Duration ttl
+    @DefaultValue("30s") Duration ttl
 ) {
 
     public AttendanceQrTokenProperties {

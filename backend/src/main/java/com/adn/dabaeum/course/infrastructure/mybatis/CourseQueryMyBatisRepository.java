@@ -5,6 +5,7 @@ import com.adn.dabaeum.course.domain.CourseEducationType;
 import com.adn.dabaeum.course.domain.CourseInstructorRole;
 import com.adn.dabaeum.course.domain.CourseQueryRepository;
 import com.adn.dabaeum.course.domain.CourseStatus;
+import com.adn.dabaeum.course.domain.CourseView;
 import com.adn.dabaeum.course.domain.InstitutionInstructorView;
 import com.adn.dabaeum.course.domain.InstructorCourseStats;
 import com.adn.dabaeum.course.domain.InstructorCourseView;
@@ -46,15 +47,16 @@ public class CourseQueryMyBatisRepository implements CourseQueryRepository {
     public InstructorCourseStats instructorCourseStats(UUID instructorUserId) {
         InstructorCourseStatsRow row = mapper.selectInstructorCourseStats(instructorUserId);
         if (row == null) {
-            return new InstructorCourseStats(0, 0, 0, 0);
+            return new InstructorCourseStats(0, 0, 0, 0, 0, 0);
         }
         return new InstructorCourseStats(
             zeroIfNull(row.total()), zeroIfNull(row.recruiting()),
-            zeroIfNull(row.inProgress()), zeroIfNull(row.completed()));
+            zeroIfNull(row.inProgress()), zeroIfNull(row.completed()),
+            zeroIfNull(row.studentCount()), zeroIfNull(row.inquiryCount()));
     }
 
     @Override
-    public List<Course> findInstitutionCourses(
+    public List<CourseView> findInstitutionCourses(
         UUID institutionId, CourseStatus status, int limit, int offset, String sort
     ) {
         CourseQuerySort querySort = CourseQuerySort.from(sort);
@@ -74,11 +76,11 @@ public class CourseQueryMyBatisRepository implements CourseQueryRepository {
 
     @Override
     public List<InstitutionInstructorView> findInstitutionInstructors(
-        UUID institutionId, String status, int limit, int offset, String sort
+        UUID institutionId, String status, String keyword, int limit, int offset, String sort
     ) {
         InstructorListSort querySort = InstructorListSort.from(sort);
         return mapper.selectInstitutionInstructors(
-                institutionId, status, limit, offset,
+                institutionId, status, keyword, limit, offset,
                 querySort.field, querySort.direction)
             .stream()
             .map(this::toDomain)
@@ -86,40 +88,51 @@ public class CourseQueryMyBatisRepository implements CourseQueryRepository {
     }
 
     @Override
-    public long countInstitutionInstructors(UUID institutionId, String status) {
-        return mapper.countInstitutionInstructors(institutionId, status);
+    public long countInstitutionInstructors(UUID institutionId, String status, String keyword) {
+        return mapper.countInstitutionInstructors(institutionId, status, keyword);
     }
 
     private InstructorCourseView toDomain(InstructorCourseViewRow row) {
         Course course = new Course(
             row.id(), row.institutionId(), row.courseCode(), row.title(),
-            row.description(), row.category(),
+            row.description(), row.classificationCode(),
             CourseEducationType.valueOf(row.educationType()),
             row.startDate(), row.endDate(), row.recruitStartDate(), row.recruitEndDate(),
             row.capacity(), row.location(), row.onlineUrl(), row.creditBankEligible(),
             row.creditValue(), CourseStatus.valueOf(row.status()),
-            row.createdAt(), row.updatedAt(), row.deletedAt(), row.thumbnailFileId());
+            row.createdAt(), row.updatedAt(), row.deletedAt(), row.thumbnailFileId(),
+            row.toDetail());
         return new InstructorCourseView(
             course,
             CourseInstructorRole.valueOf(row.instructorRole()),
-            zeroIfNull(row.enrolledCount()));
+            zeroIfNull(row.enrolledCount()),
+            row.institutionName(),
+            row.mainInstructorName());
+    }
+
+    private CourseView toDomain(CourseViewRow row) {
+        return new CourseView(
+            toDomain(row.toCourseRow()), zeroIfNull(row.enrolledCount()),
+            row.institutionName(), row.mainInstructorName());
     }
 
     private Course toDomain(CourseRow row) {
         return new Course(
             row.id(), row.institutionId(), row.courseCode(), row.title(),
-            row.description(), row.category(),
+            row.description(), row.classificationCode(),
             CourseEducationType.valueOf(row.educationType()),
             row.startDate(), row.endDate(), row.recruitStartDate(), row.recruitEndDate(),
             row.capacity(), row.location(), row.onlineUrl(), row.creditBankEligible(),
             row.creditValue(), CourseStatus.valueOf(row.status()),
-            row.createdAt(), row.updatedAt(), row.deletedAt(), row.thumbnailFileId());
+            row.createdAt(), row.updatedAt(), row.deletedAt(), row.thumbnailFileId(),
+            row.toDetail());
     }
 
     private InstitutionInstructorView toDomain(InstitutionInstructorViewRow row) {
         return new InstitutionInstructorView(
             row.userId(), row.name(), row.email(), row.phone(), row.status(),
-            row.joinedAt(), zeroIfNull(row.courseCount()), row.memo());
+            row.joinedAt(), zeroIfNull(row.courseCount()), row.memo(), row.lastLoginAt(),
+            row.birthDate());
     }
 
     private static long zeroIfNull(Long value) {

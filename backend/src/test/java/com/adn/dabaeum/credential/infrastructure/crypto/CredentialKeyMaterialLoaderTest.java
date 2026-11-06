@@ -23,9 +23,9 @@ import tools.jackson.databind.ObjectMapper;
 /**
  * 개인키 파일의 모드가 정확히 소유자 읽기·쓰기(600)인지 검증하는 로더의 계약을 다룬다.
  *
- * <p>{@code CredentialKeyMaterialLoader}는 본체에서 {@code getPosixFilePermissions}로
- * 파일 모드를 확인하므로 POSIX 파일 속성을 제공하지 않는 파일시스템(예: Windows)에서는
- * 로더 자체가 동작하지 않는다. 해당 환경에서는 실패 대신 건너뛴다.
+ * <p>모드 검사는 POSIX 파일 속성이 있는 파일시스템에서만 이뤄지므로 이 테스트는 그런 환경에서만
+ * 돈다. POSIX 속성이 없는 파일시스템(Windows)의 동작은
+ * {@link CredentialKeyMaterialLoaderNonPosixTest} 가 다룬다.
  */
 @EnabledIf("posixFileAttributesSupported")
 class CredentialKeyMaterialLoaderTest {

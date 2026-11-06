@@ -1,14 +1,14 @@
 <template>
-  <AppRoleLayout v-bind="layoutConfig" />
+  <AppConsoleLayout v-bind="layoutConfig" />
 </template>
 
 <script>
-import AppRoleLayout from '@/components/AppRoleLayout.vue';
+import AppConsoleLayout from '@/components/AppConsoleLayout.vue';
 import { ROLE_LAYOUTS } from '@/config/role-layouts.js';
 
 export default {
   name: 'RoleConsoleLayout',
-  components: { AppRoleLayout },
+  components: { AppConsoleLayout },
   props: {
     layoutKey: {
       type: String,

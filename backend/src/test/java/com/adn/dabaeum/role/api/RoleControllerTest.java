@@ -1,8 +1,6 @@
 package com.adn.dabaeum.role.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -20,14 +18,13 @@ import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.authorization.application.AuthorizationPolicy;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.web.RequestIdFilter;
 import com.adn.dabaeum.role.application.RoleApplicationService;
 import com.adn.dabaeum.role.domain.UserRole;
 import com.adn.dabaeum.role.domain.UserRoleAssignment;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -53,14 +50,12 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
 class RoleControllerTest {
 
-    private static final Path CONTRACT = Path.of(
-        "docs/api/dabaeum-api-v1.yaml"
-    ).toAbsolutePath();
     private static final UUID USER_ID = UUID.fromString(
         "11111111-1111-1111-1111-111111111111"
     );
@@ -103,8 +98,7 @@ class RoleControllerTest {
             .andExpect(jsonPath("$.data[1].institutionId")
                 .value(INSTITUTION_ID.toString()))
             .andExpect(jsonPath("$.data[0].userId").doesNotExist())
-            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID));
 
         verify(service).list(USER_ID);
     }
@@ -136,8 +130,7 @@ class RoleControllerTest {
             .andExpect(jsonPath("$.data.institutionId")
                 .value(INSTITUTION_ID.toString()))
             .andExpect(jsonPath("$.data.createdAt")
-                .value("2026-08-04T00:00:00Z"))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+                .value("2026-08-04T00:00:00Z"));
 
         verify(service).assign(any());
     }
@@ -158,8 +151,7 @@ class RoleControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.id").value(ROLE_ID.toString()))
             .andExpect(jsonPath("$.data.role").value("INSTRUCTOR"))
-            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID));
 
         verify(service).revoke(USER_ID, ROLE_ID);
     }

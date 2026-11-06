@@ -210,6 +210,59 @@ class AuthorizationPolicyTest {
             });
     }
 
+    @Test
+    void isPlatformAdminMatchesRequirePlatformAdmin() {
+        assertThat(policy.isPlatformAdmin(context(
+            new AuthenticatedRole("PLATFORM_ADMIN", null)
+        ))).isTrue();
+        assertThat(policy.isPlatformAdmin(context(
+            new AuthenticatedRole(
+                "PLATFORM_ADMIN",
+                UUID.fromString("22222222-2222-2222-2222-222222222222")
+            )
+        ))).isFalse();
+        assertThat(policy.isPlatformAdmin(null)).isFalse();
+    }
+
+    @Test
+    void institutionStaffIdsIncludesOnlyInstitutionAdminAndInstructorRoles() {
+        UUID institutionId = UUID.fromString(
+            "22222222-2222-2222-2222-222222222222");
+        UUID otherInstitutionId = UUID.fromString(
+            "44444444-4444-4444-4444-444444444444");
+        AuthenticatedUserContext context = new AuthenticatedUserContext(
+            USER_ID, "DADAEGU", Set.of(
+                new AuthenticatedRole("INSTITUTION_ADMIN", institutionId),
+                new AuthenticatedRole("INSTRUCTOR", otherInstitutionId),
+                new AuthenticatedRole("LEARNER", institutionId)
+            ));
+
+        assertThat(policy.institutionStaffIds(context))
+            .containsExactlyInAnyOrder(institutionId, otherInstitutionId);
+    }
+
+    @Test
+    void institutionStaffIdsExcludesOtherInstitutionsUserIsNotStaffAt() {
+        UUID institutionId = UUID.fromString(
+            "22222222-2222-2222-2222-222222222222");
+        UUID otherInstitutionId = UUID.fromString(
+            "44444444-4444-4444-4444-444444444444");
+        AuthenticatedUserContext context = context(
+            new AuthenticatedRole("INSTITUTION_ADMIN", institutionId));
+
+        assertThat(policy.institutionStaffIds(context))
+            .containsExactly(institutionId)
+            .doesNotContain(otherInstitutionId);
+    }
+
+    @Test
+    void institutionStaffIdsReturnsEmptyForNullContextOrPlatformAdmin() {
+        assertThat(policy.institutionStaffIds(null)).isEmpty();
+        assertThat(policy.institutionStaffIds(context(
+            new AuthenticatedRole("PLATFORM_ADMIN", null)
+        ))).isEmpty();
+    }
+
     private void assertForbidden(AuthenticatedRole role) {
         assertThatThrownBy(() -> policy.requirePlatformAdmin(context(role)))
             .isInstanceOfSatisfying(ApiException.class, exception -> {

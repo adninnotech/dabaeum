@@ -11,11 +11,18 @@ public interface CourseReviewRepository {
 
     boolean hasConfirmedCompletion(UUID userId, UUID courseId);
 
-    List<CourseReviewView> findByUserId(UUID userId, int limit, int offset);
+    List<CourseReviewView> findByUserId(
+        UUID userId, String keyword, int limit, int offset);
 
-    long countByUserId(UUID userId);
+    long countByUserId(UUID userId, String keyword);
 
     List<CourseReviewView> findByCourseId(UUID courseId, int limit, int offset);
 
     long countByCourseId(UUID courseId);
+
+    CourseReviewSummary summarizeByCourseId(UUID courseId);
+
+    CourseReviewSummary summarizeByUserId(UUID userId);
+
+    long countWritable(UUID userId);
 }

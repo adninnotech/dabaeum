@@ -1,5 +1,7 @@
 package com.adn.dabaeum.enrollment.api;
 
+import org.springframework.beans.factory.ObjectProvider;
+import com.adn.dabaeum.classification.application.CourseClassificationService;
 import com.adn.dabaeum.common.api.ApiErrorCode;
 import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.api.ApiMeta;
@@ -26,7 +28,11 @@ public class EnrollmentQueryApiMapper {
 
     private final Clock clock;
 
-    public EnrollmentQueryApiMapper(Clock clock) {
+    // 분류 서비스는 local/dev 에만 있다. 없으면(컨트롤러 테스트) 경로는 빈 배열.
+    private final ObjectProvider<CourseClassificationService> classifications;
+
+    public EnrollmentQueryApiMapper(Clock clock, ObjectProvider<CourseClassificationService> classifications) {
+        this.classifications = classifications;
         this.clock = clock;
     }
 
@@ -80,13 +86,31 @@ public class EnrollmentQueryApiMapper {
         return new MyEnrollmentResponse(
             view.id(), view.courseId(), view.userId(), view.status(),
             view.appliedAt(), view.createdAt(), view.courseTitle(), view.courseCode(),
-            view.courseStatus(), view.institutionName());
+            view.courseStatus(), view.cancellationReason(), toCard(view));
+    }
+
+    private CourseCardFields toCard(MyEnrollmentView view) {
+        return new CourseCardFields(
+            view.institutionName(), view.instructorName(), view.classificationCode(), classificationPath(view.classificationCode()),
+            view.educationType(), view.sessionCount(), view.tags(),
+            view.tuitionType(), view.tuitionAmount(), view.thumbnailFileId());
+    }
+
+    private CourseCardFields toCard(
+        com.adn.dabaeum.enrollment.domain.LearningCourseView view
+    ) {
+        return new CourseCardFields(
+            view.institutionName(), view.instructorName(), view.classificationCode(), classificationPath(view.classificationCode()),
+            view.educationType(), view.sessionCount(), view.tags(),
+            view.tuitionType(), view.tuitionAmount(), view.thumbnailFileId());
     }
 
     private InstitutionEnrollmentResponse toResponse(InstitutionEnrollmentView view) {
         return new InstitutionEnrollmentResponse(
             view.id(), view.courseId(), view.userId(), view.status(),
-            view.appliedAt(), view.createdAt(), view.courseTitle(), view.userName());
+            view.appliedAt(), view.createdAt(), view.courseTitle(), view.userName(),
+            view.institutionName(), view.progressPercent(), view.lastStudiedAt(),
+            view.processedAt(), view.waitlistPosition(), view.cancellationReason());
     }
 
     public String parseLearningStatus(String status) {
@@ -117,9 +141,9 @@ public class EnrollmentQueryApiMapper {
             page.data().stream()
                 .map(view -> new LearningCourseResponse(
                     view.enrollmentId(), view.courseId(), view.title(),
-                    view.institutionName(), view.learningStatus(),
-                    view.educationType(), view.startDate(), view.endDate(),
-                    view.appliedAt()))
+                    view.learningStatus(), view.startDate(), view.endDate(),
+                    view.appliedAt(), view.attendedCount(), view.progressPercent(),
+                    toCard(view)))
                 .toList(),
             new PageMeta(page.page(), page.size(), page.totalElements(), page.totalPages()),
             meta(requestId));
@@ -139,12 +163,18 @@ public class EnrollmentQueryApiMapper {
         com.adn.dabaeum.enrollment.domain.EnrollmentProgressView view
     ) {
         return new EnrollmentProgressResponse(
-            view.enrollmentId(), view.userId(), view.userName(), view.courseId(),
+            view.enrollmentId(), view.userId(), view.courseId(),
             view.courseTitle(), view.attendedCount(), view.sessionCount(),
-            view.progressPercent(), view.status());
+            view.progressPercent(), view.attendanceRate(), view.lastStudiedAt(), view.status(),
+            view.profile());
     }
 
     public ApiMeta meta(String requestId) {
         return new ApiMeta(requestId, OffsetDateTime.ofInstant(clock.instant(), SEOUL));
     }
+    private List<String> classificationPath(String code) {
+        CourseClassificationService service = classifications.getIfAvailable();
+        return service == null ? List.of() : service.pathOf(code);
+    }
 }
+

@@ -1,5 +1,6 @@
 package com.adn.dabaeum.authentication.api;
 
+import com.adn.dabaeum.authentication.application.PasswordExpiryPolicy;
 import com.adn.dabaeum.common.api.ApiMeta;
 import com.adn.dabaeum.common.api.ApiResponse;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
@@ -13,6 +14,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,13 +29,17 @@ public class SessionController {
 
     private final CurrentUserProvider currentUserProvider;
     private final Clock clock;
+    // 판정기는 LOCAL 저장소가 있는 local/dev 에만 있다. 없으면 항상 false.
+    private final ObjectProvider<PasswordExpiryPolicy> passwordExpiry;
 
     public SessionController(
         CurrentUserProvider currentUserProvider,
-        Clock clock
+        Clock clock,
+        ObjectProvider<PasswordExpiryPolicy> passwordExpiry
     ) {
         this.currentUserProvider = currentUserProvider;
         this.clock = clock;
+        this.passwordExpiry = passwordExpiry;
     }
 
     @GetMapping("/session")
@@ -58,7 +64,8 @@ public class SessionController {
             details.context().userId(),
             details.context().provider(),
             roles,
-            details.expiresAt()
+            details.expiresAt(),
+            passwordExpired(details.context())
         );
         String requestId = (String) servletRequest.getAttribute(
             RequestIdFilter.ATTRIBUTE_NAME
@@ -70,6 +77,13 @@ public class SessionController {
                 OffsetDateTime.ofInstant(clock.instant(), SEOUL)
             )
         );
+    }
+
+    private boolean passwordExpired(AuthenticatedUserContext context) {
+        PasswordExpiryPolicy policy = passwordExpiry.getIfAvailable();
+        return policy != null && policy.isExpired(
+            context.userId(),
+            context.roles().stream().map(AuthenticatedRole::role).toList());
     }
 
     private InstantAndContext tokenDetails(

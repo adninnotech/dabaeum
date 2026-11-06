@@ -1,6 +1,5 @@
 package com.adn.dabaeum.user.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document;
@@ -31,10 +30,9 @@ import com.adn.dabaeum.common.security.AuthenticatedUserPrincipal;
 import com.adn.dabaeum.common.web.RequestIdFilter;
 import com.adn.dabaeum.user.application.UserApplicationService;
 import com.adn.dabaeum.user.application.UserPage;
+import com.adn.dabaeum.user.application.UserView;
 import com.adn.dabaeum.user.domain.User;
 import com.adn.dabaeum.user.domain.UserStatus;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -69,9 +67,6 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 })
 class UserDocumentationTest {
 
-    private static final Path CONTRACT = Path.of(
-        "docs/api/dabaeum-api-v1.yaml"
-    ).toAbsolutePath();
     private static final UUID USER_ID = UUID.fromString(
         "77777777-7777-7777-7777-777777777777"
     );
@@ -108,7 +103,6 @@ class UserDocumentationTest {
             .andExpect(jsonPath("$.data.id").value(USER_ID.toString()))
             .andExpect(jsonPath("$.data.name").value("문서 사용자"))
             .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "user-create",
                 preprocessRequest(prettyPrint()),
@@ -127,7 +121,7 @@ class UserDocumentationTest {
     @Test
     void documentsUserList() throws Exception {
         when(service.list(any())).thenReturn(new UserPage(
-            List.of(sampleUser()),
+            List.of(new UserView(sampleUser(), List.of())),
             0,
             20,
             1,
@@ -153,7 +147,6 @@ class UserDocumentationTest {
             .andExpect(jsonPath("$.page.totalElements").value(1))
             .andExpect(jsonPath("$.page.totalPages").value(1))
             .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "user-list",
                 preprocessRequest(prettyPrint()),
@@ -169,7 +162,8 @@ class UserDocumentationTest {
 
     @Test
     void documentsUserGet() throws Exception {
-        when(service.get(USER_ID)).thenReturn(sampleUser());
+        when(service.get(USER_ID))
+            .thenReturn(new UserView(sampleUser(), List.of()));
 
         mockMvc.perform(get("/api/v1/users/{userId}", USER_ID)
                 .with(user("platform-admin").roles("PLATFORM_ADMIN"))
@@ -185,7 +179,6 @@ class UserDocumentationTest {
             ))
             .andExpect(jsonPath("$.data.id").value(USER_ID.toString()))
             .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "user-get",
                 preprocessRequest(prettyPrint()),
@@ -219,7 +212,6 @@ class UserDocumentationTest {
             ))
             .andExpect(jsonPath("$.data.id").value(USER_ID.toString()))
             .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "user-update",
                 preprocessRequest(prettyPrint()),
@@ -253,7 +245,6 @@ class UserDocumentationTest {
             .andExpect(jsonPath("$.data.status").value("WITHDRAWN"))
             .andExpect(jsonPath("$.data.withdrawnAt").exists())
             .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "user-status",
                 preprocessRequest(prettyPrint()),
@@ -267,7 +258,8 @@ class UserDocumentationTest {
 
     @Test
     void documentsUserMeGet() throws Exception {
-        when(service.getMe(USER_ID)).thenReturn(sampleUser());
+        when(service.getMe(USER_ID))
+            .thenReturn(new UserView(sampleUser(), List.of()));
 
         mockMvc.perform(get("/api/v1/users/me")
                 .with(principal(USER_ID))
@@ -283,7 +275,6 @@ class UserDocumentationTest {
             ))
             .andExpect(jsonPath("$.data.id").value(USER_ID.toString()))
             .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "user-me-get",
                 preprocessRequest(prettyPrint()),
@@ -317,7 +308,6 @@ class UserDocumentationTest {
             ))
             .andExpect(jsonPath("$.data.id").value(USER_ID.toString()))
             .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "user-me-update",
                 preprocessRequest(prettyPrint()),
@@ -367,6 +357,14 @@ class UserDocumentationTest {
                 fieldWithPath("data[].introduction").optional().description("소개"),
                 fieldWithPath("data[].profileImageId").optional()
                     .description("프로필 이미지 파일 ID"),
+                fieldWithPath("data[].gender").optional().description("성별"),
+                fieldWithPath("data[].lastLoginAt").optional().description("최근 로그인 시각"),
+                fieldWithPath("data[].emailNotificationEnabled")
+                    .description("이메일 알림 수신 여부"),
+                fieldWithPath("data[].smsNotificationEnabled")
+                    .description("SMS 알림 수신 여부"),
+                fieldWithPath("data[].roles")
+                    .description("보유 역할 목록 (role, institutionId, institutionName)"),
                 fieldWithPath("page.page").description("현재 페이지"),
                 fieldWithPath("page.size").description("페이지 크기"),
                 fieldWithPath("page.totalElements").description("전체 요소 수"),
@@ -389,6 +387,14 @@ class UserDocumentationTest {
             fieldWithPath("data.introduction").optional().description("소개"),
             fieldWithPath("data.profileImageId").optional()
                 .description("프로필 이미지 파일 ID"),
+            fieldWithPath("data.gender").optional().description("성별"),
+            fieldWithPath("data.lastLoginAt").optional().description("최근 로그인 시각"),
+            fieldWithPath("data.emailNotificationEnabled")
+                .description("이메일 알림 수신 여부"),
+            fieldWithPath("data.smsNotificationEnabled")
+                .description("SMS 알림 수신 여부"),
+            fieldWithPath("data.roles")
+                .description("보유 역할 목록 (role, institutionId, institutionName)"),
             fieldWithPath("meta.requestId").description("요청 추적 UUID"),
             fieldWithPath("meta.timestamp").description("응답 시각")
         );

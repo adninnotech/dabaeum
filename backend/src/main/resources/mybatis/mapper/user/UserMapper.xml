@@ -25,14 +25,59 @@
             <arg column="introduction" javaType="java.lang.String"/>
             <arg column="profile_image_id" javaType="java.util.UUID"
                 typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="gender" javaType="java.lang.String"/>
+            <arg column="last_login_at" javaType="java.time.Instant"/>
+            <arg column="email_notification_enabled" javaType="java.lang.Boolean"/>
+            <arg column="sms_notification_enabled" javaType="java.lang.Boolean"/>
+            <arg column="admin_memo" javaType="java.lang.String"/>
         </constructor>
     </resultMap>
 
     <sql id="columns">
         id, name, email, phone, birth_date, status,
         withdrawn_at, created_at, updated_at,
-        career, introduction, profile_image_id
+        career, introduction, profile_image_id,
+        gender, last_login_at,
+        email_notification_enabled, sms_notification_enabled, admin_memo
     </sql>
+
+    <!--
+      회원 목록 한 행. 기본 컬럼에 목록 전용 스칼라 서브쿼리 두 개를 더한다.
+      enrollment_count: 승인된(APPROVED) 수강 건수. B-4 회원 상세 학습 통계(learningStatsOf)의
+      totalCount 는 신청 중까지 더하지만, 여기서는 계약상 승인된 건수만 센다 — 다른 값이다.
+      course_count: 이 사용자가 강사로 배정된, 삭제되지 않은 과정 수. 기관 범위로 좁힌
+      InstitutionInstructorView.courseCount(CourseQueryMapper.selectInstitutionInstructors) 와
+      "삭제된 과정 제외" 조건을 맞췄다 — 기관 필터만 뺐다.
+    -->
+    <resultMap
+        id="userListRowResultMap"
+        type="com.adn.dabaeum.user.infrastructure.mybatis.UserListRow">
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="email" javaType="java.lang.String"/>
+            <arg column="phone" javaType="java.lang.String"/>
+            <arg column="birth_date" javaType="java.time.LocalDate"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="withdrawn_at" javaType="java.time.Instant"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+            <arg column="career" javaType="java.lang.String"/>
+            <arg column="introduction" javaType="java.lang.String"/>
+            <arg column="profile_image_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="gender" javaType="java.lang.String"/>
+            <arg column="last_login_at" javaType="java.time.Instant"/>
+            <arg column="email_notification_enabled" javaType="java.lang.Boolean"/>
+            <arg column="sms_notification_enabled" javaType="java.lang.Boolean"/>
+            <arg column="admin_memo" javaType="java.lang.String"/>
+            <arg column="enrollment_count" javaType="java.lang.Long"/>
+            <arg column="course_count" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
 
     <insert id="insert">
         INSERT INTO tb_users (
@@ -47,7 +92,11 @@
             updated_at,
             career,
             introduction,
-            profile_image_id
+            profile_image_id,
+            gender,
+            last_login_at,
+            email_notification_enabled,
+            sms_notification_enabled
         ) VALUES (
             #{id},
             #{name},
@@ -60,7 +109,11 @@
             #{updatedAt},
             #{career, jdbcType=VARCHAR},
             #{introduction, jdbcType=VARCHAR},
-            #{profileImageId, jdbcType=OTHER}
+            #{profileImageId, jdbcType=OTHER},
+            #{gender, jdbcType=VARCHAR},
+            #{lastLoginAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{emailNotificationEnabled},
+            #{smsNotificationEnabled}
         )
     </insert>
 
@@ -70,36 +123,117 @@
          WHERE id = #{id}
     </select>
 
-    <select id="selectPage" resultMap="userRowResultMap">
+    <!--
+      대리 수강신청 대상: ACTIVE 이고 전역 또는 그 기관의 LEARNER(수강신청의 대상 검사와 같은 기준).
+      생년월일까지 맞아야 한다 — 번호를 차례로 넣어 다른 기관 회원 명단을 모으지 못하게.
+      birth_date 가 NULL 이면 = 비교가 거짓이라 찾지 않는다.
+    -->
+    <sql id="activeLearnerOf">
+        birth_date = #{birthDate}
+        AND status = 'ACTIVE'
+        AND EXISTS (SELECT 1 FROM tb_user_roles r
+                     WHERE r.user_id = tb_users.id AND r.role = 'LEARNER'
+                       AND (r.institution_id IS NULL OR r.institution_id = #{institutionId}))
+    </sql>
+
+    <select id="selectActiveLearnersByPhone" resultMap="userRowResultMap">
         SELECT <include refid="columns"/>
           FROM tb_users
-         WHERE 1 = 1
-        <if test="criteria.status != null">
-           AND status = #{criteria.status}
+         WHERE regexp_replace(phone, '[^0-9]', '', 'g') = #{phoneDigits}
+           AND btrim(name) = #{name}
+           AND <include refid="activeLearnerOf"/>
+         ORDER BY created_at, id
+         LIMIT #{limit}
+    </select>
+
+    <!--
+      회원 목록 필터. selectPage 와 countFiltered 가 이 조각 하나를 써서 목록과 합계의 조건이 어긋나지 않는다.
+      시각 경계는 서비스가 계산한다: *From 은 이상, *Before 는 미만.
+      hasEnrollment 는 목록 enrollment_count 와 같은 기준(APPROVED 수강)이다.
+    -->
+    <sql id="listFilter">
+        <if test="filter.status != null">
+           AND u.status = #{filter.status}
         </if>
+        <if test="filter.keyword != null">
+           AND (
+                LOWER(u.name) LIKE '%' || #{filter.keyword} || '%' ESCAPE '\'
+                OR LOWER(u.email) LIKE '%' || #{filter.keyword} || '%' ESCAPE '\'
+                OR REPLACE(u.phone, '-', '') LIKE '%' || REPLACE(#{filter.keyword}, '-', '') || '%' ESCAPE '\'
+           )
+        </if>
+        <if test="filter.role != null">
+           AND EXISTS (
+                SELECT 1 FROM tb_user_roles ur
+                 WHERE ur.user_id = u.id
+                   AND ur.role = #{filter.role}
+           )
+        </if>
+        <if test="filter.gender != null">
+           AND u.gender = #{filter.gender}
+        </if>
+        <if test="filter.hasEnrollment != null">
+           AND <if test="!filter.hasEnrollment">NOT</if> EXISTS (
+                SELECT 1 FROM tb_enrollments e
+                 WHERE e.user_id = u.id
+                   AND e.status = 'APPROVED'
+           )
+        </if>
+        <if test="filter.lastLoginFrom != null">
+           AND u.last_login_at &gt;= #{filter.lastLoginFrom}
+        </if>
+        <if test="filter.lastLoginBefore != null">
+           AND u.last_login_at &lt; #{filter.lastLoginBefore}
+        </if>
+        <if test="filter.lastLoginNever">
+           AND u.last_login_at IS NULL
+        </if>
+        <if test="filter.createdFrom != null">
+           AND u.created_at &gt;= #{filter.createdFrom}
+        </if>
+        <if test="filter.createdBefore != null">
+           AND u.created_at &lt; #{filter.createdBefore}
+        </if>
+    </sql>
+
+    <select id="selectPage" resultMap="userListRowResultMap">
+        <bind name="filter" value="criteria.filter"/>
+        SELECT <include refid="columns"/>,
+               (SELECT COUNT(*) FROM tb_enrollments e
+                 WHERE e.user_id = u.id
+                   AND e.status = 'APPROVED') AS enrollment_count,
+               (SELECT COUNT(*) FROM tb_course_instructors ci
+                  JOIN tb_courses c ON c.id = ci.course_id
+                 WHERE ci.user_id = u.id
+                   AND c.deleted_at IS NULL) AS course_count
+          FROM tb_users u
+         WHERE 1 = 1
+        <include refid="listFilter"/>
          ORDER BY
         <choose>
             <when test="criteria.sort.name() == 'UPDATED_AT'">updated_at</when>
             <when test="criteria.sort.name() == 'NAME'">name</when>
             <when test="criteria.sort.name() == 'EMAIL'">email</when>
             <when test="criteria.sort.name() == 'STATUS'">status</when>
+            <when test="criteria.sort.name() == 'LAST_LOGIN_AT'">last_login_at</when>
+            <when test="criteria.sort.name() == 'ENROLLMENT_COUNT'">enrollment_count</when>
             <otherwise>created_at</otherwise>
         </choose>
         <choose>
             <when test="criteria.direction.name() == 'ASC'">ASC</when>
             <otherwise>DESC</otherwise>
-        </choose>, id ASC
+        </choose>
+        <!-- 접속 기록이 없는 사람은 오름·내림 모두 맨 뒤. -->
+        <if test="criteria.sort.name() == 'LAST_LOGIN_AT'">NULLS LAST</if>, id ASC
          LIMIT #{criteria.limit} OFFSET #{criteria.offset}
     </select>
 
-    <select id="count" resultType="long">
+    <!-- 목록 총 개수. selectPage 와 같은 listFilter 조각을 쓴다. -->
+    <select id="countFiltered" resultType="long">
         SELECT COUNT(*)
-          FROM tb_users
-        <where>
-            <if test="status != null">
-                status = #{status}
-            </if>
-        </where>
+          FROM tb_users u
+         WHERE 1 = 1
+        <include refid="listFilter"/>
     </select>
 
     <update id="updateProfile">
@@ -111,6 +245,7 @@
                career = #{career, jdbcType=VARCHAR},
                introduction = #{introduction, jdbcType=VARCHAR},
                profile_image_id = #{profileImageId, jdbcType=OTHER},
+               gender = #{gender, jdbcType=VARCHAR},
                updated_at = #{updatedAt}
          WHERE id = #{id}
     </update>
@@ -135,6 +270,35 @@
            SET auth_invalidated_at = GREATEST(COALESCE(auth_invalidated_at, #{at}), #{at}),
                updated_at = #{at}
          WHERE id = #{id}
+    </update>
+
+    <update id="recordLastLogin">
+        UPDATE tb_users SET last_login_at = #{at} WHERE id = #{userId}
+    </update>
+
+    <!--
+      알림 수신 설정 전용 UPDATE. updateProfile 의 SET 절에는 이 두 컬럼을 절대 넣지 않는다 —
+      넣으면 프로필을 수정할 때마다 알림 설정이 요청에 실려온 값(기본값)으로 덮인다.
+      last_login_at 을 updateProfile 에서 뺀 것과 같은 이유다.
+    -->
+    <update id="updateNotificationPreferences">
+        UPDATE tb_users
+           SET email_notification_enabled = #{emailNotificationEnabled},
+               sms_notification_enabled = #{smsNotificationEnabled},
+               updated_at = #{updatedAt}
+         WHERE id = #{id}
+    </update>
+
+    <!--
+      관리자 메모 전용 UPDATE. updateProfile 의 SET 절에는 이 컬럼을 절대 넣지 않는다 —
+      넣으면 프로필을 수정할 때마다 메모가 요청에 실려온 값(보통 없음)으로 지워진다.
+      알림 설정을 updateProfile 에서 뺀 것과 같은 이유다.
+    -->
+    <update id="updateAdminMemo">
+        UPDATE tb_users
+           SET admin_memo = #{memo, jdbcType=VARCHAR},
+               updated_at = #{updatedAt}
+         WHERE id = #{userId}
     </update>
 
 </mapper>

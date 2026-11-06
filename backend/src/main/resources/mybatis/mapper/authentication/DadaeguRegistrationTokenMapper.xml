@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.authentication.infrastructure.mybatis.DadaeguRegistrationTokenMapper">
+
+    <resultMap
+        id="row"
+        type="com.adn.dabaeum.authentication.infrastructure.mybatis.DadaeguRegistrationTokenRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="token_hash" javaType="java.lang.String"/>
+            <arg column="provider_subject" javaType="java.lang.String"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="phone" javaType="java.lang.String"/>
+            <arg column="birth_date" javaType="java.time.LocalDate"/>
+            <arg column="expires_at" javaType="java.time.Instant"/>
+            <arg column="used_at" javaType="java.time.Instant"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO tb_registration_tokens (
+            id, token_hash, provider, provider_subject, external_did,
+            name, phone, birth_date, expires_at, used_at, created_at
+        ) VALUES (
+            #{id}, #{tokenHash}, 'DADAEGU', #{did}, #{did},
+            #{name}, #{phone, jdbcType=VARCHAR}, #{birthDate, jdbcType=DATE},
+            #{expiresAt}, #{usedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE}, #{createdAt}
+        )
+    </insert>
+
+    <!-- 조건부 UPDATE … RETURNING. 행이 없으면 null — 만료·재사용·없음을 구분하지 않는다. -->
+    <select id="consume" resultMap="row" flushCache="true">
+        UPDATE tb_registration_tokens
+           SET used_at = #{now}
+         WHERE token_hash = #{tokenHash}
+           AND used_at IS NULL
+           AND expires_at &gt; #{now}
+        RETURNING id, token_hash, provider_subject, name, phone, birth_date,
+                  expires_at, used_at, created_at
+    </select>
+
+    <delete id="deleteExpiredBefore">
+        DELETE FROM tb_registration_tokens
+         WHERE expires_at &lt; #{threshold}
+    </delete>
+
+</mapper>

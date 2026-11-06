@@ -1,17 +1,25 @@
 package com.adn.dabaeum.course.application;
 
+import com.adn.dabaeum.classification.application.CourseClassificationService;
+import com.adn.dabaeum.classification.domain.ClassificationPrefix;
 import com.adn.dabaeum.authorization.application.AuthorizationPolicy;
 import com.adn.dabaeum.common.api.ApiErrorCode;
 import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.security.AuthenticatedUserContext;
 import com.adn.dabaeum.course.domain.Course;
+import com.adn.dabaeum.course.domain.CourseDetail;
 import com.adn.dabaeum.course.domain.CourseEducationType;
+import com.adn.dabaeum.course.domain.CourseInstructor;
+import com.adn.dabaeum.course.domain.CourseInstructorRepository;
+import com.adn.dabaeum.course.domain.CourseInstructorRole;
 import com.adn.dabaeum.course.domain.CourseRepository;
 import com.adn.dabaeum.course.domain.CoursePageCriteria;
+import com.adn.dabaeum.course.domain.CoursePublishRequirements;
 import com.adn.dabaeum.course.domain.CourseSort;
 import com.adn.dabaeum.course.domain.CourseSortDirection;
 import com.adn.dabaeum.course.domain.CourseStatus;
 import com.adn.dabaeum.course.domain.CourseStatusPolicy;
+import com.adn.dabaeum.course.domain.CourseView;
 import com.adn.dabaeum.institution.domain.InstitutionRepository;
 import java.net.URI;
 import com.adn.dabaeum.correction.application.CorrectionReasons;
@@ -44,6 +52,11 @@ public class DefaultCourseApplicationService
     private final AdminCorrectionRepository corrections;
     private final Clock clock;
     private final StoredFileRepository storedFileRepository;
+    private final CourseCodeGenerator courseCodeGenerator;
+    private final CourseInstructorRepository courseInstructorRepository;
+    private final CourseInstructorIdGenerator courseInstructorIdGenerator;
+    private final CourseClassificationService classifications;
+    private final List<CourseCancelledListener> cancelledListeners;
 
     public DefaultCourseApplicationService(
         CourseRepository repository,
@@ -52,8 +65,15 @@ public class DefaultCourseApplicationService
         AuthorizationPolicy authorizationPolicy,
         AdminCorrectionRepository corrections,
         Clock clock,
-        StoredFileRepository storedFileRepository
+        StoredFileRepository storedFileRepository,
+        CourseCodeGenerator courseCodeGenerator,
+        CourseInstructorRepository courseInstructorRepository,
+        CourseInstructorIdGenerator courseInstructorIdGenerator,
+        CourseClassificationService classifications,
+        List<CourseCancelledListener> cancelledListeners
     ) {
+        this.cancelledListeners = List.copyOf(Objects.requireNonNull(cancelledListeners, "cancelledListeners"));
+        this.classifications = Objects.requireNonNull(classifications, "classifications");
         this.corrections = Objects.requireNonNull(corrections, "corrections");
         this.storedFileRepository =
             Objects.requireNonNull(storedFileRepository, "storedFileRepository");
@@ -68,6 +88,18 @@ public class DefaultCourseApplicationService
             "authorizationPolicy"
         );
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.courseCodeGenerator = Objects.requireNonNull(
+            courseCodeGenerator,
+            "courseCodeGenerator"
+        );
+        this.courseInstructorRepository = Objects.requireNonNull(
+            courseInstructorRepository,
+            "courseInstructorRepository"
+        );
+        this.courseInstructorIdGenerator = Objects.requireNonNull(
+            courseInstructorIdGenerator,
+            "courseInstructorIdGenerator"
+        );
     }
 
     @Override
@@ -77,15 +109,18 @@ public class DefaultCourseApplicationService
         AuthenticatedUserContext context
     ) {
         validateCommand(command);
-        authorizationPolicy.requireCourseManager(
+        authorizationPolicy.requireCourseCreator(
             context,
             command.institutionId()
         );
         institutionRepository.findActiveById(command.institutionId())
             .orElseThrow(this::institutionNotFound);
 
-        String courseCode = normalizeRequired(command.courseCode(), "courseCode");
+        String courseCode = command.courseCode() == null || command.courseCode().isBlank()
+            ? courseCodeGenerator.generate(command.institutionId())
+            : command.courseCode().trim();
         String title = normalizeRequired(command.title(), "title");
+        requireAssignableClassification(command.classificationCode());
         if (repository.findActiveByInstitutionAndCode(
             command.institutionId(),
             courseCode
@@ -102,7 +137,7 @@ public class DefaultCourseApplicationService
                 courseCode,
                 title,
                 command.description(),
-                command.category(),
+                command.classificationCode(),
                 command.educationType(),
                 command.startDate(),
                 command.endDate(),
@@ -117,7 +152,8 @@ public class DefaultCourseApplicationService
                 now,
                 now,
                 null,
-                requireThumbnail(command.thumbnailFileId())
+                requireThumbnail(command.thumbnailFileId()),
+                command.detail()
             );
             repository.save(course);
         } catch (IllegalArgumentException exception) {
@@ -125,22 +161,58 @@ public class DefaultCourseApplicationService
         } catch (DataIntegrityViolationException exception) {
             throw courseConflict();
         }
+        assignCreatorAsMainInstructorIfInstructor(course, context);
         return course;
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public Course get(UUID courseId) {
-        if (courseId == null) {
-            throw validation("courseId");
+    /**
+     * 강사가 만든 강좌만 생성자를 MAIN 강사로 배정한다. 기관 관리자/플랫폼 관리자가 만들면
+     * 배정하지 않는다(기존 동작 유지). 강좌 저장과 같은 트랜잭션(create() 의 @Transactional) 안에서
+     * 실행되므로 배정 실패 시 강좌 생성도 함께 롤백된다.
+     */
+    private void assignCreatorAsMainInstructorIfInstructor(
+        Course course,
+        AuthenticatedUserContext context
+    ) {
+        boolean isInstructor = context.roles().stream().anyMatch(role ->
+            "INSTRUCTOR".equals(role.role())
+                && Objects.equals(role.institutionId(), course.institutionId()));
+        if (!isInstructor) {
+            return;
         }
-        return repository.findActiveById(courseId)
-            .orElseThrow(this::courseNotFound);
+        Instant now = clock.instant();
+        courseInstructorRepository.save(new CourseInstructor(
+            Objects.requireNonNull(courseInstructorIdGenerator.generate(), "generated id"),
+            course.id(),
+            context.userId(),
+            CourseInstructorRole.MAIN,
+            now,
+            now
+        ));
     }
 
     @Override
     @Transactional(readOnly = true)
-    public CoursePage list(ListCoursesQuery query) {
+    public CourseView get(UUID courseId, AuthenticatedUserContext context) {
+        if (courseId == null) {
+            throw validation("courseId");
+        }
+        CourseView view = repository.findActiveViewById(courseId)
+            .orElseThrow(this::courseNotFound);
+        // DRAFT 는 그 강좌를 관리할 수 있는 사람에게만 보인다. 존재 자체를 알려주지 않도록
+        // 403 이 아니라 404. list() 와 같은 기준(기관 소속 INSTITUTION_ADMIN·INSTRUCTOR) —
+        // 특정 강좌에 주강사로 배정됐는지는 보지 않는다.
+        if (view.course().status() == CourseStatus.DRAFT
+            && !authorizationPolicy.isInstitutionStaff(
+                context, view.course().institutionId())) {
+            throw courseNotFound();
+        }
+        return view;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CoursePage list(ListCoursesQuery query, AuthenticatedUserContext context) {
         if (query == null) {
             throw badRequest("query");
         }
@@ -165,13 +237,28 @@ public class DefaultCourseApplicationService
             throw badRequest("page");
         }
 
-        List<Course> data = repository.findActivePage(new CoursePageCriteria(
+        String classificationPrefix = classificationPrefix(query.classificationCode());
+        boolean includeAllDraft = authorizationPolicy.isPlatformAdmin(context);
+        List<UUID> draftVisibleInstitutionIds = includeAllDraft
+            ? List.of()
+            : authorizationPolicy.institutionStaffIds(context);
+
+        List<CourseView> data = repository.findActiveViewPage(new CoursePageCriteria(
             offset,
             query.size(),
             sort,
-            direction
+            direction,
+            query.keyword(),
+            query.educationType(),
+            query.selectionMethod(),
+            query.status(),
+            includeAllDraft,
+            draftVisibleInstitutionIds,
+            classificationPrefix
         ));
-        long totalElements = repository.countActive();
+        long totalElements = repository.countActive(
+            query.keyword(), query.educationType(), query.selectionMethod(), query.status(),
+            includeAllDraft, draftVisibleInstitutionIds, classificationPrefix);
         int totalPages;
         try {
             totalPages = totalElements == 0
@@ -205,10 +292,10 @@ public class DefaultCourseApplicationService
 
         Course existing = repository.findActiveById(command.courseId())
             .orElseThrow(this::courseNotFound);
-        authorizationPolicy.requireCourseManager(
-            context,
-            existing.institutionId()
-        );
+        requireManager(context, existing);
+        if (command.classificationCode() != null && command.classificationCode().present()) {
+            requireAssignableClassification(command.classificationCode().value());
+        }
 
         CourseUpdateField<String> courseCode = fieldOrAbsent(command.courseCode());
         CourseUpdateField<String> title = fieldOrAbsent(command.title());
@@ -222,6 +309,7 @@ public class DefaultCourseApplicationService
             command.creditBankEligible()
         );
         CourseUpdateField<CourseStatus> status = fieldOrAbsent(command.status());
+        CourseUpdateField<CourseDetail> detail = fieldOrAbsent(command.detail());
 
         if (educationType.present() && educationType.value() == null) {
             throw validation("educationType");
@@ -240,6 +328,13 @@ public class DefaultCourseApplicationService
         }
         if (status.present() && status.value() == null) {
             throw validation("status");
+        }
+        CourseUpdateField<LocalDate> recruitEndDate = fieldOrAbsent(command.recruitEndDate());
+        if (startDate.present() || recruitEndDate.present()) {
+            // 한쪽만 보내도 저장된 값과 비교한다. 둘 다 안 보낸 수정은 예전 데이터를 문제 삼지 않는다.
+            requireRecruitEndNotAfterStart(
+                valueOrExisting(recruitEndDate, existing.recruitEndDate()),
+                valueOrExisting(startDate, existing.startDate()));
         }
 
         String normalizedCourseCode = existing.courseCode();
@@ -283,7 +378,7 @@ public class DefaultCourseApplicationService
                 normalizedCourseCode,
                 normalizedTitle,
                 valueOrExisting(command.description(), existing.description()),
-                valueOrExisting(command.category(), existing.category()),
+                valueOrExisting(command.classificationCode(), existing.classificationCode()),
                 valueOrExisting(educationType, existing.educationType()),
                 valueOrExisting(startDate, existing.startDate()),
                 valueOrExisting(endDate, existing.endDate()),
@@ -300,7 +395,8 @@ public class DefaultCourseApplicationService
                 existing.deletedAt(),
                 command.thumbnailFileId() != null && command.thumbnailFileId().present()
                     ? requireThumbnail(command.thumbnailFileId().value())
-                    : existing.thumbnailFileId()
+                    : existing.thumbnailFileId(),
+                valueOrExisting(detail, existing.detail())
             );
             if (!repository.updateActive(updated)) {
                 throw courseNotFound();
@@ -309,6 +405,11 @@ public class DefaultCourseApplicationService
             throw validation("requestBody");
         } catch (DataIntegrityViolationException exception) {
             throw courseConflict();
+        }
+        if (targetStatus == CourseStatus.CANCELLED && existing.status() != CourseStatus.CANCELLED) {
+            for (CourseCancelledListener listener : cancelledListeners) {
+                listener.onCourseCancelled(updated.id(), updated.institutionId(), now);
+            }
         }
         return updated;
     }
@@ -353,11 +454,12 @@ public class DefaultCourseApplicationService
         Instant now = clock.instant();
         Course updated = new Course(
             existing.id(), existing.institutionId(), existing.courseCode(), existing.title(),
-            existing.description(), existing.category(), existing.educationType(),
+            existing.description(), existing.classificationCode(), existing.educationType(),
             existing.startDate(), existing.endDate(), existing.recruitStartDate(),
             existing.recruitEndDate(), existing.capacity(), existing.location(),
             existing.onlineUrl(), existing.creditBankEligible(), existing.creditValue(),
-            target, existing.createdAt(), now, existing.deletedAt(), existing.thumbnailFileId());
+            target, existing.createdAt(), now, existing.deletedAt(), existing.thumbnailFileId(),
+            existing.detail());
         if (!repository.updateActive(updated)) {
             throw courseNotFound();
         }
@@ -365,6 +467,24 @@ public class DefaultCourseApplicationService
             UUID.randomUUID(), CorrectionTargetType.COURSE, courseId,
             existing.status().name(), target.name(), correctionReason, context.userId(), now));
         return updated;
+    }
+
+    @Override
+    @Transactional
+    public void deleteDraft(UUID courseId, AuthenticatedUserContext context) {
+        if (courseId == null) {
+            throw validation("courseId");
+        }
+        Course existing = repository.findActiveByIdForUpdate(courseId)
+            .orElseThrow(this::courseNotFound);
+        requireManager(context, existing);
+        if (existing.status() != CourseStatus.DRAFT) {
+            throw new ApiException(HttpStatus.CONFLICT, ApiErrorCode.COURSE_STATUS_CONFLICT,
+                "Only draft courses can be deleted");
+        }
+        if (!repository.softDeleteDraft(courseId, clock.instant())) {
+            throw courseNotFound();
+        }
     }
 
     private Course transition(
@@ -391,13 +511,22 @@ public class DefaultCourseApplicationService
             throw courseStatusConflict();
         }
 
+        if (publish) {
+            List<String> missing = CoursePublishRequirements.missingFields(existing);
+            if (!missing.isEmpty()) {
+                throw new ApiException(
+                    HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.VALIDATION_FAILED,
+                    "Course cannot be published until required fields are filled", missing);
+            }
+        }
+
         Course updated = new Course(
             existing.id(),
             existing.institutionId(),
             existing.courseCode(),
             existing.title(),
             existing.description(),
-            existing.category(),
+            existing.classificationCode(),
             existing.educationType(),
             existing.startDate(),
             existing.endDate(),
@@ -412,7 +541,8 @@ public class DefaultCourseApplicationService
             existing.createdAt(),
             clock.instant(),
             existing.deletedAt(),
-            existing.thumbnailFileId()
+            existing.thumbnailFileId(),
+            existing.detail()
         );
         try {
             if (!repository.updateActive(updated)) {
@@ -422,6 +552,17 @@ public class DefaultCourseApplicationService
             throw courseConflict();
         }
         return updated;
+    }
+
+    private void requireManager(AuthenticatedUserContext context, Course course) {
+        boolean mainAssigned = context != null
+            && context.roles().stream().anyMatch(role ->
+                "INSTRUCTOR".equals(role.role())
+                    && Objects.equals(role.institutionId(), course.institutionId()))
+            && courseInstructorRepository.existsByCourseIdAndUserIdAndRole(
+                course.id(), context.userId(), CourseInstructorRole.MAIN);
+        authorizationPolicy.requireCourseSessionManager(
+            context, course.institutionId(), mainAssigned);
     }
 
     private String[] splitSort(String sort) {
@@ -452,7 +593,7 @@ public class DefaultCourseApplicationService
         return command.courseCode() != null && command.courseCode().present()
             || command.title() != null && command.title().present()
             || command.description() != null && command.description().present()
-            || command.category() != null && command.category().present()
+            || command.classificationCode() != null && command.classificationCode().present()
             || command.educationType() != null && command.educationType().present()
             || command.startDate() != null && command.startDate().present()
             || command.endDate() != null && command.endDate().present()
@@ -463,7 +604,8 @@ public class DefaultCourseApplicationService
             || command.onlineUrl() != null && command.onlineUrl().present()
             || command.creditBankEligible() != null && command.creditBankEligible().present()
             || command.creditValue() != null && command.creditValue().present()
-            || command.thumbnailFileId() != null && command.thumbnailFileId().present();
+            || command.thumbnailFileId() != null && command.thumbnailFileId().present()
+            || command.detail() != null && command.detail().present();
     }
 
     private boolean isFinal(CourseStatus status) {
@@ -494,18 +636,14 @@ public class DefaultCourseApplicationService
         if (command.institutionId() == null) {
             throw validation("institutionId");
         }
-        validateRequiredText(command.courseCode(), "courseCode", 50);
-        validateRequiredText(command.title(), "title", 200);
+        validateOptionalText(command.courseCode(), "courseCode", 50);
+        validateRequiredText(command.title(), "title", 60);
         if (command.educationType() == null) {
             throw validation("educationType");
         }
-        if (command.startDate() == null) {
-            throw validation("startDate");
-        }
-        if (command.endDate() == null) {
-            throw validation("endDate");
-        }
-        if (command.startDate().isAfter(command.endDate())) {
+        if (command.startDate() != null
+            && command.endDate() != null
+            && command.startDate().isAfter(command.endDate())) {
             throw validation("startDate");
         }
         if (command.recruitStartDate() != null
@@ -513,7 +651,8 @@ public class DefaultCourseApplicationService
             && command.recruitStartDate().isAfter(command.recruitEndDate())) {
             throw validation("recruitStartDate");
         }
-        if (command.capacity() == null || command.capacity() < 1) {
+        requireRecruitEndNotAfterStart(command.recruitEndDate(), command.startDate());
+        if (command.capacity() != null && command.capacity() < 1) {
             throw validation("capacity");
         }
         if (command.creditBankEligible() == null) {
@@ -526,8 +665,24 @@ public class DefaultCourseApplicationService
         }
     }
 
+    /** 모집 마감일은 시작일까지(같은 날 허용). 뒤면 422 [recruitEndDate] (QA VAL-02). */
+    private void requireRecruitEndNotAfterStart(LocalDate recruitEndDate, LocalDate startDate) {
+        if (recruitEndDate != null && startDate != null && recruitEndDate.isAfter(startDate)) {
+            throw validation("recruitEndDate");
+        }
+    }
+
     private void validateRequiredText(String value, String field, int maxLength) {
         if (value == null || value.isBlank() || value.trim().length() > maxLength) {
+            throw validation(field);
+        }
+    }
+
+    private void validateOptionalText(String value, String field, int maxLength) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        if (value.trim().length() > maxLength) {
             throw validation(field);
         }
     }
@@ -559,7 +714,7 @@ public class DefaultCourseApplicationService
 
     private ApiException validation(String field) {
         return new ApiException(
-            HttpStatus.UNPROCESSABLE_ENTITY,
+            HttpStatus.UNPROCESSABLE_CONTENT,
             ApiErrorCode.VALIDATION_FAILED,
             "Request validation failed",
             List.of(field)
@@ -596,5 +751,24 @@ public class DefaultCourseApplicationService
             ApiErrorCode.COURSE_STATUS_CONFLICT,
             "Course status transition is not allowed"
         );
+    }
+    /** 값이 있을 때만 검사한다 — 초안은 분류 없이 저장할 수 있다(설계서 §12.3). */
+    private void requireAssignableClassification(String code) {
+        if (code != null) {
+            classifications.requireAssignable(code);
+        }
+    }
+
+    /** 어느 단계 코드든 하위 포함 접두사로: TSIX_040000 → TSIX_04, TSIX_040200 → TSIX_0402. 형식이 틀리면 400. */
+    static String classificationPrefix(String code) {
+        if (code == null || code.isBlank()) {
+            return null;
+        }
+        try {
+            return ClassificationPrefix.of(code);
+        } catch (IllegalArgumentException exception) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, ApiErrorCode.BAD_REQUEST,
+                "Invalid classificationCode", List.of("classificationCode"));
+        }
     }
 }

@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.adn.dabaeum.attendance.domain.Attendance;
 import com.adn.dabaeum.attendance.domain.AttendanceAdjustment;
+import com.adn.dabaeum.attendance.domain.AttendanceAdjustmentEntry;
 import com.adn.dabaeum.attendance.domain.AttendanceAdjustmentRepository;
 import com.adn.dabaeum.attendance.domain.AttendanceMethod;
 import com.adn.dabaeum.attendance.domain.AttendanceRepository;
@@ -70,7 +71,6 @@ class AttendanceAdjustmentSummaryServiceTest {
     @Mock CourseRepository courseRepository;
     @Mock CourseInstructorRepository instructorRepository;
     @Mock EnrollmentRepository enrollmentRepository;
-    @Mock AttendanceQrTokenApplicationService qrTokenService;
 
     private AttendanceApplicationService service;
 
@@ -78,7 +78,7 @@ class AttendanceAdjustmentSummaryServiceTest {
     void setUp() {
         service = new DefaultAttendanceApplicationService(
             attendanceRepository, sessionRepository, courseRepository, instructorRepository,
-            enrollmentRepository, qrTokenService, new AuthorizationPolicy(),
+            enrollmentRepository, new AuthorizationPolicy(),
             Clock.fixed(NOW, ZoneOffset.UTC), () -> UUID.fromString(
                 "88888888-8888-8888-8888-888888888888"), adjustmentRepository,
             new DefaultAttendanceMetricsQuery(sessionRepository, attendanceRepository,
@@ -109,6 +109,28 @@ class AttendanceAdjustmentSummaryServiceTest {
     }
 
     @Test
+    void getReturnsAttendanceWithAdjustmentHistory() {
+        when(attendanceRepository.findById(ATTENDANCE_ID))
+            .thenReturn(Optional.of(attendance(AttendanceStatus.LATE)));
+        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session()));
+        when(courseRepository.findActiveById(COURSE_ID)).thenReturn(Optional.of(course()));
+        when(enrollmentRepository.findById(ENROLLMENT_ID)).thenReturn(Optional.of(enrollment()));
+        when(instructorRepository.existsByCourseIdAndUserId(COURSE_ID, MANAGER_ID))
+            .thenReturn(true);
+        AttendanceAdjustmentEntry entry = new AttendanceAdjustmentEntry(
+            UUID.fromString("99999999-9999-9999-9999-999999999999"),
+            AttendanceStatus.PRESENT, AttendanceStatus.LATE, "현장 확인",
+            MANAGER_ID, "김강사", NOW);
+        when(adjustmentRepository.findEntriesByAttendanceId(ATTENDANCE_ID))
+            .thenReturn(List.of(entry));
+
+        AttendanceDetail detail = service.get(ATTENDANCE_ID, manager());
+
+        assertThat(detail.attendance().status()).isEqualTo(AttendanceStatus.LATE);
+        assertThat(detail.adjustments()).containsExactly(entry);
+    }
+
+    @Test
     void rejectsSameStatusAndInvalidReasonBeforeWriting() {
         when(attendanceRepository.findByIdForUpdate(ATTENDANCE_ID))
             .thenReturn(Optional.of(attendance(AttendanceStatus.PRESENT)));
@@ -132,7 +154,7 @@ class AttendanceAdjustmentSummaryServiceTest {
     void calculatesClosedSessionsIncludingMissingAsAbsentAndRoundsRate() {
         Enrollment enrollment = enrollment();
         when(enrollmentRepository.findById(ENROLLMENT_ID)).thenReturn(Optional.of(enrollment));
-        when(sessionRepository.findAttendanceEligibleByCourseId(COURSE_ID, NOW))
+        when(sessionRepository.findByCourseId(COURSE_ID))
             .thenReturn(List.of(
                 session("11111111-1111-1111-1111-111111111111", CourseSessionStatus.COMPLETED,
                     NOW.minusSeconds(7200), NOW.minusSeconds(3600)),
@@ -179,7 +201,7 @@ class AttendanceAdjustmentSummaryServiceTest {
         Instant startsAt, Instant endsAt) {
         UUID sessionId = UUID.fromString(id);
         return new CourseSession(sessionId, COURSE_ID, 1, startsAt, endsAt, null,
-            startsAt, endsAt, status, NOW, NOW);
+            startsAt, endsAt, status, NOW, NOW, null);
     }
 
     private Course course() {

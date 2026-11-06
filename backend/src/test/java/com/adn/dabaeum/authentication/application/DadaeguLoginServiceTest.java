@@ -2,12 +2,16 @@ package com.adn.dabaeum.authentication.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.adn.dabaeum.authentication.domain.DadaeguRegistrationToken;
+import com.adn.dabaeum.authentication.domain.DadaeguRegistrationTokenRepository;
 import com.adn.dabaeum.common.api.ApiErrorCode;
 import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.identity.application.IdentityIdGenerator;
@@ -19,7 +23,9 @@ import com.adn.dabaeum.role.domain.UserRole;
 import com.adn.dabaeum.role.domain.UserRoleAssignment;
 import com.adn.dabaeum.role.domain.UserRoleRepository;
 import com.adn.dabaeum.user.application.UserIdGenerator;
+import com.adn.dabaeum.user.application.UserInterestService;
 import com.adn.dabaeum.user.domain.User;
+import com.adn.dabaeum.user.domain.UserAgreementRepository;
 import com.adn.dabaeum.user.domain.UserRepository;
 import com.adn.dabaeum.user.domain.UserStatus;
 import java.nio.charset.StandardCharsets;
@@ -41,6 +47,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 
 @ExtendWith(MockitoExtension.class)
 class DadaeguLoginServiceTest {
@@ -69,6 +76,10 @@ class DadaeguLoginServiceTest {
     @Mock IdentityIdGenerator identityIdGenerator;
     @Mock RoleIdGenerator roleIdGenerator;
     @Mock LocalAccessTokenService tokenService;
+    @Mock DadaeguRegistrationTokenRepository registrationTokenRepository;
+    @Mock UserAgreementRepository agreementRepository;
+    @Mock
+    private UserInterestService interestService;
 
     private DadaeguLoginService service;
 
@@ -93,56 +104,140 @@ class DadaeguLoginServiceTest {
             identityIdGenerator,
             roleIdGenerator,
             tokenService,
+            registrationTokenRepository,
+            agreementRepository,
+            interestService,
             Clock.fixed(NOW, ZoneOffset.UTC)
         );
     }
 
     @Test
-    void firstLoginRegistersUserWithDecryptedClaimsAndIssuesDadaeguToken() throws Exception {
+    void firstLoginCreatesNoAccountAndReturnsARegistrationToken() throws Exception {
+        when(identityRepository.findByProviderSubject(IdentityProvider.DADAEGU, DID))
+            .thenReturn(Optional.empty());
+
+        DadaeguLoginOutcome outcome = service.login(
+            encrypt(DID), encrypt(NAME), encrypt(BIRTHDATE), encrypt(PHONE));
+
+        DadaeguLoginOutcome.RegistrationRequired required =
+            (DadaeguLoginOutcome.RegistrationRequired) outcome;
+        assertThat(required.registrationToken()).matches("^[A-Za-z0-9_-]{43}$");
+        assertThat(required.expiresAt()).isEqualTo(NOW.plusSeconds(600));
+        assertThat(required.maskedName()).isEqualTo("홍*동");
+
+        ArgumentCaptor<DadaeguRegistrationToken> saved =
+            ArgumentCaptor.forClass(DadaeguRegistrationToken.class);
+        verify(registrationTokenRepository).save(saved.capture());
+        assertThat(saved.getValue().tokenHash())
+            .isEqualTo(OpaqueTokens.sha256Hex(required.registrationToken()));
+        assertThat(saved.getValue().did()).isEqualTo(DID);
+        assertThat(saved.getValue().name()).isEqualTo(NAME);
+        assertThat(saved.getValue().phone()).isEqualTo(PHONE);
+        assertThat(saved.getValue().birthDate()).isEqualTo(LocalDate.of(1995, 12, 5));
+        verify(userRepository, never()).save(any());
+        verify(identityRepository, never()).save(any());
+        verifyNoInteractions(tokenService, userRoleRepository);
+    }
+
+    @Test
+    void firstLoginWithoutANameClaimIsRejected() throws Exception {
+        when(identityRepository.findByProviderSubject(IdentityProvider.DADAEGU, DID))
+            .thenReturn(Optional.empty());
+
+        assertAuthenticationFailed(encrypt(DID), null, null, null);
+        verifyNoInteractions(registrationTokenRepository);
+    }
+
+    @Test
+    void signupConsumesTheTokenAndCreatesUserIdentityRoleAndAgreements() {
+        when(registrationTokenRepository.consume(OpaqueTokens.sha256Hex("raw-token"), NOW))
+            .thenReturn(Optional.of(pendingToken()));
         when(identityRepository.findByProviderSubject(IdentityProvider.DADAEGU, DID))
             .thenReturn(Optional.empty());
         when(userIdGenerator.generate()).thenReturn(USER_ID);
         when(identityIdGenerator.generate()).thenReturn(IDENTITY_ID);
         when(roleIdGenerator.generate()).thenReturn(ROLE_ID);
-        when(userRepository.findById(USER_ID))
-            .thenReturn(Optional.of(userWithClaims(UserStatus.ACTIVE)));
-        when(userRoleRepository.findByUserId(USER_ID)).thenReturn(List.of(learner()));
-        when(tokenService.issue(USER_ID, "DADAEGU")).thenReturn(new IssuedAccessToken(
-            "signed-access-token",
-            NOW.plusSeconds(3600)
-        ));
+        when(tokenService.issue(USER_ID, "DADAEGU"))
+            .thenReturn(new IssuedAccessToken("signed-access-token", NOW.plusSeconds(3600)));
 
-        LocalAuthResult result = service.login(
-            encrypt(DID), encrypt(NAME), encrypt(BIRTHDATE), encrypt(PHONE)
-        );
+        LocalAuthResult result = service.signup(
+            new DadaeguSignupCommand(" raw-token ", List.of("TSIX_040000"), true, true, true, false));
 
-        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
-        verify(userRepository).save(userCaptor.capture());
-        User saved = userCaptor.getValue();
-        assertThat(saved.id()).isEqualTo(USER_ID);
-        assertThat(saved.status()).isEqualTo(UserStatus.ACTIVE);
-        assertThat(saved.name()).isEqualTo(NAME);
-        assertThat(saved.phone()).isEqualTo(PHONE);
-        assertThat(saved.birthDate()).isEqualTo(LocalDate.of(1995, 12, 5));
-        assertThat(saved.email()).isNull();
-
-        ArgumentCaptor<UserIdentity> identityCaptor =
-            ArgumentCaptor.forClass(UserIdentity.class);
-        verify(identityRepository).save(identityCaptor.capture());
-        UserIdentity identity = identityCaptor.getValue();
-        assertThat(identity.provider()).isEqualTo(IdentityProvider.DADAEGU);
-        assertThat(identity.providerSubject()).isEqualTo(DID);
-        assertThat(identity.externalDid()).isEqualTo(DID);
-        assertThat(identity.verifiedAt()).isEqualTo(NOW);
-
+        ArgumentCaptor<User> user = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(user.capture());
+        assertThat(user.getValue().name()).isEqualTo(NAME);
+        assertThat(user.getValue().phone()).isEqualTo(PHONE);
+        assertThat(user.getValue().email()).isNull();
+        ArgumentCaptor<UserIdentity> identity = ArgumentCaptor.forClass(UserIdentity.class);
+        verify(identityRepository).save(identity.capture());
+        assertThat(identity.getValue().providerSubject()).isEqualTo(DID);
+        assertThat(identity.getValue().verifiedAt()).isEqualTo(NOW);
         verify(userRoleRepository).save(learner());
-        // 저장된 값이 다대구 값과 같으므로 갱신 UPDATE 는 없다
-        verify(userRepository, never()).updateProfile(any());
-
+        verify(agreementRepository).saveAll(anyList());
+        verify(interestService).validateForSignup(List.of("TSIX_040000"), true);
+        verify(interestService).recordAtSignup(USER_ID, List.of("TSIX_040000"), true, NOW);
+        verify(userRepository).recordLastLogin(USER_ID, NOW);
+        assertThat(result.accessToken()).isEqualTo("signed-access-token");
         assertThat(result.provider()).isEqualTo("DADAEGU");
-        assertThat(result.userId()).isEqualTo(USER_ID);
-        assertThat(result.roles()).extracting(role -> role.role())
-            .containsExactly("LEARNER");
+    }
+
+    @Test
+    void invalidInterestIsRejectedBeforeTheTokenIsConsumed() {
+        ApiException rejected = new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.VALIDATION_FAILED, "bad");
+        org.mockito.Mockito.doThrow(rejected).when(interestService).validateForSignup(List.of("BAD"), true);
+
+        assertThatThrownBy(() -> service.signup(new DadaeguSignupCommand("raw-token", List.of("BAD"), true, true, true, false)))
+            .isSameAs(rejected);
+
+        verifyNoInteractions(registrationTokenRepository, userRepository);
+    }
+
+    @Test
+    void signupValidatesAgreementsBeforeTouchingTheToken() {
+        for (DadaeguSignupCommand bad : List.of(
+            new DadaeguSignupCommand("raw-token", null, null, false, true, false),
+            new DadaeguSignupCommand("raw-token", null, null, true, null, false))) {
+            ApiException exception = catchThrowableOfType(
+                () -> service.signup(bad), ApiException.class);
+            assertThat(exception.status()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
+        }
+        verifyNoInteractions(registrationTokenRepository, userRepository);
+    }
+
+    @Test
+    void unusableTokenIs401() {
+        when(registrationTokenRepository.consume(any(), any())).thenReturn(Optional.empty());
+
+        ApiException exception = catchThrowableOfType(() ->
+            service.signup(new DadaeguSignupCommand("raw-token", null, null, true, true, false)),
+            ApiException.class);
+
+        assertThat(exception.status().value()).isEqualTo(401);
+        assertThat(exception.code()).isEqualTo(ApiErrorCode.AUTHENTICATION_FAILED);
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    void didRegisteredMeanwhileIs409() {
+        when(registrationTokenRepository.consume(any(), any()))
+            .thenReturn(Optional.of(pendingToken()));
+        when(identityRepository.findByProviderSubject(IdentityProvider.DADAEGU, DID))
+            .thenReturn(Optional.of(existingIdentity()));
+
+        ApiException exception = catchThrowableOfType(() ->
+            service.signup(new DadaeguSignupCommand("raw-token", null, null, true, true, false)),
+            ApiException.class);
+
+        assertThat(exception.code()).isEqualTo(ApiErrorCode.IDENTITY_CONFLICT);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void masksAllButFirstAndLastCharacter() {
+        assertThat(DadaeguLoginService.maskName("홍길동")).isEqualTo("홍*동");
+        assertThat(DadaeguLoginService.maskName("남궁민수")).isEqualTo("남**수");
+        assertThat(DadaeguLoginService.maskName("홍길")).isEqualTo("홍*");
+        assertThat(DadaeguLoginService.maskName("홍")).isEqualTo("*");
     }
 
     @Test
@@ -150,7 +245,7 @@ class DadaeguLoginServiceTest {
         User existing = new User(
             USER_ID, "개명전이름", "keep@example.com", "01000000000",
             LocalDate.of(1995, 12, 5), UserStatus.ACTIVE, null, NOW, NOW,
-            "경력", "소개", null
+            "경력", "소개", null, null, null, true, false, null
         );
         when(identityRepository.findByProviderSubject(IdentityProvider.DADAEGU, DID))
             .thenReturn(Optional.of(existingIdentity()));
@@ -173,6 +268,7 @@ class DadaeguLoginServiceTest {
         assertThat(updated.career()).isEqualTo("경력");
         assertThat(updated.introduction()).isEqualTo("소개");
 
+        verify(userRepository).recordLastLogin(USER_ID, NOW);
         verify(userRepository, never()).save(any());
         verify(identityRepository, never()).save(any());
         verifyNoInteractions(userIdGenerator, identityIdGenerator, roleIdGenerator);
@@ -190,7 +286,8 @@ class DadaeguLoginServiceTest {
             NOW.plusSeconds(3600)
         ));
 
-        LocalAuthResult result = service.login(encrypt(DID), null, null, null);
+        LocalAuthResult result = ((DadaeguLoginOutcome.LoggedIn)
+            service.login(encrypt(DID), null, null, null)).result();
 
         assertThat(result.userId()).isEqualTo(USER_ID);
         verify(userRepository, never()).updateProfile(any());
@@ -302,6 +399,50 @@ class DadaeguLoginServiceTest {
         verify(identityRepository, never()).save(any());
     }
 
+    @Test
+    void resolveActiveUserIdReturnsUserBehindDadaeguDid() throws Exception {
+        when(identityRepository.findByProviderSubject(IdentityProvider.DADAEGU, DID))
+            .thenReturn(Optional.of(existingIdentity()));
+        when(userRepository.findById(USER_ID))
+            .thenReturn(Optional.of(userWithClaims(UserStatus.ACTIVE)));
+
+        assertThat(service.resolveActiveUserId(encrypt(DID))).isEqualTo(USER_ID);
+
+        verifyNoInteractions(tokenService, userRoleRepository);
+        verify(userRepository, never()).updateProfile(any());
+    }
+
+    @Test
+    void resolveActiveUserIdRejectsUnknownDidWith401AndNeverRegisters() throws Exception {
+        when(identityRepository.findByProviderSubject(IdentityProvider.DADAEGU, DID))
+            .thenReturn(Optional.empty());
+
+        assertResolveFails(encrypt(DID));
+
+        verify(userRepository, never()).save(any());
+        verify(identityRepository, never()).save(any());
+    }
+
+    @Test
+    void resolveActiveUserIdRejectsSuspendedUserAndBadCipherWith401() throws Exception {
+        when(identityRepository.findByProviderSubject(IdentityProvider.DADAEGU, DID))
+            .thenReturn(Optional.of(existingIdentity()));
+        when(userRepository.findById(USER_ID))
+            .thenReturn(Optional.of(userWithClaims(UserStatus.SUSPENDED)));
+
+        assertResolveFails(encrypt(DID));
+        assertResolveFails("not-base64!!");
+        assertResolveFails(null);
+    }
+
+    private void assertResolveFails(String encryptedDid) {
+        assertThatThrownBy(() -> service.resolveActiveUserId(encryptedDid))
+            .isInstanceOfSatisfying(ApiException.class, exception -> {
+                assertThat(exception.status().value()).isEqualTo(401);
+                assertThat(exception.code()).isEqualTo(ApiErrorCode.AUTHENTICATION_FAILED);
+            });
+    }
+
     private void assertLinkConflict(String encryptedDid) {
         assertThatThrownBy(() -> service.link(USER_ID, encryptedDid, null, null, null))
             .isInstanceOfSatisfying(ApiException.class, exception -> {
@@ -343,5 +484,11 @@ class DadaeguLoginServiceTest {
 
     private static UserRoleAssignment learner() {
         return new UserRoleAssignment(ROLE_ID, USER_ID, null, UserRole.LEARNER, NOW);
+    }
+
+    private static DadaeguRegistrationToken pendingToken() {
+        return new DadaeguRegistrationToken(
+            UUID.randomUUID(), OpaqueTokens.sha256Hex("raw-token"), DID, NAME, PHONE,
+            LocalDate.of(1995, 12, 5), NOW.plusSeconds(600), NOW, NOW.minusSeconds(60));
     }
 }

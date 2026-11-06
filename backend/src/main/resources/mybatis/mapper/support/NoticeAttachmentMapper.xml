@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.support.infrastructure.mybatis.NoticeAttachmentMapper">
+
+    <resultMap id="noticeAttachmentRowResultMap"
+        type="com.adn.dabaeum.support.infrastructure.mybatis.NoticeAttachmentRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="notice_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="file_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="file_name" javaType="java.lang.String"/>
+            <arg column="byte_size" javaType="java.lang.Long"/>
+            <arg column="sort_order" javaType="java.lang.Integer"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO tb_notice_attachments (
+            id, notice_id, file_id, sort_order, created_at
+        ) VALUES (
+            #{id}, #{noticeId}, #{fileId}, #{sortOrder}, #{createdAt}
+        )
+    </insert>
+
+    <select id="selectActiveByNoticeId" resultMap="noticeAttachmentRowResultMap">
+        SELECT na.id, na.notice_id, na.file_id,
+               f.original_name AS file_name, f.size AS byte_size,
+               na.sort_order, na.created_at
+          FROM tb_notice_attachments na
+          JOIN tb_files f ON f.id = na.file_id
+         WHERE na.notice_id = #{noticeId}
+           AND na.deleted_at IS NULL
+         ORDER BY na.sort_order ASC, na.created_at ASC, na.id ASC
+    </select>
+
+    <select id="selectActiveById" resultMap="noticeAttachmentRowResultMap">
+        SELECT na.id, na.notice_id, na.file_id,
+               f.original_name AS file_name, f.size AS byte_size,
+               na.sort_order, na.created_at
+          FROM tb_notice_attachments na
+          JOIN tb_files f ON f.id = na.file_id
+         WHERE na.id = #{id}
+           AND na.deleted_at IS NULL
+    </select>
+
+    <update id="softDelete">
+        UPDATE tb_notice_attachments
+           SET deleted_at = #{deletedAt}
+         WHERE id = #{id}
+           AND deleted_at IS NULL
+    </update>
+</mapper>

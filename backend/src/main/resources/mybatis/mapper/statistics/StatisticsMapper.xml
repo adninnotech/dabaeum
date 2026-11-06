@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  설계서 §9. groupBy 는 enum 이름만 받고, 값마다 아래에 미리 쓴 SQL 조각을 고른다.
+  ${t} 는 include 의 고정 속성(시각 컬럼 이름)이라 사용자 입력이 들어가지 않는다.
+-->
+<mapper namespace="com.adn.dabaeum.statistics.infrastructure.mybatis.StatisticsMapper">
+
+    <resultMap id="enrollmentRow" type="com.adn.dabaeum.statistics.domain.EnrollmentStatRow">
+        <constructor>
+            <arg column="stat_key" javaType="java.lang.String"/>
+            <arg column="label" javaType="java.lang.String"/>
+            <arg column="applied" javaType="_long"/>
+            <arg column="approved" javaType="_long"/>
+            <arg column="completed" javaType="_long"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="badgeRow" type="com.adn.dabaeum.statistics.domain.BadgeStatRow">
+        <constructor>
+            <arg column="stat_key" javaType="java.lang.String"/>
+            <arg column="label" javaType="java.lang.String"/>
+            <arg column="issued" javaType="_long"/>
+            <arg column="revoked" javaType="_long"/>
+        </constructor>
+    </resultMap>
+
+    <!-- 신청 시점 만 나이 10세 단위. 생년월일이 없으면 UNKNOWN. -->
+    <sql id="ageBandAtApplication">
+        CASE WHEN s.birth_date IS NULL THEN 'UNKNOWN'
+             ELSE LEAST(GREATEST((EXTRACT(YEAR FROM age((s.applied_at AT TIME ZONE 'Asia/Seoul')::date,
+                                                        s.birth_date))::int / 10) * 10, 10), 70)::text
+        END
+    </sql>
+
+    <sql id="enrollmentKey">
+        <choose>
+            <when test="group == 'CONTENT'">s.course_id::text</when>
+            <when test="group == 'YEAR'">to_char(${t} AT TIME ZONE 'Asia/Seoul', 'YYYY')</when>
+            <when test="group == 'MONTH'">to_char(${t} AT TIME ZONE 'Asia/Seoul', 'YYYY-MM')</when>
+            <when test="group == 'GENDER'">COALESCE(s.gender, 'UNKNOWN')</when>
+            <otherwise><include refid="ageBandAtApplication"/></otherwise>
+        </choose>
+    </sql>
+
+    <!-- applied: 기간 안에 만든 신청(모든 상태), approved: 기간 안에 승인됐고 지금도 APPROVED 인 수강(철회·취소는 빠진다),
+         completed: 기간 안에 COMPLETED 확정. -->
+    <select id="selectEnrollments" resultMap="enrollmentRow">
+        WITH scoped AS (
+            SELECT e.id, e.course_id, e.applied_at, e.approved_at, e.status, c.title, u.birth_date, u.gender
+              FROM tb_enrollments e
+              JOIN tb_courses c ON c.id = e.course_id
+              JOIN tb_users u ON u.id = e.user_id
+             WHERE c.deleted_at IS NULL
+               -- 승인·수료는 신청 뒤에만 일어나므로 기간 끝 이후 신청은 어느 집계에도 들 수 없다.
+               AND e.applied_at &lt; #{to}
+            <if test="prefix != null">
+               AND c.classification_code LIKE #{prefix} || '%'
+            </if>
+            <if test="institutionId != null">
+               AND c.institution_id = #{institutionId}
+            </if>
+        ), events AS (
+            SELECT <include refid="enrollmentKey"><property name="t" value="s.applied_at"/></include> AS stat_key,
+                   s.title, 1 AS applied, 0 AS approved, 0 AS completed
+              FROM scoped s
+             WHERE s.applied_at &gt;= #{from} AND s.applied_at &lt; #{to}
+            UNION ALL
+            SELECT <include refid="enrollmentKey"><property name="t" value="s.approved_at"/></include>,
+                   s.title, 0, 1, 0
+              FROM scoped s
+             WHERE s.status = 'APPROVED'
+               AND s.approved_at &gt;= #{from} AND s.approved_at &lt; #{to}
+            UNION ALL
+            SELECT <include refid="enrollmentKey"><property name="t" value="cp.completed_at"/></include>,
+                   s.title, 0, 0, 1
+              FROM scoped s
+              JOIN tb_completions cp ON cp.enrollment_id = s.id
+             WHERE cp.status = 'COMPLETED'
+               AND cp.completed_at &gt;= #{from} AND cp.completed_at &lt; #{to}
+        )
+        SELECT stat_key, MAX(title) AS label,
+               SUM(applied) AS applied, SUM(approved) AS approved, SUM(completed) AS completed
+          FROM events
+         GROUP BY stat_key
+        <choose>
+            <when test="group == 'CONTENT'">
+         ORDER BY SUM(applied) DESC, stat_key
+         LIMIT #{limit}
+            </when>
+            <otherwise>
+         ORDER BY stat_key
+            </otherwise>
+        </choose>
+    </select>
+
+    <sql id="badgeKey">
+        <choose>
+            <when test="group == 'YEAR'">to_char(${t} AT TIME ZONE 'Asia/Seoul', 'YYYY')</when>
+            <when test="group == 'MONTH'">to_char(${t} AT TIME ZONE 'Asia/Seoul', 'YYYY-MM')</when>
+            <otherwise>COALESCE(b.definition_id::text, 'NONE')</otherwise>
+        </choose>
+    </sql>
+
+    <!-- issued: 기간 안에 발급, revoked: 기간 안에 폐기. 정의 없는 옛 배지는 DEFINITION 축에서 NONE 으로 묶는다. -->
+    <select id="selectBadges" resultMap="badgeRow">
+        WITH events AS (
+            SELECT <include refid="badgeKey"><property name="t" value="b.issued_at"/></include> AS stat_key,
+                   d.name, 1 AS issued, 0 AS revoked
+              FROM tb_learning_badges b
+              LEFT JOIN tb_badge_definitions d ON d.id = b.definition_id
+             WHERE b.issued_at &gt;= #{from} AND b.issued_at &lt; #{to}
+            UNION ALL
+            SELECT <include refid="badgeKey"><property name="t" value="b.revoked_at"/></include>,
+                   d.name, 0, 1
+              FROM tb_learning_badges b
+              LEFT JOIN tb_badge_definitions d ON d.id = b.definition_id
+             WHERE b.revoked_at &gt;= #{from} AND b.revoked_at &lt; #{to}
+        )
+        SELECT stat_key, MAX(name) AS label, SUM(issued) AS issued, SUM(revoked) AS revoked
+          FROM events
+         GROUP BY stat_key
+         ORDER BY stat_key
+    </select>
+
+</mapper>

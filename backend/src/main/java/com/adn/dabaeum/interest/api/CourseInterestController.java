@@ -1,5 +1,7 @@
 package com.adn.dabaeum.interest.api;
 
+import org.springframework.beans.factory.ObjectProvider;
+import com.adn.dabaeum.classification.application.CourseClassificationService;
 import com.adn.dabaeum.common.api.ApiErrorCode;
 import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.api.ApiMeta;
@@ -7,6 +9,7 @@ import com.adn.dabaeum.common.api.ApiResponse;
 import com.adn.dabaeum.common.api.PageMeta;
 import com.adn.dabaeum.common.security.CurrentUserProvider;
 import com.adn.dabaeum.common.web.RequestIdFilter;
+import com.adn.dabaeum.enrollment.api.CourseCardFields;
 import com.adn.dabaeum.interest.application.CourseInterestApplicationService;
 import com.adn.dabaeum.interest.application.CourseInterestPage;
 import com.adn.dabaeum.interest.domain.CourseInterest;
@@ -41,11 +44,16 @@ public class CourseInterestController {
     private final CurrentUserProvider currentUserProvider;
     private final Clock clock;
 
+    // 분류 서비스는 local/dev 에만 있다. 없으면(컨트롤러 테스트) 경로는 빈 배열.
+    private final ObjectProvider<CourseClassificationService> classifications;
+
     public CourseInterestController(
         CourseInterestApplicationService service,
         CurrentUserProvider currentUserProvider,
-        Clock clock
+        Clock clock,
+        ObjectProvider<CourseClassificationService> classifications
     ) {
+        this.classifications = classifications;
         this.service = service;
         this.currentUserProvider = currentUserProvider;
         this.clock = clock;
@@ -55,6 +63,7 @@ public class CourseInterestController {
     public InterestPageResponse listMine(
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "20") int size,
+        @RequestParam(required = false) String q,
         HttpServletRequest servletRequest
     ) {
         if (page < 0 || size < 1 || size > 100 || page > Integer.MAX_VALUE / size) {
@@ -63,7 +72,8 @@ public class CourseInterestController {
                 "Request parameter is invalid", List.of("page", "size"));
         }
         CourseInterestPage result = service.listMine(
-            currentUserProvider.requireContext(), page, size);
+            currentUserProvider.requireContext(),
+            com.adn.dabaeum.common.api.KeywordQuery.normalize(q), page, size);
         return new InterestPageResponse(
             result.data().stream().map(this::toResponse).toList(),
             new PageMeta(result.page(), result.size(),
@@ -78,7 +88,7 @@ public class CourseInterestController {
     ) {
         if (request == null || request.courseId() == null) {
             throw new ApiException(
-                HttpStatus.UNPROCESSABLE_ENTITY, ApiErrorCode.VALIDATION_FAILED,
+                HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.VALIDATION_FAILED,
                 "Request validation failed", List.of("courseId"));
         }
         CourseInterest interest = service.add(
@@ -88,7 +98,9 @@ public class CourseInterestController {
             .body(new ApiResponse<>(
                 new InterestResponse(
                     interest.id(), interest.courseId(), interest.createdAt(),
-                    null, null, null, null, null),
+                    null, null,
+                    new CourseCardFields(
+                        null, null, null, List.of(), null, null, null, null, null, null)),
                 meta(requestId(servletRequest))));
     }
 
@@ -106,8 +118,11 @@ public class CourseInterestController {
     private InterestResponse toResponse(CourseInterestView view) {
         return new InterestResponse(
             view.id(), view.courseId(), view.createdAt(), view.courseTitle(),
-            view.institutionName(), view.category(), view.educationType(),
-            view.courseStatus());
+            view.courseStatus(),
+            new CourseCardFields(
+                view.institutionName(), view.instructorName(), view.classificationCode(), classificationPath(view.classificationCode()),
+                view.educationType(), view.sessionCount(), view.tags(),
+                view.tuitionType(), view.tuitionAmount(), view.thumbnailFileId()));
     }
 
     private ApiMeta meta(String requestId) {
@@ -117,4 +132,9 @@ public class CourseInterestController {
     private String requestId(HttpServletRequest request) {
         return (String) request.getAttribute(RequestIdFilter.ATTRIBUTE_NAME);
     }
+    private List<String> classificationPath(String code) {
+        CourseClassificationService service = classifications.getIfAvailable();
+        return service == null ? List.of() : service.pathOf(code);
+    }
 }
+

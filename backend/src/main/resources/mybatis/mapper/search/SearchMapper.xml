@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  설계서 §5. 부분일치(LIKE, 이스케이프된 pattern)로 거르고 트라이그램 유사도 내림차순·최신순으로 자른다.
+  노출 규칙은 공개 목록과 같다. V45 의 LOWER(...) gin_trgm_ops 인덱스가 부분일치를 받친다.
+-->
+<mapper namespace="com.adn.dabaeum.search.infrastructure.mybatis.SearchMapper">
+
+    <resultMap id="courseHit" type="com.adn.dabaeum.search.domain.SearchHits$CourseHit">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="institution_name" javaType="java.lang.String"/>
+            <arg column="classification_code" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="start_date" javaType="java.time.LocalDate"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="institutionHit" type="com.adn.dabaeum.search.domain.SearchHits$InstitutionHit">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="region" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="noticeHit" type="com.adn.dabaeum.search.domain.SearchHits$NoticeHit">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="published_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="faqHit" type="com.adn.dabaeum.search.domain.SearchHits$FaqHit">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="question" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="courseScope">
+          FROM tb_courses c
+          LEFT JOIN tb_institutions i ON i.id = c.institution_id
+         WHERE c.deleted_at IS NULL
+           AND c.status NOT IN ('DRAFT', 'CANCELLED')
+           AND LOWER(c.title) LIKE '%' || #{pattern} || '%' ESCAPE '\'
+    </sql>
+
+    <select id="courses" resultMap="courseHit">
+        SELECT c.id, c.title, i.name AS institution_name, c.classification_code, c.status, c.start_date
+        <include refid="courseScope"/>
+         ORDER BY similarity(LOWER(c.title), #{term}) DESC, c.created_at DESC, c.id
+         LIMIT #{limit}
+    </select>
+
+    <select id="countCourses" resultType="long">
+        SELECT COUNT(*) <include refid="courseScope"/>
+    </select>
+
+    <sql id="institutionScope">
+          FROM tb_institutions i
+         WHERE i.deleted_at IS NULL
+           AND i.status = 'ACTIVE'
+           AND LOWER(i.name) LIKE '%' || #{pattern} || '%' ESCAPE '\'
+    </sql>
+
+    <select id="institutions" resultMap="institutionHit">
+        SELECT i.id, i.name, i.region
+        <include refid="institutionScope"/>
+         ORDER BY similarity(LOWER(i.name), #{term}) DESC, i.created_at DESC, i.id
+         LIMIT #{limit}
+    </select>
+
+    <select id="countInstitutions" resultType="long">
+        SELECT COUNT(*) <include refid="institutionScope"/>
+    </select>
+
+    <sql id="noticeScope">
+          FROM tb_notices n
+         WHERE n.status = 'PUBLISHED'
+           AND n.audience = 'PUBLIC'
+           AND (n.published_at IS NULL OR n.published_at &lt;= #{now})
+           AND LOWER(n.title) LIKE '%' || #{pattern} || '%' ESCAPE '\'
+    </sql>
+
+    <select id="notices" resultMap="noticeHit">
+        SELECT n.id, n.title, n.published_at
+        <include refid="noticeScope"/>
+         ORDER BY similarity(LOWER(n.title), #{term}) DESC, n.published_at DESC NULLS LAST, n.id
+         LIMIT #{limit}
+    </select>
+
+    <select id="countNotices" resultType="long">
+        SELECT COUNT(*) <include refid="noticeScope"/>
+    </select>
+
+    <sql id="faqScope">
+          FROM tb_faqs f
+         WHERE LOWER(f.question) LIKE '%' || #{pattern} || '%' ESCAPE '\'
+    </sql>
+
+    <select id="faqs" resultMap="faqHit">
+        SELECT f.id, f.question
+        <include refid="faqScope"/>
+         ORDER BY similarity(LOWER(f.question), #{term}) DESC, f.created_at DESC, f.id
+         LIMIT #{limit}
+    </select>
+
+    <select id="countFaqs" resultType="long">
+        SELECT COUNT(*) <include refid="faqScope"/>
+    </select>
+
+</mapper>

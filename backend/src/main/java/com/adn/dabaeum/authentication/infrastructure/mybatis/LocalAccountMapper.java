@@ -19,4 +19,8 @@ public interface LocalAccountMapper {
         @Param("passwordHash") String passwordHash,
         @Param("updatedAt") java.time.Instant updatedAt
     );
+
+    PasswordAgeRow selectPasswordAge(@Param("userId") java.util.UUID userId);
+
+    int markPasswordTemporary(@Param("userId") java.util.UUID userId);
 }

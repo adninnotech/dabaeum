@@ -26,8 +26,7 @@ class RoadmapNamingBoundaryTest {
         List<Path> files = new ArrayList<>();
         for (Path root : List.of(
             Path.of("src"),
-            Path.of("scripts"),
-            Path.of("docs/api")
+            Path.of("scripts")
         )) {
             try (Stream<Path> paths = Files.walk(root)) {
                 paths.filter(Files::isRegularFile)

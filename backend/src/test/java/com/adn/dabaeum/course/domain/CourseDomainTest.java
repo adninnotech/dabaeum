@@ -52,7 +52,7 @@ class CourseDomainTest {
             "COURSE-001",
             "과정 제목",
             "상세 설명",
-            "카테고리",
+            "TSIX_040201",
             LocalDate.of(2026, 9, 1),
             LocalDate.of(2026, 10, 31),
             LocalDate.of(2026, 8, 1),
@@ -74,7 +74,7 @@ class CourseDomainTest {
             assertThat(value.courseCode()).isEqualTo("COURSE-001");
             assertThat(value.title()).isEqualTo("과정 제목");
             assertThat(value.description()).isEqualTo("상세 설명");
-            assertThat(value.category()).isEqualTo("카테고리");
+            assertThat(value.classificationCode()).isEqualTo("TSIX_040201");
             assertThat(value.educationType()).isEqualTo(CourseEducationType.HYBRID);
             assertThat(value.startDate()).isEqualTo(LocalDate.of(2026, 9, 1));
             assertThat(value.endDate()).isEqualTo(LocalDate.of(2026, 10, 31));
@@ -115,7 +115,7 @@ class CourseDomainTest {
         );
 
         assertThat(course.description()).isNull();
-        assertThat(course.category()).isNull();
+        assertThat(course.classificationCode()).isNull();
         assertThat(course.recruitStartDate()).isNull();
         assertThat(course.recruitEndDate()).isNull();
         assertThat(course.location()).isNull();
@@ -139,18 +139,36 @@ class CourseDomainTest {
     }
 
     @Test
-    void rejectsBlankOrOverlongTitle() {
+    void rejectsBlankTitle() {
         assertThatThrownBy(() -> validCourse("CODE", " ", null, null,
             LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 1), null, null,
             1, null, null, false, null, CourseStatus.DRAFT,
             Instant.now(), Instant.now(), null))
             .isInstanceOf(IllegalArgumentException.class);
+    }
 
-        assertThatThrownBy(() -> validCourse("CODE", "x".repeat(201), null, null,
+    @Test
+    void 제목이_200자를_넘으면_거부한다() {
+        String tooLong = "가".repeat(201);
+
+        assertThatThrownBy(() -> validCourse("CODE", tooLong, null, null,
             LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 1), null, null,
             1, null, null, false, null, CourseStatus.DRAFT,
             Instant.now(), Instant.now(), null))
-            .isInstanceOf(IllegalArgumentException.class);
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("title");
+    }
+
+    @Test
+    void 제목_60자는_허용한다() {
+        String exact = "가".repeat(60);
+
+        Course course = validCourse("CODE", exact, null, null,
+            LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 1), null, null,
+            1, null, null, false, null, CourseStatus.DRAFT,
+            Instant.now(), Instant.now(), null);
+
+        assertThat(course.title()).hasSize(60);
     }
 
     @Test
@@ -194,7 +212,7 @@ class CourseDomainTest {
         String courseCode,
         String title,
         String description,
-        String category,
+        String classificationCode,
         LocalDate startDate,
         LocalDate endDate,
         LocalDate recruitStartDate,
@@ -215,7 +233,7 @@ class CourseDomainTest {
             courseCode,
             title,
             description,
-            category,
+            classificationCode,
             CourseEducationType.HYBRID,
             startDate,
             endDate,

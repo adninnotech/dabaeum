@@ -27,7 +27,7 @@ import tools.jackson.databind.ObjectMapper;
  * ./gradlew test --tests '*DaeguChainEmulatorReadTest*'
  * </pre>
  *
- * 개발 PC 에서는 {@code ssh -N -L 8090:127.0.0.1:8090 <서버>} 터널이 필요하다.
+ * 개발 PC 에서는 {@code ssh -N -L 8090:127.0.0.1:8090 -p 22880 adn@118.45.182.100} 터널이 필요하다.
  */
 @EnabledIfEnvironmentVariable(named = "DABAEUM_DAEGUCHAIN_BASE_URL", matches = ".+")
 class DaeguChainEmulatorReadTest {

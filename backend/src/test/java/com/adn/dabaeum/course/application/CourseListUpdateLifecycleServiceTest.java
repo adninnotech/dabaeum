@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -22,6 +23,7 @@ import com.adn.dabaeum.course.domain.CourseRepository;
 import com.adn.dabaeum.course.domain.CourseSort;
 import com.adn.dabaeum.course.domain.CourseSortDirection;
 import com.adn.dabaeum.course.domain.CourseStatus;
+import com.adn.dabaeum.course.domain.CourseView;
 import com.adn.dabaeum.institution.domain.InstitutionRepository;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -59,6 +61,7 @@ class CourseListUpdateLifecycleServiceTest {
 
     @Mock
     CourseRepository repository;
+    @Mock com.adn.dabaeum.course.application.CourseCancelledListener cancelledListener;
 
     @Mock
     InstitutionRepository institutionRepository;
@@ -77,23 +80,34 @@ class CourseListUpdateLifecycleServiceTest {
             new AuthorizationPolicy(),
             org.mockito.Mockito.mock(com.adn.dabaeum.correction.domain.AdminCorrectionRepository.class),
             Clock.fixed(FIXED_INSTANT, ZoneOffset.UTC),
-            org.mockito.Mockito.mock(com.adn.dabaeum.file.domain.StoredFileRepository.class)
+            org.mockito.Mockito.mock(com.adn.dabaeum.file.domain.StoredFileRepository.class),
+            new SequentialCourseCodeGenerator(Clock.fixed(FIXED_INSTANT, ZoneOffset.UTC)),
+            org.mockito.Mockito.mock(com.adn.dabaeum.course.domain.CourseInstructorRepository.class),
+            org.mockito.Mockito.mock(CourseInstructorIdGenerator.class),
+            org.mockito.Mockito.mock(com.adn.dabaeum.classification.application.CourseClassificationService.class),
+            List.of(cancelledListener)
         );
     }
 
     @Test
     void listsCoursesWithParsedSortAndPageMetadata() {
         Course listed = course(CourseStatus.DRAFT);
-        when(repository.findActivePage(any())).thenReturn(List.of(listed));
-        when(repository.countActive()).thenReturn(21L);
+        CourseView listedView = new CourseView(listed, 4, null, null);
+        when(repository.findActiveViewPage(any())).thenReturn(List.of(listedView));
+        when(repository.countActive(any(), any(), any(), any(), anyBoolean(), any(), any()))
+            .thenReturn(21L);
 
         CoursePage result = service.list(new ListCoursesQuery(
             1,
             20,
-            "courseCode,asc"
-        ));
+            "courseCode,asc",
+            null,
+            null,
+            null,
+            null
+        ), globalPlatformAdmin());
 
-        assertThat(result.data()).containsExactly(listed);
+        assertThat(result.data()).containsExactly(listedView);
         assertThat(result.page()).isEqualTo(1);
         assertThat(result.size()).isEqualTo(20);
         assertThat(result.totalElements()).isEqualTo(21);
@@ -101,7 +115,7 @@ class CourseListUpdateLifecycleServiceTest {
 
         ArgumentCaptor<CoursePageCriteria> criteria =
             ArgumentCaptor.forClass(CoursePageCriteria.class);
-        verify(repository).findActivePage(criteria.capture());
+        verify(repository).findActiveViewPage(criteria.capture());
         assertThat(criteria.getValue().offset()).isEqualTo(20);
         assertThat(criteria.getValue().limit()).isEqualTo(20);
         assertThat(criteria.getValue().sort()).isEqualTo(CourseSort.COURSE_CODE);
@@ -109,19 +123,96 @@ class CourseListUpdateLifecycleServiceTest {
             .isEqualTo(CourseSortDirection.ASC);
     }
 
+    // PLATFORM_ADMIN 은 전체강의관리 화면에서 DRAFT 를 봐야 한다 — 기관 제한 없이 열려야 한다.
+    @Test
+    void platformAdmin이_목록을_요청하면_기관_제한_없이_DRAFT를_포함한다() {
+        when(repository.findActiveViewPage(any())).thenReturn(List.of());
+        when(repository.countActive(any(), any(), any(), any(), anyBoolean(), any(), any()))
+            .thenReturn(0L);
+
+        service.list(new ListCoursesQuery(
+            0, 20, "createdAt,desc", null, null, null, CourseStatus.DRAFT
+        ), globalPlatformAdmin());
+
+        ArgumentCaptor<CoursePageCriteria> criteria =
+            ArgumentCaptor.forClass(CoursePageCriteria.class);
+        verify(repository).findActiveViewPage(criteria.capture());
+        assertThat(criteria.getValue().includeAllDraft()).isTrue();
+        verify(repository).countActive(any(), any(), any(), eq(CourseStatus.DRAFT), eq(true), any(), any());
+    }
+
+    // 그 기관 INSTITUTION_ADMIN·INSTRUCTOR 는 자기 기관의 DRAFT 만 볼 수 있다 — 다른 기관은 못 본다.
+    @Test
+    void 기관_직원은_자기_기관의_DRAFT만_볼_수_있다() {
+        when(repository.findActiveViewPage(any())).thenReturn(List.of());
+        when(repository.countActive(any(), any(), any(), any(), anyBoolean(), any(), any()))
+            .thenReturn(0L);
+
+        service.list(new ListCoursesQuery(
+            0, 20, "createdAt,desc", null, null, null, null
+        ), sameInstitutionAdmin());
+
+        ArgumentCaptor<CoursePageCriteria> criteria =
+            ArgumentCaptor.forClass(CoursePageCriteria.class);
+        verify(repository).findActiveViewPage(criteria.capture());
+        assertThat(criteria.getValue().includeAllDraft()).isFalse();
+        assertThat(criteria.getValue().draftVisibleInstitutionIds())
+            .containsExactly(INSTITUTION_ID);
+
+        service.list(new ListCoursesQuery(
+            0, 20, "createdAt,desc", null, null, null, null
+        ), instructor(INSTITUTION_ID));
+        ArgumentCaptor<CoursePageCriteria> instructorCriteria =
+            ArgumentCaptor.forClass(CoursePageCriteria.class);
+        verify(repository, org.mockito.Mockito.times(2))
+            .findActiveViewPage(instructorCriteria.capture());
+        assertThat(instructorCriteria.getValue().includeAllDraft()).isFalse();
+        assertThat(instructorCriteria.getValue().draftVisibleInstitutionIds())
+            .containsExactly(INSTITUTION_ID);
+    }
+
+    // 다른 기관 직원·학습자는 DRAFT 를 못 본다 — ?status=DRAFT 를 명시해도 제한이 우선한다.
+    @Test
+    void 다른_기관_직원과_학습자는_DRAFT_제한_명단이_비어있다() {
+        when(repository.findActiveViewPage(any())).thenReturn(List.of());
+        when(repository.countActive(any(), any(), any(), any(), anyBoolean(), any(), any()))
+            .thenReturn(0L);
+
+        service.list(new ListCoursesQuery(
+            0, 20, "createdAt,desc", null, null, null, CourseStatus.DRAFT
+        ), otherInstitutionAdmin());
+
+        ArgumentCaptor<CoursePageCriteria> criteria =
+            ArgumentCaptor.forClass(CoursePageCriteria.class);
+        verify(repository).findActiveViewPage(criteria.capture());
+        assertThat(criteria.getValue().includeAllDraft()).isFalse();
+        assertThat(criteria.getValue().draftVisibleInstitutionIds())
+            .doesNotContain(INSTITUTION_ID);
+
+        service.list(new ListCoursesQuery(
+            0, 20, "createdAt,desc", null, null, null, CourseStatus.DRAFT
+        ), learner());
+        ArgumentCaptor<CoursePageCriteria> learnerCriteria =
+            ArgumentCaptor.forClass(CoursePageCriteria.class);
+        verify(repository, org.mockito.Mockito.times(2))
+            .findActiveViewPage(learnerCriteria.capture());
+        assertThat(learnerCriteria.getValue().includeAllDraft()).isFalse();
+        assertThat(learnerCriteria.getValue().draftVisibleInstitutionIds()).isEmpty();
+    }
+
     @Test
     void rejectsInvalidListQueryAndOffsetOverflow() {
         for (ListCoursesQuery invalid : new ListCoursesQuery[] {
             null,
-            new ListCoursesQuery(-1, 20, "createdAt,desc"),
-            new ListCoursesQuery(0, 0, "createdAt,desc"),
-            new ListCoursesQuery(0, 101, "createdAt,desc"),
-            new ListCoursesQuery(0, 20, "unknown,desc"),
-            new ListCoursesQuery(0, 20, "createdAt,sideways"),
-            new ListCoursesQuery(Integer.MAX_VALUE, 100, "createdAt,desc")
+            new ListCoursesQuery(-1, 20, "createdAt,desc", null, null, null, null),
+            new ListCoursesQuery(0, 0, "createdAt,desc", null, null, null, null),
+            new ListCoursesQuery(0, 101, "createdAt,desc", null, null, null, null),
+            new ListCoursesQuery(0, 20, "unknown,desc", null, null, null, null),
+            new ListCoursesQuery(0, 20, "createdAt,sideways", null, null, null, null),
+            new ListCoursesQuery(Integer.MAX_VALUE, 100, "createdAt,desc", null, null, null, null)
         }) {
             ApiException exception = catchThrowableOfType(
-                () -> service.list(invalid),
+                () -> service.list(invalid, globalPlatformAdmin()),
                 ApiException.class
             );
             assertThat(exception.status()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -162,7 +253,7 @@ class CourseListUpdateLifecycleServiceTest {
         assertThat(updated.courseCode()).isEqualTo("COURSE-UPDATED");
         assertThat(updated.title()).isEqualTo("새 제목");
         assertThat(updated.description()).isNull();
-        assertThat(updated.category()).isEqualTo(original.category());
+        assertThat(updated.classificationCode()).isEqualTo(original.classificationCode());
         assertThat(updated.capacity()).isEqualTo(original.capacity());
         assertThat(updated.status()).isEqualTo(CourseStatus.DRAFT);
         assertThat(updated.updatedAt()).isEqualTo(FIXED_INSTANT);
@@ -312,6 +403,59 @@ class CourseListUpdateLifecycleServiceTest {
         verify(repository, never()).updateActive(any());
     }
 
+    @Test
+    void 임시저장_강좌를_지우면_삭제_시각으로_표시한다() {
+        when(repository.findActiveByIdForUpdate(COURSE_ID))
+            .thenReturn(Optional.of(course(CourseStatus.DRAFT)));
+        when(repository.softDeleteDraft(COURSE_ID, FIXED_INSTANT)).thenReturn(true);
+
+        service.deleteDraft(COURSE_ID, sameInstitutionAdmin());
+
+        verify(repository).softDeleteDraft(COURSE_ID, FIXED_INSTANT);
+    }
+
+    @Test
+    void 임시저장이_아닌_강좌는_지울_수_없다() {
+        when(repository.findActiveByIdForUpdate(COURSE_ID))
+            .thenReturn(Optional.of(course(CourseStatus.RECRUITING)));
+
+        ApiException exception = catchThrowableOfType(
+            () -> service.deleteDraft(COURSE_ID, globalPlatformAdmin()),
+            ApiException.class
+        );
+
+        assertThat(exception.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(exception.code()).isEqualTo(ApiErrorCode.COURSE_STATUS_CONFLICT);
+        verify(repository, never()).softDeleteDraft(any(), any());
+    }
+
+    @Test
+    void 없는_강좌와_다른_기관_강좌는_지울_수_없다() {
+        when(repository.findActiveByIdForUpdate(COURSE_ID)).thenReturn(Optional.empty());
+        ApiException missing = catchThrowableOfType(
+            () -> service.deleteDraft(COURSE_ID, globalPlatformAdmin()),
+            ApiException.class
+        );
+        assertThat(missing.status()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(missing.code()).isEqualTo(ApiErrorCode.COURSE_NOT_FOUND);
+
+        when(repository.findActiveByIdForUpdate(COURSE_ID))
+            .thenReturn(Optional.of(course(CourseStatus.DRAFT)));
+        ApiException forbidden = catchThrowableOfType(
+            () -> service.deleteDraft(COURSE_ID, otherInstitutionAdmin()),
+            ApiException.class
+        );
+        assertThat(forbidden.status()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        // MAIN 으로 배정되지 않은 같은 기관 강사도 지울 수 없다(수정 권한과 같다)
+        ApiException notMain = catchThrowableOfType(
+            () -> service.deleteDraft(COURSE_ID, instructor(INSTITUTION_ID)),
+            ApiException.class
+        );
+        assertThat(notMain.status()).isEqualTo(HttpStatus.FORBIDDEN);
+        verify(repository, never()).softDeleteDraft(any(), any());
+    }
+
     private UpdateCourseCommand allAbsent() {
         return new UpdateCourseCommand(
             COURSE_ID,
@@ -340,6 +484,22 @@ class CourseListUpdateLifecycleServiceTest {
         );
     }
 
+    @Test
+    void 취소하면_수강_정리_리스너를_부르고_다른_전환에서는_부르지_않는다() {
+        when(repository.findActiveById(COURSE_ID))
+            .thenReturn(Optional.of(course(CourseStatus.RECRUITING)));
+        when(repository.updateActive(any())).thenReturn(true);
+
+        service.update(commandWithStatus(CourseStatus.CANCELLED), sameInstitutionAdmin());
+
+        verify(cancelledListener).onCourseCancelled(eq(COURSE_ID), eq(INSTITUTION_ID), eq(FIXED_INSTANT));
+
+        when(repository.findActiveById(COURSE_ID))
+            .thenReturn(Optional.of(course(CourseStatus.RECRUITMENT_CLOSED)));
+        service.update(commandWithStatus(CourseStatus.IN_PROGRESS), sameInstitutionAdmin());
+        verify(cancelledListener, org.mockito.Mockito.times(1)).onCourseCancelled(any(), any(), any());
+    }
+
     private UpdateCourseCommand commandWithStatus(CourseStatus status) {
         return new UpdateCourseCommand(
             COURSE_ID,
@@ -361,7 +521,7 @@ class CourseListUpdateLifecycleServiceTest {
             "COURSE-001",
             "기존 과정",
             "상세 설명",
-            "개발",
+            "TSIX_040201",
             CourseEducationType.HYBRID,
             LocalDate.of(2026, 9, 1),
             LocalDate.of(2026, 10, 31),
@@ -377,6 +537,18 @@ class CourseListUpdateLifecycleServiceTest {
             FIXED_INSTANT,
             null
         );
+    }
+
+    private AuthenticatedUserContext globalPlatformAdmin() {
+        return context(new AuthenticatedRole("PLATFORM_ADMIN", null));
+    }
+
+    private AuthenticatedUserContext instructor(UUID institutionId) {
+        return context(new AuthenticatedRole("INSTRUCTOR", institutionId));
+    }
+
+    private AuthenticatedUserContext learner() {
+        return context(new AuthenticatedRole("LEARNER", INSTITUTION_ID));
     }
 
     private AuthenticatedUserContext sameInstitutionAdmin() {

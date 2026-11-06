@@ -16,11 +16,17 @@ public interface InstitutionJoinApplicationMapper {
 
     List<InstitutionJoinApplicationRow> selectPage(
         @Param("status") String status,
+        @Param("applicantUserId") UUID applicantUserId,
         @Param("limit") int limit,
         @Param("offset") int offset
     );
 
-    long count(@Param("status") String status);
+    long count(
+        @Param("status") String status,
+        @Param("applicantUserId") UUID applicantUserId
+    );
+
+    boolean existsPendingByApplicant(@Param("applicantUserId") UUID applicantUserId);
 
     int updateDecision(
         @Param("row") InstitutionJoinApplicationRow row,

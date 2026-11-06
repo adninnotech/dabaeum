@@ -6,6 +6,7 @@ import com.adn.dabaeum.course.domain.CourseStatus;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonSetter;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -20,11 +21,11 @@ public final class CourseUpdateRequest {
 
     @Size(max = 50)
     private String courseCode;
-    @Size(max = 200)
+    @Size(max = 60)
     private String title;
     private String description;
-    @Size(max = 100)
-    private String category;
+    @Size(max = 11)
+    private String classificationCode;
     private CourseEducationType educationType;
     private LocalDate startDate;
     private LocalDate endDate;
@@ -42,11 +43,13 @@ public final class CourseUpdateRequest {
     private BigDecimal creditValue;
     private CourseStatus status;
     private UUID thumbnailFileId;
+    @Valid
+    private CourseDetailPayload detail;
 
     private boolean courseCodePresent;
     private boolean titlePresent;
     private boolean descriptionPresent;
-    private boolean categoryPresent;
+    private boolean classificationCodePresent;
     private boolean educationTypePresent;
     private boolean startDatePresent;
     private boolean endDatePresent;
@@ -59,6 +62,7 @@ public final class CourseUpdateRequest {
     private boolean creditValuePresent;
     private boolean statusPresent;
     private boolean thumbnailFileIdPresent;
+    private boolean detailPresent;
 
     public CourseUpdateRequest() {
     }
@@ -69,8 +73,8 @@ public final class CourseUpdateRequest {
     public void setTitle(String value) { titlePresent = true; title = value; }
     @JsonSetter("description")
     public void setDescription(String value) { descriptionPresent = true; description = value; }
-    @JsonSetter("category")
-    public void setCategory(String value) { categoryPresent = true; category = value; }
+    @JsonSetter("classificationCode")
+    public void setCategory(String value) { classificationCodePresent = true; classificationCode = value; }
     @JsonSetter("educationType")
     public void setEducationType(CourseEducationType value) { educationTypePresent = true; educationType = value; }
     @JsonSetter("startDate")
@@ -95,11 +99,13 @@ public final class CourseUpdateRequest {
     public void setStatus(CourseStatus value) { statusPresent = true; status = value; }
     @JsonSetter("thumbnailFileId")
     public void setThumbnailFileId(UUID value) { thumbnailFileIdPresent = true; thumbnailFileId = value; }
+    @JsonSetter("detail")
+    public void setDetail(CourseDetailPayload value) { detailPresent = true; detail = value; }
 
     public CourseUpdateField<String> courseCodeUpdate() { return field(courseCodePresent, courseCode); }
     public CourseUpdateField<String> titleUpdate() { return field(titlePresent, title); }
     public CourseUpdateField<String> descriptionUpdate() { return field(descriptionPresent, description); }
-    public CourseUpdateField<String> categoryUpdate() { return field(categoryPresent, category); }
+    public CourseUpdateField<String> classificationCodeUpdate() { return field(classificationCodePresent, classificationCode); }
     public CourseUpdateField<CourseEducationType> educationTypeUpdate() { return field(educationTypePresent, educationType); }
     public CourseUpdateField<LocalDate> startDateUpdate() { return field(startDatePresent, startDate); }
     public CourseUpdateField<LocalDate> endDateUpdate() { return field(endDatePresent, endDate); }
@@ -112,15 +118,17 @@ public final class CourseUpdateRequest {
     public CourseUpdateField<BigDecimal> creditValueUpdate() { return field(creditValuePresent, creditValue); }
     public CourseUpdateField<CourseStatus> statusUpdate() { return field(statusPresent, status); }
     public CourseUpdateField<UUID> thumbnailFileIdUpdate() { return field(thumbnailFileIdPresent, thumbnailFileId); }
+    public CourseUpdateField<CourseDetailPayload> detailUpdate() { return field(detailPresent, detail); }
 
     @JsonIgnore
     @AssertTrue(message = "at least one field is required")
     public boolean isNotEmpty() {
-        return courseCodePresent || titlePresent || descriptionPresent || categoryPresent
+        return courseCodePresent || titlePresent || descriptionPresent || classificationCodePresent
             || educationTypePresent || startDatePresent || endDatePresent
             || recruitStartDatePresent || recruitEndDatePresent || capacityPresent
             || locationPresent || onlineUrlPresent || creditBankEligiblePresent
-            || creditValuePresent || statusPresent || thumbnailFileIdPresent;
+            || creditValuePresent || statusPresent || thumbnailFileIdPresent
+            || detailPresent;
     }
 
     @JsonIgnore

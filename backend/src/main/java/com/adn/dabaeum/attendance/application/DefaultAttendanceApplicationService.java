@@ -1,7 +1,9 @@
 package com.adn.dabaeum.attendance.application;
 
 import com.adn.dabaeum.attendance.domain.Attendance;
+import com.adn.dabaeum.attendance.domain.AttendanceLearner;
 import com.adn.dabaeum.attendance.domain.AttendanceAdjustment;
+import com.adn.dabaeum.attendance.domain.AttendanceAdjustmentEntry;
 import com.adn.dabaeum.attendance.domain.AttendanceAdjustmentRepository;
 import com.adn.dabaeum.attendance.domain.AttendanceMethod;
 import com.adn.dabaeum.attendance.domain.AttendancePageCriteria;
@@ -13,10 +15,11 @@ import com.adn.dabaeum.attendance.domain.AttendanceStatus;
 import com.adn.dabaeum.authorization.application.AuthorizationPolicy;
 import com.adn.dabaeum.common.api.ApiErrorCode;
 import com.adn.dabaeum.common.api.ApiException;
+import com.adn.dabaeum.common.api.SortParameter;
 import com.adn.dabaeum.common.security.AuthenticatedUserContext;
+import com.adn.dabaeum.course.application.CourseInstructorAssignments;
 import com.adn.dabaeum.course.domain.Course;
 import com.adn.dabaeum.course.domain.CourseInstructorRepository;
-import com.adn.dabaeum.course.domain.CourseInstructorRole;
 import com.adn.dabaeum.course.domain.CourseRepository;
 import com.adn.dabaeum.course.domain.CourseSession;
 import com.adn.dabaeum.course.domain.CourseSessionRepository;
@@ -26,9 +29,11 @@ import com.adn.dabaeum.enrollment.domain.EnrollmentStatus;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -43,7 +48,6 @@ public class DefaultAttendanceApplicationService implements AttendanceApplicatio
     private final CourseRepository courseRepository;
     private final CourseInstructorRepository instructorRepository;
     private final EnrollmentRepository enrollmentRepository;
-    private final AttendanceQrTokenApplicationService qrTokenService;
     private final AuthorizationPolicy authorizationPolicy;
     private final Clock clock;
     private final AttendanceIdGenerator idGenerator;
@@ -56,14 +60,13 @@ public class DefaultAttendanceApplicationService implements AttendanceApplicatio
         CourseRepository courseRepository,
         CourseInstructorRepository instructorRepository,
         EnrollmentRepository enrollmentRepository,
-        AttendanceQrTokenApplicationService qrTokenService,
         AuthorizationPolicy authorizationPolicy,
         Clock clock,
         AttendanceIdGenerator idGenerator
     ) {
         this(attendanceRepository, sessionRepository, courseRepository, instructorRepository,
-            enrollmentRepository, qrTokenService, authorizationPolicy, clock, idGenerator,
-            null, null);
+            enrollmentRepository, authorizationPolicy, clock,
+            idGenerator, null, null);
     }
 
     @Autowired
@@ -73,7 +76,6 @@ public class DefaultAttendanceApplicationService implements AttendanceApplicatio
         CourseRepository courseRepository,
         CourseInstructorRepository instructorRepository,
         EnrollmentRepository enrollmentRepository,
-        AttendanceQrTokenApplicationService qrTokenService,
         AuthorizationPolicy authorizationPolicy,
         Clock clock,
         AttendanceIdGenerator idGenerator,
@@ -85,7 +87,6 @@ public class DefaultAttendanceApplicationService implements AttendanceApplicatio
         this.courseRepository = Objects.requireNonNull(courseRepository);
         this.instructorRepository = Objects.requireNonNull(instructorRepository);
         this.enrollmentRepository = Objects.requireNonNull(enrollmentRepository);
-        this.qrTokenService = Objects.requireNonNull(qrTokenService);
         this.authorizationPolicy = Objects.requireNonNull(authorizationPolicy);
         this.clock = Objects.requireNonNull(clock);
         this.idGenerator = Objects.requireNonNull(idGenerator);
@@ -99,10 +100,27 @@ public class DefaultAttendanceApplicationService implements AttendanceApplicatio
         RecordAttendanceCommand command,
         AuthenticatedUserContext context
     ) {
+        // 다대구 출결은 로그인 없이 DID로 본인을 증명하는 별도 경로만 만든다.
+        if (command != null && command.attendanceMethod() == AttendanceMethod.QR_DADAEGU) {
+            throw new ApiException(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                ApiErrorCode.ATTENDANCE_METHOD_NOT_SUPPORTED,
+                "Dadaegu attendance must use /sessions/{sessionId}/attendance/dadaegu"
+            );
+        }
+        // 일반 QR 은 닫았다. attendUrl 의 토큰만 있으면 현장에 없어도 본인 계정으로 찍혔다.
+        // 다대구 회원은 /attend(QR_DADAEGU), 그 밖은 강사·관리자가 ADMIN 으로 기록한다.
+        if (command != null && command.attendanceMethod() == AttendanceMethod.QR) {
+            throw new ApiException(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                ApiErrorCode.ATTENDANCE_METHOD_NOT_SUPPORTED,
+                "QR attendance is closed; use the Dadaegu attend flow or instructor recording"
+            );
+        }
         validateCommand(command);
         if (command.attendanceMethod() == AttendanceMethod.EXTERNAL) {
             throw new ApiException(
-                HttpStatus.UNPROCESSABLE_ENTITY,
+                HttpStatus.UNPROCESSABLE_CONTENT,
                 ApiErrorCode.ATTENDANCE_METHOD_NOT_SUPPORTED,
                 "External attendance is not supported"
             );
@@ -114,38 +132,61 @@ public class DefaultAttendanceApplicationService implements AttendanceApplicatio
         requireApprovedSameCourse(session, enrollment);
         Instant now = clock.instant();
 
-        UUID qrTokenId = null;
-        Instant checkedAt = command.checkedAt();
-        if (command.attendanceMethod() == AttendanceMethod.QR) {
-            if (!Objects.equals(context == null ? null : context.userId(), enrollment.userId())) {
-                throw forbidden();
-            }
-            ValidatedAttendanceQrToken validated = qrTokenService.validate(
-                command.qrToken(), session.id());
-            if (!session.id().equals(validated.sessionId())) {
-                throw qrInvalid();
-            }
-            checkedAt = now;
-            qrTokenId = validated.tokenId();
-        } else {
-            requireManager(context, course);
-        }
+        requireManager(context, course);
 
         rejectDuplicate(command.sessionId(), command.enrollmentId());
+        Instant checkedAt = command.checkedAt();
+        return insert(session, enrollment, null, command.attendanceMethod(),
+            command.status(), command.source(), checkedAt == null ? now : checkedAt,
+            context == null ? null : context.userId(), now);
+    }
+
+    /**
+     * 학생 폰이 QR(URL)을 찍어 다대구 앱 인증을 마치면 서버가 대신 부른다. 로그인 컨텍스트가 없으므로
+     * "그 학생이 맞다"는 다대구 DID 가, "그 강의실에 있었다"는 강사 QR 토큰이 증명한다.
+     *
+     * <p>토큰은 학생이 찍는 순간 이미 검증됐고 그 결과를 받아 온다. 여기서 다시 검증하지 않는다 —
+     * 그 사이 토큰은 서버 메모리에만 있어 바뀔 수 없고, 다시 보면 인증에 시간을 끈 학생이
+     * 만료로 거부된다(TTL 30초 < 폴링 90초).
+     *
+     * <p>createdBy 는 토큰 발급자(강사). 학생은 로그인하지 않아 남길 주체가 이것뿐이다.
+     */
+    @Override
+    @Transactional
+    public Attendance recordDadaegu(RecordDadaeguAttendanceCommand command) {
+        if (command == null || command.userId() == null || command.qrToken() == null) {
+            throw validation("requestBody");
+        }
+        ValidatedAttendanceQrToken token = command.qrToken();
+        CourseSession session = findSession(token.sessionId());
+        Course course = findCourse(session.courseId());
+        // 학생은 로그인하지 않으므로 DID 로 확인된 사용자의 활성 수강신청을 서버가 찾는다.
+        // (course_id, user_id) 활성 부분 유니크 인덱스가 있어 결과는 최대 1건이다.
+        Enrollment enrollment = enrollmentRepository
+            .findActiveByCourseIdAndUserId(course.id(), command.userId())
+            .orElseThrow(this::enrollmentNotFound);
+        requireApprovedSameCourse(session, enrollment);
+        rejectDuplicate(session.id(), enrollment.id());
+        Instant now = clock.instant();
+        return insert(session, enrollment, token.tokenId(), AttendanceMethod.QR_DADAEGU,
+            AttendanceStatus.PRESENT, AttendanceSource.APP, now, token.issuedBy(), now);
+    }
+
+    private Attendance insert(
+        CourseSession session,
+        Enrollment enrollment,
+        UUID qrTokenId,
+        AttendanceMethod method,
+        AttendanceStatus status,
+        AttendanceSource source,
+        Instant checkedAt,
+        UUID createdBy,
+        Instant now
+    ) {
         Attendance attendance = new Attendance(
             Objects.requireNonNull(idGenerator.generate(), "generated id"),
-            course.id(),
-            session.id(),
-            enrollment.id(),
-            qrTokenId,
-            command.attendanceMethod(),
-            command.status(),
-            checkedAt == null ? now : checkedAt,
-            command.source(),
-            context == null ? null : context.userId(),
-            now,
-            now
-        );
+            session.courseId(), session.id(), enrollment.id(), qrTokenId,
+            method, status, checkedAt, source, createdBy, now, now);
         try {
             attendanceRepository.save(attendance);
         } catch (DataIntegrityViolationException exception) {
@@ -190,12 +231,16 @@ public class DefaultAttendanceApplicationService implements AttendanceApplicatio
         List<Attendance> data = attendanceRepository.findBySession(query.sessionId(), criteria);
         long total = attendanceRepository.countBySession(query.sessionId());
         int totalPages = total == 0 ? 0 : Math.toIntExact(((total - 1) / query.size()) + 1);
-        return new AttendancePage(data, query.page(), query.size(), total, totalPages);
+        Map<UUID, AttendanceLearner> learners = attendanceRepository.findLearners(
+                data.stream().map(Attendance::enrollmentId).distinct().toList())
+            .stream()
+            .collect(Collectors.toMap(AttendanceLearner::enrollmentId, Function.identity()));
+        return new AttendancePage(data, query.page(), query.size(), total, totalPages, learners);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Attendance get(UUID attendanceId, AuthenticatedUserContext context) {
+    public AttendanceDetail get(UUID attendanceId, AuthenticatedUserContext context) {
         if (attendanceId == null) {
             throw validation("attendanceId");
         }
@@ -203,11 +248,11 @@ public class DefaultAttendanceApplicationService implements AttendanceApplicatio
             .orElseThrow(this::attendanceNotFound);
         CourseSession session = findSession(attendance.sessionId());
         Course course = findCourse(session.courseId());
-        Enrollment enrollment = findEnrollment(attendance.enrollmentId());
-        boolean instructorAssigned = isAssignedInstructor(context, course, false);
-        authorizationPolicy.requireEnrollmentSubjectOrReader(
-            context, enrollment.userId(), course.institutionId(), instructorAssigned);
-        return attendance;
+        requireSubjectOrReader(context, findEnrollment(attendance.enrollmentId()), course);
+        List<AttendanceAdjustmentEntry> adjustments = adjustmentRepository == null
+            ? List.of()
+            : adjustmentRepository.findEntriesByAttendanceId(attendanceId);
+        return new AttendanceDetail(attendance, adjustments);
     }
 
     @Override
@@ -253,10 +298,7 @@ public class DefaultAttendanceApplicationService implements AttendanceApplicatio
             throw validation("enrollmentId");
         }
         Enrollment enrollment = findEnrollment(enrollmentId);
-        Course course = findCourse(enrollment.courseId());
-        boolean instructorAssigned = isAssignedInstructor(context, course, false);
-        authorizationPolicy.requireEnrollmentSubjectOrReader(
-            context, enrollment.userId(), course.institutionId(), instructorAssigned);
+        requireSubjectOrReader(context, enrollment, findCourse(enrollment.courseId()));
         return metricsQuery.calculate(enrollmentId, clock.instant());
     }
 
@@ -266,14 +308,7 @@ public class DefaultAttendanceApplicationService implements AttendanceApplicatio
             || command.source() == null) {
             throw validation("requestBody");
         }
-        if (command.attendanceMethod() == AttendanceMethod.QR) {
-            if (command.qrToken() == null || command.qrToken().isBlank()
-                || command.source() != AttendanceSource.APP
-                || command.status() != AttendanceStatus.PRESENT
-                || command.checkedAt() != null) {
-                throw validation("requestBody");
-            }
-        } else if (command.attendanceMethod() == AttendanceMethod.ADMIN) {
+        if (command.attendanceMethod() == AttendanceMethod.ADMIN) {
             if (command.qrToken() != null || command.source() != AttendanceSource.ADMIN_WEB) {
                 throw validation("requestBody");
             }
@@ -323,20 +358,23 @@ public class DefaultAttendanceApplicationService implements AttendanceApplicatio
             context, course.institutionId(), assigned);
     }
 
+    private void requireSubjectOrReader(
+        AuthenticatedUserContext context,
+        Enrollment enrollment,
+        Course course
+    ) {
+        boolean assigned = isAssignedInstructor(context, course, false);
+        authorizationPolicy.requireEnrollmentSubjectOrReader(
+            context, enrollment.userId(), course.institutionId(), assigned);
+    }
+
     private boolean isAssignedInstructor(
         AuthenticatedUserContext context,
         Course course,
         boolean mainOnly
     ) {
-        if (context == null || context.roles().stream().noneMatch(role ->
-            "INSTRUCTOR".equals(role.role())
-                && Objects.equals(role.institutionId(), course.institutionId()))) {
-            return false;
-        }
-        return mainOnly
-            ? instructorRepository.existsByCourseIdAndUserIdAndRole(
-                course.id(), context.userId(), CourseInstructorRole.MAIN)
-            : instructorRepository.existsByCourseIdAndUserId(course.id(), context.userId());
+        return CourseInstructorAssignments.isAssigned(
+            instructorRepository, context, course, mainOnly);
     }
 
     private CourseSession findSession(UUID id) {
@@ -352,34 +390,17 @@ public class DefaultAttendanceApplicationService implements AttendanceApplicatio
     }
 
     private String[] splitSort(String value) {
-        if (value == null) {
-            throw badRequest("sort");
-        }
-        String[] parts = value.split(",", -1);
-        if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
-            throw badRequest("sort");
-        }
-        return parts;
+        return SortParameter.split(value).orElseThrow(() -> badRequest("sort"));
     }
 
     private ApiException validation(String field) {
-        return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+        return new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
             ApiErrorCode.VALIDATION_FAILED, "Request validation failed", List.of(field));
     }
 
     private ApiException badRequest(String field) {
         return new ApiException(HttpStatus.BAD_REQUEST,
             ApiErrorCode.BAD_REQUEST, "Request parameter is invalid", List.of(field));
-    }
-
-    private ApiException forbidden() {
-        return new ApiException(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN,
-            "Attendance subject scope is not allowed");
-    }
-
-    private ApiException qrInvalid() {
-        return new ApiException(HttpStatus.CONFLICT, ApiErrorCode.ATTENDANCE_QR_INVALID,
-            "Attendance QR token is invalid");
     }
 
     private ApiException attendanceConflict() {

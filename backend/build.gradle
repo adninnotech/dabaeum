@@ -30,12 +30,20 @@ sourceSets {
         compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
         runtimeClasspath += output + compileClasspath
     }
+    openbaoTest {
+        java.setSrcDirs(['src/openbaoTest/java'])
+        resources.setSrcDirs(['src/openbaoTest/resources'])
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
 }
 
 configurations {
     asciidoctorExt
     integrationTestImplementation.extendsFrom testImplementation
     integrationTestRuntimeOnly.extendsFrom testRuntimeOnly
+    openbaoTestImplementation.extendsFrom testImplementation
+    openbaoTestRuntimeOnly.extendsFrom testRuntimeOnly
 }
 
 dependencies {
@@ -45,9 +53,12 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-jdbc'
     implementation libs.mybatis.starter
-    implementation libs.jasypt.spring.boot.starter
     implementation libs.sshd.core
     implementation libs.springdoc.ui
+    implementation libs.jsoup
+    // OpenBao Transit 클라이언트 (ADR-0006). BOM 이 spring-vault-core 4.0.3 을 고정한다.
+    implementation platform(libs.spring.cloud.dependencies)
+    implementation libs.spring.vault.core
 
     implementation 'org.springframework.boot:spring-boot-starter-flyway'
     runtimeOnly 'org.flywaydb:flyway-database-postgresql'
@@ -66,18 +77,10 @@ dependencies {
 
 }
 
-tasks.named('processResources') {
-    from('docs/api') {
-        include 'dabaeum-api-v1.yaml'
-        into 'META-INF/dabaeum/openapi'
-    }
-    from('docs/api') {
-        include 'dabaeum-frontend-api-flow.md'
-        into 'META-INF/dabaeum/api-guide'
-    }
-    from('docs/api/guide') {
-        include 'index.html', 'api-guide.css', 'api-guide.js'
-        into 'META-INF/dabaeum/api-guide'
+tasks.withType(JavaExec) {
+    if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+        // Windows 환경에서 경로가 너무 길어지는 현상 방지
+        modularity.inferModulePath = true
     }
 }
 
@@ -100,6 +103,8 @@ tasks.withType(ProcessResources).configureEach {
 }
 
 tasks.withType(Test).configureEach {
+    // 기본 힙에서는 OpenAPI 계약 파싱 중 GC 가 시간을 대부분 잡아먹는다.
+    maxHeapSize = '2g'
     doFirst { removeAppleDoubleFiles() }
 }
 
@@ -118,6 +123,18 @@ tasks.register('integrationTest', Test) {
     useJUnitPlatform()
     shouldRunAfter tasks.test
     maxParallelForks = 1
+}
+
+// 실 OpenBao 대상. BAO_ADDR·BAO_TOKEN 이 없으면 테스트가 스스로 건너뛴다. check 에 넣지 않는다.
+tasks.register('openbaoTest', Test) {
+    description = 'Runs tests against a real OpenBao (BAO_ADDR, BAO_TOKEN).'
+    group = 'verification'
+    testClassesDirs = sourceSets.openbaoTest.output.classesDirs
+    classpath = sourceSets.openbaoTest.runtimeClasspath
+    useJUnitPlatform()
+    shouldRunAfter tasks.test
+    // 환경변수는 태스크 입력이 아니라서 UP-TO-DATE 로 건너뛰는 것을 막는다. 실 서버 대상이라 매번 돈다.
+    outputs.upToDateWhen { false }
 }
 
 tasks.named('asciidoctor') {

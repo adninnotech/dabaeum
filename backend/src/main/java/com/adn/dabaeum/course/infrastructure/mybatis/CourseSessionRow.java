@@ -14,6 +14,7 @@ public record CourseSessionRow(
     Instant attendanceClosesAt,
     String status,
     Instant createdAt,
-    Instant updatedAt
+    Instant updatedAt,
+    String topic
 ) {
 }

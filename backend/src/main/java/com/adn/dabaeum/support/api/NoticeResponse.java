@@ -12,6 +12,8 @@ public record NoticeResponse(
     NoticeAudience audience,
     NoticeStatus status,
     Instant publishedAt,
+    /** 작성자 이름. 작성자 행을 못 찾으면 null 이다. */
+    String authorName,
     Instant createdAt,
     Instant updatedAt
 ) {

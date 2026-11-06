@@ -1,33 +1,47 @@
 package com.adn.dabaeum.authentication.api;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.adn.dabaeum.authentication.application.ChangePasswordCommand;
 import com.adn.dabaeum.authentication.application.LocalAccountApplicationService;
 import com.adn.dabaeum.authentication.application.LocalAuthResult;
+import com.adn.dabaeum.common.api.ApiErrorCode;
+import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
+import com.adn.dabaeum.common.security.AuthenticatedUserPrincipal;
 import com.adn.dabaeum.common.web.RequestIdFilter;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 @WebMvcTest(LocalAccountController.class)
 @ActiveProfiles("local")
@@ -38,6 +52,7 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
@@ -67,7 +82,10 @@ class LocalAccountControllerTest {
                       "password": "learning-2026!",
                       "name": "홍길동",
                       "phone": "010-1234-5678",
-                      "birthDate": "1995-05-10"
+                      "birthDate": "1995-05-10",
+                      "agreedToUsage": true,
+                      "agreedToPrivacy": true,
+                      "agreedToMarketing": false
                     }
                     """))
             .andExpect(status().isCreated())
@@ -117,6 +135,8 @@ class LocalAccountControllerTest {
                       "email": "learner@example.com",
                       "password": "learning-2026!",
                       "name": "홍길동",
+                      "agreedToUsage": true,
+                      "agreedToPrivacy": true,
                       "institutionId": "22222222-2222-2222-2222-222222222222"
                     }
                     """))
@@ -130,6 +150,104 @@ class LocalAccountControllerTest {
                     """))
             .andExpect(status().isUnprocessableEntity())
             .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void signupRejectsEmailWithoutDottedDomainBeforeTheService() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/signup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "email": "a@b",
+                      "password": "learning-2026!",
+                      "name": "홍길동",
+                      "agreedToUsage": true,
+                      "agreedToPrivacy": true
+                    }
+                    """))
+            .andExpect(status().isUnprocessableEntity())
+            .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+            .andExpect(jsonPath("$.details[0]").value("email"));
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void changePasswordChangesOwnPasswordAndReturnsSuccessEnvelope() throws Exception {
+        mockMvc.perform(put("/api/v1/users/me/password")
+                .with(principal(USER_ID, "USER"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"currentPassword": "current-pass1",
+                     "newPassword": "new-password1"}
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.reset").value(true));
+
+        Mockito.verify(service).changePassword(
+            new ChangePasswordCommand(USER_ID, "current-pass1", "new-password1"));
+    }
+
+    @Test
+    void 요청의_userId_는_무시되고_로그인_사용자만_바뀐다() throws Exception {
+        mockMvc.perform(put("/api/v1/users/me/password")
+                .with(principal(USER_ID, "USER"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"currentPassword": "current-pass1",
+                     "newPassword": "new-password1",
+                     "userId": "00000000-0000-0000-0000-000000000099"}
+                    """))
+            .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void changePasswordMapsWrongCurrentPasswordTo401() throws Exception {
+        Mockito.doThrow(new ApiException(
+                HttpStatus.UNAUTHORIZED,
+                ApiErrorCode.AUTHENTICATION_FAILED,
+                "Authentication failed"))
+            .when(service).changePassword(any());
+
+        mockMvc.perform(put("/api/v1/users/me/password")
+                .with(principal(USER_ID, "USER"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"currentPassword": "wrong-pass1",
+                     "newPassword": "new-password1"}
+                    """))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("AUTHENTICATION_FAILED"));
+    }
+
+    @Test
+    void changePasswordMapsMissingLocalAccountTo404() throws Exception {
+        // 다대구 DID 로만 가입한 사용자는 로컬 자격증명이 없다.
+        Mockito.doThrow(new ApiException(
+                HttpStatus.NOT_FOUND,
+                ApiErrorCode.IDENTITY_NOT_FOUND,
+                "Local account not found"))
+            .when(service).changePassword(any());
+
+        mockMvc.perform(put("/api/v1/users/me/password")
+                .with(principal(USER_ID, "USER"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"currentPassword": "current-pass1",
+                     "newPassword": "new-password1"}
+                    """))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.code").value("IDENTITY_NOT_FOUND"));
+    }
+
+    private RequestPostProcessor principal(
+        UUID userId,
+        String role
+    ) {
+        return authentication(new UsernamePasswordAuthenticationToken(
+            new AuthenticatedUserPrincipal(userId, Set.of("ROLE_" + role)),
+            "N/A",
+            Set.of(new SimpleGrantedAuthority("ROLE_" + role))
+        ));
     }
 
     private LocalAuthResult result() {

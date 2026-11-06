@@ -63,6 +63,7 @@ class EnrollmentLifecycleServiceTest {
     @Mock UserRepository userRepository;
     @Mock UserRoleRepository userRoleRepository;
     @Mock CourseInstructorRepository instructorRepository;
+    @Mock com.adn.dabaeum.course.domain.CourseSessionRepository sessionRepository;
 
     private EnrollmentApplicationService service;
     private Course course;
@@ -72,6 +73,10 @@ class EnrollmentLifecycleServiceTest {
         service = new DefaultEnrollmentApplicationService(
             enrollmentRepository, courseRepository, userRepository, userRoleRepository,
             instructorRepository, () -> UUID.randomUUID(), new AuthorizationPolicy(),
+            new EnrollmentDecisionAuthority(instructorRepository, new AuthorizationPolicy()),
+            new EnrollmentWithdrawalPolicy(sessionRepository,
+                new com.adn.dabaeum.enrollment.config.EnrollmentWithdrawalProperties(
+                    java.time.Duration.ofHours(24))),
             Clock.fixed(NOW, ZoneOffset.UTC));
         course = course(1);
         when(courseRepository.findActiveById(COURSE_ID)).thenReturn(Optional.of(course));
@@ -148,6 +153,124 @@ class EnrollmentLifecycleServiceTest {
         assertThat(withdrawn.status()).isEqualTo(EnrollmentStatus.WITHDRAWN);
         assertThat(withdrawn.approvedAt()).isEqualTo(approved.approvedAt());
         assertThat(withdrawn.withdrawnAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void 이수_평가나_확정이_있으면_누구도_철회할_수_없다() {
+        approvedEnrollment();
+        when(enrollmentRepository.hasCompletionDecision(ENROLLMENT_ID)).thenReturn(true);
+
+        for (AuthenticatedUserContext context : List.of(learnerContext(), managerContext())) {
+            assertThatThrownBy(() -> service.withdraw(ENROLLMENT_ID, context))
+                .isInstanceOfSatisfying(ApiException.class, error -> {
+                    assertThat(error.status()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
+                    assertThat(error.code())
+                        .isEqualTo(ApiErrorCode.ENROLLMENT_WITHDRAW_AFTER_COMPLETION);
+                });
+        }
+        verify(enrollmentRepository, never()).updateState(any(), any());
+    }
+
+    @Test
+    void 출석했으면_학습자는_직접_철회할_수_없고_관리자는_철회할_수_있다() {
+        approvedEnrollment();
+        when(enrollmentRepository.hasAttendance(ENROLLMENT_ID)).thenReturn(true);
+        when(enrollmentRepository.updateState(any(), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.withdraw(ENROLLMENT_ID, learnerContext()))
+            .isInstanceOfSatisfying(ApiException.class, error -> {
+                assertThat(error.status()).isEqualTo(org.springframework.http.HttpStatus.FORBIDDEN);
+                assertThat(error.code())
+                    .isEqualTo(ApiErrorCode.ENROLLMENT_WITHDRAW_REQUIRES_MANAGER);
+            });
+        verify(enrollmentRepository, never()).updateState(any(), any());
+
+        Enrollment withdrawn = service.withdraw(ENROLLMENT_ID, managerContext());
+        assertThat(withdrawn.status()).isEqualTo(EnrollmentStatus.WITHDRAWN);
+    }
+
+    @Test
+    void 수업_시작_24시간_전이_지나면_학습자는_철회할_수_없고_관리자는_할_수_있다() {
+        approvedEnrollment();
+        // 첫 회차가 12시간 뒤 → 본인 철회 마감(24시간 전)은 이미 지났다
+        Instant firstSession = NOW.plus(java.time.Duration.ofHours(12));
+        when(sessionRepository.findFirstActiveStartByCourseId(COURSE_ID))
+            .thenReturn(Optional.of(firstSession));
+        when(enrollmentRepository.updateState(any(), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.withdraw(ENROLLMENT_ID, learnerContext()))
+            .isInstanceOfSatisfying(ApiException.class, error -> {
+                assertThat(error.code())
+                    .isEqualTo(ApiErrorCode.ENROLLMENT_WITHDRAW_REQUIRES_MANAGER);
+                assertThat(error.details()).containsExactly(
+                    "selfWithdrawDeadline=" + firstSession.minus(java.time.Duration.ofHours(24)));
+            });
+        verify(enrollmentRepository, never()).hasAttendance(any());
+
+        assertThat(service.withdraw(ENROLLMENT_ID, managerContext()).status())
+            .isEqualTo(EnrollmentStatus.WITHDRAWN);
+    }
+
+    @Test
+    void 마감_전이고_출석이_없으면_학습자가_철회할_수_있다() {
+        approvedEnrollment();
+        when(sessionRepository.findFirstActiveStartByCourseId(COURSE_ID))
+            .thenReturn(Optional.of(NOW.plus(java.time.Duration.ofHours(25))));
+        when(enrollmentRepository.updateState(any(), any())).thenReturn(true);
+
+        assertThat(service.withdraw(ENROLLMENT_ID, learnerContext()).status())
+            .isEqualTo(EnrollmentStatus.WITHDRAWN);
+    }
+
+    @Test
+    void 모집_마감일이_지난_과정은_신청을_거부한다() {
+        LocalDate today = NOW.atZone(java.time.ZoneId.of("Asia/Seoul")).toLocalDate();
+        Course ended = new Course(COURSE_ID, INSTITUTION_ID, "COURSE-1", "과정", null, null,
+            CourseEducationType.HYBRID, LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1),
+            null, today.minusDays(1), 10, null, null, false, (BigDecimal) null,
+            CourseStatus.RECRUITING, NOW, NOW, null);
+        when(courseRepository.findActiveById(COURSE_ID)).thenReturn(Optional.of(ended));
+        when(courseRepository.findActiveByIdForUpdate(COURSE_ID)).thenReturn(Optional.of(ended));
+        when(userRoleRepository.findByUserId(LEARNER_ID)).thenReturn(List.of(
+            new com.adn.dabaeum.role.domain.UserRoleAssignment(UUID.randomUUID(), LEARNER_ID,
+                null, com.adn.dabaeum.role.domain.UserRole.LEARNER, NOW)));
+
+        assertThatThrownBy(() -> service.createSelf(
+            new com.adn.dabaeum.enrollment.application.CreateEnrollmentCommand(
+                COURSE_ID, LEARNER_ID, EnrollmentApplicationType.SELF),
+            learnerContext()))
+            .isInstanceOf(ApiException.class)
+            .satisfies(error -> assertThat(((ApiException) error).code())
+                .isEqualTo(ApiErrorCode.COURSE_RECRUITMENT_ENDED));
+        verify(enrollmentRepository, never()).save(any());
+    }
+
+    @Test
+    void 모집_마감일_당일까지는_신청을_받는다() {
+        LocalDate today = NOW.atZone(java.time.ZoneId.of("Asia/Seoul")).toLocalDate();
+        Course open = new Course(COURSE_ID, INSTITUTION_ID, "COURSE-1", "과정", null, null,
+            CourseEducationType.HYBRID, LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1),
+            null, today, 10, null, null, false, (BigDecimal) null,
+            CourseStatus.RECRUITING, NOW, NOW, null);
+        when(courseRepository.findActiveById(COURSE_ID)).thenReturn(Optional.of(open));
+        when(courseRepository.findActiveByIdForUpdate(COURSE_ID)).thenReturn(Optional.of(open));
+        when(userRoleRepository.findByUserId(LEARNER_ID)).thenReturn(List.of(
+            new com.adn.dabaeum.role.domain.UserRoleAssignment(UUID.randomUUID(), LEARNER_ID,
+                null, com.adn.dabaeum.role.domain.UserRole.LEARNER, NOW)));
+
+        Enrollment created = service.createSelf(
+            new com.adn.dabaeum.enrollment.application.CreateEnrollmentCommand(
+                COURSE_ID, LEARNER_ID, EnrollmentApplicationType.SELF),
+            learnerContext());
+
+        assertThat(created.status()).isEqualTo(EnrollmentStatus.APPLIED);
+    }
+
+    private void approvedEnrollment() {
+        Enrollment approved = enrollment(EnrollmentStatus.APPROVED);
+        when(enrollmentRepository.findById(ENROLLMENT_ID)).thenReturn(Optional.of(approved));
+        when(enrollmentRepository.findByIdForUpdate(ENROLLMENT_ID))
+            .thenReturn(Optional.of(approved));
     }
 
     @Test

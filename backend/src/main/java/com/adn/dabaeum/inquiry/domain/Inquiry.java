@@ -15,7 +15,8 @@ public record Inquiry(
     UUID answeredBy,
     Instant answeredAt,
     Instant createdAt,
-    Instant updatedAt
+    Instant updatedAt,
+    InquiryType type
 ) {
 
     public Inquiry {
@@ -30,6 +31,7 @@ public record Inquiry(
         Objects.requireNonNull(status, "status");
         Objects.requireNonNull(createdAt, "createdAt");
         Objects.requireNonNull(updatedAt, "updatedAt");
+        Objects.requireNonNull(type, "type");
         if (status == InquiryStatus.ANSWERED
             && (answer == null || answeredBy == null || answeredAt == null)) {
             throw new IllegalArgumentException(

@@ -9,6 +9,7 @@ import com.adn.dabaeum.support.domain.NoticeStatus;
 import com.adn.dabaeum.support.domain.TermsContent;
 import com.adn.dabaeum.support.domain.TermsContentRepository;
 import com.adn.dabaeum.support.domain.TermsType;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -37,26 +38,36 @@ public class SupportMyBatisRepositories
     }
 
     @Override
-    public List<Notice> findPublishedPage(NoticeAudience audience, int limit, int offset) {
+    public List<Notice> findPublishedPage(
+        NoticeAudience audience, int limit, int offset, Instant now
+    ) {
         return mapper.selectPublishedNotices(
-                audience == null ? null : audience.name(), limit, offset)
+                audience == null ? null : audience.name(), limit, offset, now)
             .stream().map(this::toDomain).toList();
     }
 
     @Override
-    public long countPublished(NoticeAudience audience) {
-        return mapper.countPublishedNotices(audience == null ? null : audience.name());
+    public long countPublished(NoticeAudience audience, Instant now) {
+        return mapper.countPublishedNotices(audience == null ? null : audience.name(), now);
     }
 
     @Override
-    public List<Notice> findAdminPage(int limit, int offset) {
-        return mapper.selectAdminNotices(limit, offset)
+    public List<Notice> findAdminPage(
+        int limit, int offset, String keyword, NoticeAudience audience, NoticeStatus status
+    ) {
+        return mapper.selectAdminNoticesFiltered(
+                limit, offset, keyword,
+                audience == null ? null : audience.name(),
+                status == null ? null : status.name())
             .stream().map(this::toDomain).toList();
     }
 
     @Override
-    public long countAll() {
-        return mapper.countAllNotices();
+    public long countAll(String keyword, NoticeAudience audience, NoticeStatus status) {
+        return mapper.countAllNoticesFiltered(
+            keyword,
+            audience == null ? null : audience.name(),
+            status == null ? null : status.name());
     }
 
     @Override
@@ -78,6 +89,13 @@ public class SupportMyBatisRepositories
     }
 
     @Override
+    public void save(TermsContent terms) {
+        mapper.insertTermsContent(new TermsContentRow(
+            terms.id(), terms.type().name(), terms.title(), terms.body(),
+            terms.version(), terms.createdAt(), terms.updatedAt()));
+    }
+
+    @Override
     public List<CommonCode> findByGroup(String codeGroup) {
         return mapper.selectCodesByGroup(codeGroup).stream()
             .map(row -> new CommonCode(
@@ -90,6 +108,8 @@ public class SupportMyBatisRepositories
         return new NoticeRow(
             notice.id(), notice.title(), notice.body(), notice.audience().name(),
             notice.status().name(), notice.publishedAt(), notice.createdBy(),
+            // authorName 은 조회 전용이라 insert/update 행에는 넣지 않는다.
+            null,
             notice.createdAt(), notice.updatedAt());
     }
 
@@ -98,6 +118,7 @@ public class SupportMyBatisRepositories
             row.id(), row.title(), row.body(),
             NoticeAudience.valueOf(row.audience()),
             NoticeStatus.valueOf(row.status()),
-            row.publishedAt(), row.createdBy(), row.createdAt(), row.updatedAt());
+            row.publishedAt(), row.createdBy(), row.authorName(),
+            row.createdAt(), row.updatedAt());
     }
 }

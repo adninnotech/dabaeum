@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.adn.dabaeum.nft.infrastructure.mybatis.NftIssuanceMapper">
+
+    <resultMap id="issuance" type="com.adn.dabaeum.nft.domain.NftIssuance">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="target_type" javaType="com.adn.dabaeum.nft.domain.NftTargetType"/>
+            <arg column="target_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="status" javaType="com.adn.dabaeum.nft.domain.NftIssuanceStatus"/>
+            <arg column="contract_address" javaType="java.lang.String"/>
+            <arg column="metadata_uri" javaType="java.lang.String"/>
+            <arg column="metadata_json" javaType="java.lang.String"/>
+            <arg column="metadata_hash" javaType="java.lang.String"/>
+            <arg column="fact_hash" javaType="java.lang.String"/>
+            <arg column="token_index" javaType="java.lang.Long"/>
+            <arg column="block_height" javaType="java.lang.Long"/>
+            <arg column="confirmed_at" javaType="java.time.Instant"/>
+            <arg column="retry_count" javaType="_int"/>
+            <arg column="next_attempt_at" javaType="java.time.Instant"/>
+            <arg column="error_code" javaType="java.lang.String"/>
+            <arg column="revoked_at" javaType="java.time.Instant"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="columns">id, target_type, target_id, status, contract_address, metadata_uri, metadata_json,
+        metadata_hash, fact_hash, token_index, block_height, confirmed_at, retry_count, next_attempt_at,
+        error_code, revoked_at, created_at, updated_at</sql>
+    <sql id="targetColumns">target.id, target.target_type, target.target_id, target.status,
+        target.contract_address, target.metadata_uri, target.metadata_json, target.metadata_hash,
+        target.fact_hash, target.token_index, target.block_height, target.confirmed_at, target.retry_count,
+        target.next_attempt_at, target.error_code, target.revoked_at, target.created_at, target.updated_at</sql>
+
+    <insert id="insertIfAbsent">
+        INSERT INTO tb_nft_issuances (<include refid="columns"/>)
+        VALUES (#{id}, #{targetType}, #{targetId}, #{status}, #{contractAddress}, #{metadataUri},
+                #{metadataJson}, #{metadataHash}, #{factHash}, #{tokenIndex}, #{blockHeight}, #{confirmedAt},
+                #{retryCount}, #{nextAttemptAt}, #{errorCode}, #{revokedAt}, #{createdAt}, #{updatedAt})
+        ON CONFLICT (target_type, target_id) DO NOTHING
+    </insert>
+
+    <select id="selectById" resultMap="issuance">
+        SELECT <include refid="columns"/> FROM tb_nft_issuances WHERE id = #{id}
+    </select>
+
+    <!-- 잠근 대기 건을 한 문장으로 전송 중으로 바꾼다. 여러 워커가 같은 건을 집지 않는다. -->
+    <select id="claimDue" flushCache="true" resultMap="issuance">
+        WITH due AS (
+            SELECT id FROM tb_nft_issuances
+             WHERE status = 'PENDING'
+               AND (next_attempt_at IS NULL OR next_attempt_at &lt;= #{now})
+             ORDER BY created_at, id
+             LIMIT #{limit}
+             FOR UPDATE SKIP LOCKED
+        )
+        UPDATE tb_nft_issuances target
+           SET status = 'SUBMITTING',
+               contract_address = CASE target.target_type
+                   WHEN 'BADGE' THEN #{badgeContract} ELSE #{credentialContract} END,
+               next_attempt_at = NULL,
+               updated_at = #{now}
+          FROM due WHERE target.id = due.id
+        RETURNING <include refid="targetColumns"/>
+    </select>
+
+    <select id="selectByStatus" flushCache="true" resultMap="issuance">
+        SELECT <include refid="columns"/> FROM tb_nft_issuances
+         WHERE status = #{status}
+         ORDER BY updated_at, id
+         LIMIT #{limit}
+    </select>
+
+    <select id="selectStaleSubmitting" flushCache="true" resultMap="issuance">
+        SELECT <include refid="columns"/> FROM tb_nft_issuances
+         WHERE status = 'SUBMITTING' AND updated_at &lt;= #{before}
+         ORDER BY updated_at, id
+         LIMIT #{limit}
+    </select>
+
+    <!-- 기대 상태일 때만 바꾼다. 0 행이면 다른 워커가 먼저 바꿨다. -->
+    <update id="updateFrom">
+        UPDATE tb_nft_issuances
+           SET status = #{next.status},
+               contract_address = #{next.contractAddress},
+               metadata_uri = #{next.metadataUri},
+               metadata_json = #{next.metadataJson},
+               metadata_hash = #{next.metadataHash},
+               fact_hash = #{next.factHash},
+               token_index = #{next.tokenIndex},
+               block_height = #{next.blockHeight},
+               confirmed_at = #{next.confirmedAt},
+               retry_count = #{next.retryCount},
+               next_attempt_at = #{next.nextAttemptAt},
+               error_code = #{next.errorCode},
+               updated_at = #{next.updatedAt}
+         WHERE id = #{next.id} AND status = #{expected}
+    </update>
+
+    <!-- 진척 없는 건을 확인 순서 뒤로 보낸다. 같은 오래된 건만 반복해서 보지 않게 한다. -->
+    <update id="touch">
+        UPDATE tb_nft_issuances SET updated_at = #{now} WHERE id = #{id} AND status = #{expected}
+    </update>
+
+    <!-- 폐기·대체된 수료증, 폐기된 배지. 체인 처리 단계와 상관없이 폐기 시각만 적는다.
+         updated_at 은 바꾸지 않는다(전송 중 정체 판정과 확인 순서에 영향을 주지 않도록). -->
+    <update id="markRevokedTargets">
+        UPDATE tb_nft_issuances n
+           SET revoked_at = #{now}
+         WHERE n.revoked_at IS NULL
+           AND ((n.target_type = 'CREDENTIAL' AND EXISTS (
+                    SELECT 1 FROM tb_credentials c
+                     WHERE c.id = n.target_id AND c.status IN ('REVOKED', 'SUPERSEDED')))
+             OR (n.target_type = 'BADGE' AND EXISTS (
+                    SELECT 1 FROM tb_learning_badges b
+                     WHERE b.id = n.target_id AND b.status = 'REVOKED')))
+    </update>
+
+    <update id="cancelRevokedBeforeSubmit">
+        UPDATE tb_nft_issuances
+           SET status = 'CANCELLED', next_attempt_at = NULL, updated_at = #{now}
+         WHERE revoked_at IS NOT NULL AND status IN ('PENDING', 'WAITING_DOMAIN')
+    </update>
+</mapper>

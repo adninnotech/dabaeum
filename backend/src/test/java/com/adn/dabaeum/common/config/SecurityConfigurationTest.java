@@ -1,6 +1,5 @@
 package com.adn.dabaeum.common.config;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -10,7 +9,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.adn.dabaeum.common.web.RequestIdFilter;
-import com.adn.dabaeum.common.api.FrontendApiGuideController;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -32,8 +30,8 @@ import org.springframework.web.bind.annotation.RestController;
     SecurityConfiguration.class,
     ClockConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     RequestIdFilter.class,
-    FrontendApiGuideController.class,
     SecurityConfigurationTest.ProbeController.class
 })
 class SecurityConfigurationTest {
@@ -42,12 +40,7 @@ class SecurityConfigurationTest {
     MockMvc mockMvc;
 
     @Test
-    void frontendApiGuideIsPublicWithoutChangingProtectedApiRules()
-        throws Exception {
-        mockMvc.perform(get("/api-guide/index.html"))
-            .andExpect(status().isOk());
-        mockMvc.perform(get("/api-guide/dabaeum-frontend-api-flow.md"))
-            .andExpect(status().isOk());
+    void protectedApiRequiresAuthentication() throws Exception {
         mockMvc.perform(get("/api/v1/institutions"))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
@@ -98,18 +91,36 @@ class SecurityConfigurationTest {
             .andExpect(status().isOk());
     }
 
+    /** 강좌 찾기·상세 화면은 로그인 전에도 열린다. DRAFT 를 가리는 것은 서비스가 한다. */
     @Test
-    void courseGetWithoutAuthenticationReturnsUnauthorized() throws Exception {
-        mockMvc.perform(get("/api/v1/courses/22222222-2222-2222-2222-222222222222"))
-            .andExpect(status().isUnauthorized())
-            .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    void courseCatalogReadsArePublic() throws Exception {
+        String courseId = "22222222-2222-2222-2222-222222222222";
+        mockMvc.perform(get("/api/v1/courses")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/courses/{courseId}", courseId)).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/courses/{courseId}/sessions", courseId))
+            .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/courses/{courseId}/instructors", courseId))
+            .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/courses/{courseId}/reviews", courseId))
+            .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/courses/{courseId}/reviews/summary", courseId))
+            .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/course-classifications")).andExpect(status().isOk());
     }
 
+    /** 공개 범위는 강좌 찾기·상세뿐이다. 신청·문의·첨부·회차 단건은 계속 로그인이 필요하다. */
     @Test
-    void courseListWithoutAuthenticationReturnsUnauthorized() throws Exception {
-        mockMvc.perform(get("/api/v1/courses"))
+    void courseReadsOutsideCatalogStillRequireAuthentication() throws Exception {
+        String courseId = "22222222-2222-2222-2222-222222222222";
+        mockMvc.perform(get("/api/v1/courses/{courseId}/enrollments", courseId))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        mockMvc.perform(get("/api/v1/courses/{courseId}/inquiries", courseId))
+            .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/courses/{courseId}/attachments", courseId))
+            .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/sessions/{sessionId}", courseId))
+            .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -139,16 +150,16 @@ class SecurityConfigurationTest {
                 "22222222-2222-2222-2222-222222222222")
                 .with(user("manager").roles("INSTITUTION_ADMIN")))
             .andExpect(status().isOk());
-    }
 
-    @Test
-    void courseSessionReadRequiresAuthentication() throws Exception {
-        mockMvc.perform(get("/api/v1/courses/{courseId}/sessions",
-                "22222222-2222-2222-2222-222222222222"))
-            .andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/api/v1/sessions/{sessionId}",
-                "22222222-2222-2222-2222-222222222222"))
-            .andExpect(status().isUnauthorized());
+        // 강사는 강좌 수정까지 통과한다(MAIN 배정 여부는 서비스가 본다). 게시·마감은 관리자만.
+        mockMvc.perform(put("/api/v1/courses/{courseId}",
+                "22222222-2222-2222-2222-222222222222")
+                .with(user("instructor").roles("INSTRUCTOR")))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/courses/{courseId}/publish",
+                "22222222-2222-2222-2222-222222222222")
+                .with(user("instructor").roles("INSTRUCTOR")))
+            .andExpect(status().isForbidden());
     }
 
     @Test
@@ -186,7 +197,7 @@ class SecurityConfigurationTest {
     }
 
     @Test
-    void attendanceRecordAllowsAuthenticatedLearnerAndRejectsAnonymousOrRegularUser() throws Exception {
+    void attendanceRecordAllowsManagersAndInstructorsButNotLearners() throws Exception {
         String sessionId = "22222222-2222-2222-2222-222222222222";
         String attendanceId = "33333333-3333-3333-3333-333333333333";
         mockMvc.perform(get("/api/v1/sessions/{sessionId}/attendance", sessionId))
@@ -194,8 +205,12 @@ class SecurityConfigurationTest {
         mockMvc.perform(post("/api/v1/sessions/{sessionId}/attendance", sessionId)
                 .with(user("regular-user").roles("USER")))
             .andExpect(status().isForbidden());
+        // 학습자 일반 QR 은 닫혔다. 이 경로는 수동(ADMIN) 기록 전용이다.
         mockMvc.perform(post("/api/v1/sessions/{sessionId}/attendance", sessionId)
                 .with(user("learner").roles("LEARNER")))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/v1/sessions/{sessionId}/attendance", sessionId)
+                .with(user("instructor").roles("INSTRUCTOR")))
             .andExpect(status().isOk());
         mockMvc.perform(get("/api/v1/sessions/{sessionId}/attendance", sessionId)
                 .with(user("learner").roles("LEARNER")))
@@ -352,6 +367,36 @@ class SecurityConfigurationTest {
         @GetMapping("/api/v1/courses/{courseId}/sessions")
         ResponseEntity<String> courseSessions() {
             return ResponseEntity.ok("COURSE_SESSIONS");
+        }
+
+        @GetMapping("/api/v1/courses/{courseId}/instructors")
+        ResponseEntity<String> courseInstructors() {
+            return ResponseEntity.ok("COURSE_INSTRUCTORS");
+        }
+
+        @GetMapping("/api/v1/courses/{courseId}/reviews")
+        ResponseEntity<String> courseReviews() {
+            return ResponseEntity.ok("COURSE_REVIEWS");
+        }
+
+        @GetMapping("/api/v1/courses/{courseId}/reviews/summary")
+        ResponseEntity<String> courseReviewSummary() {
+            return ResponseEntity.ok("COURSE_REVIEW_SUMMARY");
+        }
+
+        @GetMapping("/api/v1/courses/{courseId}/inquiries")
+        ResponseEntity<String> courseInquiries() {
+            return ResponseEntity.ok("COURSE_INQUIRIES");
+        }
+
+        @GetMapping("/api/v1/courses/{courseId}/attachments")
+        ResponseEntity<String> courseAttachments() {
+            return ResponseEntity.ok("COURSE_ATTACHMENTS");
+        }
+
+        @GetMapping("/api/v1/course-classifications")
+        ResponseEntity<String> courseClassifications() {
+            return ResponseEntity.ok("COURSE_CLASSIFICATIONS");
         }
 
         @PostMapping("/api/v1/courses/{courseId}/sessions")

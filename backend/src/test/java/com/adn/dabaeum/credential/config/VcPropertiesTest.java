@@ -10,9 +10,9 @@ class VcPropertiesTest {
     @Test
     void normalizesAbsoluteHttpBaseUrlAndKeepsVersions() {
         VcProperties properties = new VcProperties(
-            "http://vc.example.org:8080/", "v1", "development-1");
+            "http://118.45.182.100:8080/", "v1", "development-1");
 
-        assertThat(properties.publicBaseUrl()).isEqualTo("http://vc.example.org:8080");
+        assertThat(properties.publicBaseUrl()).isEqualTo("http://118.45.182.100:8080");
         assertThat(properties.contextVersion()).isEqualTo("v1");
         assertThat(properties.keyVersion()).isEqualTo("development-1");
     }

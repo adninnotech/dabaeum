@@ -6,6 +6,7 @@ import com.adn.dabaeum.attendance.application.AdjustAttendanceCommand;
 import com.adn.dabaeum.attendance.application.AttendanceApplicationService;
 import com.adn.dabaeum.attendance.domain.Attendance;
 import com.adn.dabaeum.attendance.domain.AttendanceAdjustment;
+import com.adn.dabaeum.attendance.domain.AttendanceAdjustmentEntry;
 import com.adn.dabaeum.attendance.domain.AttendanceAdjustmentRepository;
 import com.adn.dabaeum.attendance.domain.AttendanceMethod;
 import com.adn.dabaeum.attendance.domain.AttendanceRepository;
@@ -56,6 +57,17 @@ class AttendanceAdjustmentIntegrationTest extends RemotePostgresIntegrationTestS
         assertThat(history.get(1).afterStatus()).isEqualTo(AttendanceStatus.EXCUSED);
         assertThat(attendanceRepository.findById(original.id()))
             .get().extracting(Attendance::status).isEqualTo(AttendanceStatus.EXCUSED);
+
+        String managerName = jdbcTemplate.queryForObject(
+            "SELECT name FROM tb_users WHERE id = ?", String.class, fixture.managerId());
+        List<AttendanceAdjustmentEntry> entries =
+            adjustmentRepository.findEntriesByAttendanceId(original.id());
+        assertThat(entries).extracting(AttendanceAdjustmentEntry::reason)
+            .containsExactly("현장 확인 2", "현장 확인 1");
+        assertThat(entries).extracting(AttendanceAdjustmentEntry::adjustedByName)
+            .containsOnly(managerName);
+        assertThat(entries.get(0).fromStatus()).isEqualTo(AttendanceStatus.LATE);
+        assertThat(entries.get(0).toStatus()).isEqualTo(AttendanceStatus.EXCUSED);
     }
 
     private Fixture fixture() {

@@ -6,6 +6,7 @@ import java.util.UUID;
 public record NoticeSummaryResponse(
     UUID id,
     String title,
-    Instant publishedAt
+    Instant publishedAt,
+    String authorName
 ) {
 }

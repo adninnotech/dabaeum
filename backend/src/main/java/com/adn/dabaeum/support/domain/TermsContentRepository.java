@@ -5,4 +5,6 @@ import java.util.Optional;
 public interface TermsContentRepository {
 
     Optional<TermsContent> findLatestByType(TermsType type);
+
+    void save(TermsContent terms);
 }

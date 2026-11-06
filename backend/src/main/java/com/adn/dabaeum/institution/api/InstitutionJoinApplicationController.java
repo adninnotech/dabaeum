@@ -74,13 +74,22 @@ public class InstitutionJoinApplicationController {
         HttpServletRequest servletRequest
     ) {
         validatePaging(page, size);
-        InstitutionJoinApplicationPage result = service.list(
-            currentUserProvider.requireContext(), parseStatus(status), page, size);
-        return new InstitutionJoinApplicationPageResponse(
-            result.data().stream().map(this::toResponse).toList(),
-            new PageMeta(result.page(), result.size(),
-                result.totalElements(), result.totalPages()),
-            meta(requestId(servletRequest)));
+        return toPageResponse(service.list(
+            currentUserProvider.requireContext(), parseStatus(status), page, size),
+            servletRequest);
+    }
+
+    @GetMapping("/institution-applications/me")
+    public InstitutionJoinApplicationPageResponse listMine(
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "20") int size,
+        @RequestParam(required = false) String status,
+        HttpServletRequest servletRequest
+    ) {
+        validatePaging(page, size);
+        return toPageResponse(service.listMine(
+            currentUserProvider.requireContext(), parseStatus(status), page, size),
+            servletRequest);
     }
 
     @GetMapping("/institution-applications/{applicationId}")
@@ -184,6 +193,16 @@ public class InstitutionJoinApplicationController {
         }
     }
 
+    private InstitutionJoinApplicationPageResponse toPageResponse(
+        InstitutionJoinApplicationPage result, HttpServletRequest servletRequest
+    ) {
+        return new InstitutionJoinApplicationPageResponse(
+            result.data().stream().map(this::toResponse).toList(),
+            new PageMeta(result.page(), result.size(),
+                result.totalElements(), result.totalPages()),
+            meta(requestId(servletRequest)));
+    }
+
     private InstitutionJoinApplicationResponse toResponse(
         InstitutionJoinApplication application
     ) {
@@ -205,7 +224,7 @@ public class InstitutionJoinApplicationController {
 
     private ApiException validation(List<String> fields) {
         return new ApiException(
-            HttpStatus.UNPROCESSABLE_ENTITY, ApiErrorCode.VALIDATION_FAILED,
+            HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.VALIDATION_FAILED,
             "Request validation failed", fields);
     }
 

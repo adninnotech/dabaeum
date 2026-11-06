@@ -71,6 +71,74 @@
          ORDER BY created_at ASC, id ASC
     </select>
 
+
+    <resultMap
+        id="userRoleSummaryRowResultMap"
+        type="com.adn.dabaeum.role.infrastructure.mybatis.UserRoleSummaryRow">
+        <constructor>
+            <arg
+                column="user_id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="role" javaType="java.lang.String"/>
+            <arg
+                column="institution_id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="institution_name" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <!--
+        회원 목록이 행마다 역할을 다시 묻지 않도록 페이지의 user_id 를 한 번에 조회한다.
+        기관명은 화면이 바로 쓰도록 여기서 붙인다. 전역 역할(PLATFORM_ADMIN)은 기관이
+        없으므로 LEFT JOIN 이어야 행이 사라지지 않는다.
+        foreach 항목은 실제 값 타입(java.util.UUID)으로 해석되고 MyBatis 기본 registry 에는
+        UUID 핸들러가 없어 typeHandler 를 명시해야 한다. InstitutionMapper.selectByIds 와 같다.
+    -->
+    <select
+        id="selectSummariesByUserIds"
+        resultMap="userRoleSummaryRowResultMap">
+        SELECT r.user_id,
+               r.role,
+               r.institution_id,
+               i.name AS institution_name
+          FROM tb_user_roles r
+          LEFT JOIN tb_institutions i ON i.id = r.institution_id
+         WHERE r.user_id IN
+        <foreach item="id" collection="ids" open="(" separator="," close=")">
+            #{id, javaType=java.util.UUID,
+              typeHandler=org.apache.ibatis.type.ObjectTypeHandler}
+        </foreach>
+         ORDER BY r.created_at ASC, r.id ASC
+    </select>
+
+    <resultMap
+        id="institutionAdministratorRowResultMap"
+        type="com.adn.dabaeum.role.infrastructure.mybatis.InstitutionAdministratorRow">
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="email" javaType="java.lang.String"/>
+            <arg column="phone" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <!-- 기관 상세 전용. 목록에서 행마다 부르면 N+1 이 되므로 상세 한 번만 부른다. -->
+    <select
+        id="selectInstitutionAdministrators"
+        resultMap="institutionAdministratorRowResultMap">
+        SELECT u.id, u.name, u.email, u.phone
+          FROM tb_user_roles r
+          JOIN tb_users u ON u.id = r.user_id
+         WHERE r.institution_id = #{institutionId}
+           AND r.role = 'INSTITUTION_ADMIN'
+         ORDER BY r.created_at ASC, r.id ASC
+    </select>
+
     <select
         id="selectByUserIdAndInstitution"
         resultMap="userRoleRowResultMap">

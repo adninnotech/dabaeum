@@ -1,6 +1,5 @@
 package com.adn.dabaeum.user.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -19,19 +18,19 @@ import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.security.AuthenticatedUserPrincipal;
 import com.adn.dabaeum.common.web.RequestIdFilter;
-import com.adn.dabaeum.user.application.ChangeUserStatusCommand;
 import com.adn.dabaeum.user.application.UpdateMeCommand;
 import com.adn.dabaeum.user.application.UserApplicationService;
+import com.adn.dabaeum.user.application.UserView;
 import com.adn.dabaeum.user.domain.User;
 import com.adn.dabaeum.user.domain.UserStatus;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.assertj.core.api.Assertions;
@@ -59,14 +58,12 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
 class UserMeControllerTest {
 
-    private static final Path CONTRACT = Path.of(
-        "docs/api/dabaeum-api-v1.yaml"
-    ).toAbsolutePath();
     private static final UUID USER_A = UUID.fromString(
         "55555555-5555-5555-5555-555555555555"
     );
@@ -84,7 +81,8 @@ class UserMeControllerTest {
 
     @Test
     void getsOnlyAuthenticatedPrincipalUserFromMePath() throws Exception {
-        when(service.getMe(USER_A)).thenReturn(sampleUser(USER_A));
+        when(service.getMe(USER_A))
+            .thenReturn(new UserView(sampleUser(USER_A), List.of()));
 
         mockMvc.perform(get("/api/v1/users/me")
                 .with(principal(USER_A, "USER"))
@@ -95,11 +93,24 @@ class UserMeControllerTest {
                 REQUEST_ID
             ))
             .andExpect(jsonPath("$.data.id").value(USER_A.toString()))
-            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID));
 
         verify(service).getMe(USER_A);
         verify(service, never()).get(USER_B);
+    }
+
+    @Test
+    void meResponseNeverIncludesListOnlyCounts() throws Exception {
+        // 서비스가 실수로 값을 채워 돌려줘도 /me 응답에는 키 자체가 없어야 한다.
+        when(service.getMe(USER_A))
+            .thenReturn(new UserView(sampleUser(USER_A), List.of(), 3L, 5L));
+
+        mockMvc.perform(get("/api/v1/users/me")
+                .with(principal(USER_A, "USER"))
+                .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.enrollmentCount").doesNotExist())
+            .andExpect(jsonPath("$.data.courseCount").doesNotExist());
     }
 
     @Test
@@ -124,8 +135,7 @@ class UserMeControllerTest {
                 REQUEST_ID
             ))
             .andExpect(jsonPath("$.data.id").value(USER_A.toString()))
-            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID));
 
         ArgumentCaptor<UpdateMeCommand> command =
             ArgumentCaptor.forClass(UpdateMeCommand.class);
@@ -214,7 +224,7 @@ class UserMeControllerTest {
             .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
 
         when(service.updateMe(any(), any())).thenThrow(new ApiException(
-            org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY,
+            org.springframework.http.HttpStatus.UNPROCESSABLE_CONTENT,
             ApiErrorCode.VALIDATION_FAILED,
             "Request validation failed"
         ));

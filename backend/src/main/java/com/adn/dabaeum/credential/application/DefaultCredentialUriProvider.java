@@ -11,10 +11,25 @@ public final class DefaultCredentialUriProvider implements CredentialUriProvider
     private static final Pattern CREDENTIAL_NUMBER =
         Pattern.compile("^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$");
 
+    private static final String VC_PATH = "/api/v1/vc/";
+
     private final VcProperties properties;
 
     public DefaultCredentialUriProvider(VcProperties properties) {
         this.properties = Objects.requireNonNull(properties, "properties");
+    }
+
+    @Override
+    public CredentialUriProvider forSignedUrl(String signedUrl) {
+        if (signedUrl == null) {
+            return this;
+        }
+        return properties.pastPublicBaseUrls().stream()
+            .filter(base -> signedUrl.startsWith(base + VC_PATH))
+            .findFirst()
+            .<CredentialUriProvider>map(base -> new DefaultCredentialUriProvider(
+                new VcProperties(base, properties.contextVersion(), properties.keyVersion())))
+            .orElse(this);
     }
 
     @Override
@@ -31,7 +46,7 @@ public final class DefaultCredentialUriProvider implements CredentialUriProvider
 
     @Override
     public String issuerUrl(UUID institutionId) {
-        return properties.publicBaseUrl() + "/api/v1/vc/issuers/"
+        return properties.publicBaseUrl() + VC_PATH + "issuers/"
             + Objects.requireNonNull(institutionId, "institutionId");
     }
 

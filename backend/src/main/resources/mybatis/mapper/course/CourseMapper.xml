@@ -21,7 +21,7 @@
             <arg column="course_code" javaType="java.lang.String"/>
             <arg column="title" javaType="java.lang.String"/>
             <arg column="description" javaType="java.lang.String"/>
-            <arg column="category" javaType="java.lang.String"/>
+            <arg column="classification_code" javaType="java.lang.String"/>
             <arg column="education_type" javaType="java.lang.String"/>
             <arg column="start_date" javaType="java.time.LocalDate"/>
             <arg column="end_date" javaType="java.time.LocalDate"/>
@@ -38,8 +38,104 @@
             <arg column="deleted_at" javaType="java.time.Instant"/>
             <arg column="thumbnail_file_id" javaType="java.util.UUID"
                 typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="tags" javaType="java.lang.String"/>
+            <arg column="target_audiences" javaType="java.lang.String"/>
+            <arg column="instructor_profile_visible" javaType="java.lang.Boolean"/>
+            <arg column="tuition_type" javaType="java.lang.String"/>
+            <arg column="tuition_amount" javaType="java.math.BigDecimal"/>
+            <arg column="material_fee_type" javaType="java.lang.String"/>
+            <arg column="material_fee_amount" javaType="java.math.BigDecimal"/>
+            <arg column="completion_enabled" javaType="java.lang.Boolean"/>
+            <arg column="completion_criteria" javaType="java.lang.String"/>
+            <arg column="required_progress_rate" javaType="java.lang.Integer"/>
+            <arg column="issue_certificate" javaType="java.lang.Boolean"/>
+            <arg column="notes" javaType="java.lang.String"/>
+            <arg column="materials" javaType="java.lang.String"/>
+            <arg column="learning_objective" javaType="java.lang.String"/>
+            <arg column="selection_method" javaType="java.lang.String"/>
+            <arg column="waitlist_capacity" javaType="java.lang.Integer"/>
         </constructor>
     </resultMap>
+
+    <sql id="courseColumns">
+        id, institution_id, course_code, title, description, classification_code,
+        education_type, start_date, end_date, recruit_start_date, recruit_end_date,
+        capacity, location, online_url, credit_bank_eligible, credit_value,
+        status, created_at, updated_at, deleted_at, thumbnail_file_id,
+        tags, target_audiences, instructor_profile_visible,
+        tuition_type, tuition_amount, material_fee_type, material_fee_amount,
+        completion_enabled, completion_criteria, required_progress_rate, issue_certificate,
+        notes, materials, learning_objective, selection_method, waitlist_capacity
+    </sql>
+
+    <resultMap
+        id="courseViewRowResultMap"
+        type="com.adn.dabaeum.course.infrastructure.mybatis.CourseViewRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg
+                column="institution_id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_code" javaType="java.lang.String"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="description" javaType="java.lang.String"/>
+            <arg column="classification_code" javaType="java.lang.String"/>
+            <arg column="education_type" javaType="java.lang.String"/>
+            <arg column="start_date" javaType="java.time.LocalDate"/>
+            <arg column="end_date" javaType="java.time.LocalDate"/>
+            <arg column="recruit_start_date" javaType="java.time.LocalDate"/>
+            <arg column="recruit_end_date" javaType="java.time.LocalDate"/>
+            <arg column="capacity" javaType="java.lang.Integer"/>
+            <arg column="location" javaType="java.lang.String"/>
+            <arg column="online_url" javaType="java.lang.String"/>
+            <arg column="credit_bank_eligible" javaType="java.lang.Boolean"/>
+            <arg column="credit_value" javaType="java.math.BigDecimal"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+            <arg column="deleted_at" javaType="java.time.Instant"/>
+            <arg column="thumbnail_file_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="tags" javaType="java.lang.String"/>
+            <arg column="target_audiences" javaType="java.lang.String"/>
+            <arg column="instructor_profile_visible" javaType="java.lang.Boolean"/>
+            <arg column="tuition_type" javaType="java.lang.String"/>
+            <arg column="tuition_amount" javaType="java.math.BigDecimal"/>
+            <arg column="material_fee_type" javaType="java.lang.String"/>
+            <arg column="material_fee_amount" javaType="java.math.BigDecimal"/>
+            <arg column="completion_enabled" javaType="java.lang.Boolean"/>
+            <arg column="completion_criteria" javaType="java.lang.String"/>
+            <arg column="required_progress_rate" javaType="java.lang.Integer"/>
+            <arg column="issue_certificate" javaType="java.lang.Boolean"/>
+            <arg column="notes" javaType="java.lang.String"/>
+            <arg column="materials" javaType="java.lang.String"/>
+            <arg column="learning_objective" javaType="java.lang.String"/>
+            <arg column="selection_method" javaType="java.lang.String"/>
+            <arg column="waitlist_capacity" javaType="java.lang.Integer"/>
+            <arg column="enrolled_count" javaType="java.lang.Long"/>
+            <arg column="institution_name" javaType="java.lang.String"/>
+            <arg column="main_instructor_name" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="courseViewColumns">
+        <include refid="courseColumns"/>,
+        (SELECT COUNT(*) FROM tb_enrollments en
+          WHERE en.course_id = tb_courses.id
+            AND en.status = 'APPROVED') AS enrolled_count,
+        (SELECT i.name FROM tb_institutions i
+          WHERE i.id = tb_courses.institution_id) AS institution_name,
+        (SELECT u.name FROM tb_course_instructors ci
+           JOIN tb_users u ON u.id = ci.user_id
+          WHERE ci.course_id = tb_courses.id
+            AND ci.instructor_role = 'MAIN'
+          ORDER BY ci.assigned_at ASC LIMIT 1) AS main_instructor_name
+    </sql>
 
     <insert id="insert">
         INSERT INTO tb_courses (
@@ -48,7 +144,7 @@
             course_code,
             title,
             description,
-            category,
+            classification_code,
             education_type,
             start_date,
             end_date,
@@ -63,14 +159,30 @@
             created_at,
             updated_at,
             deleted_at,
-            thumbnail_file_id
+            thumbnail_file_id,
+            tags,
+            target_audiences,
+            instructor_profile_visible,
+            tuition_type,
+            tuition_amount,
+            material_fee_type,
+            material_fee_amount,
+            completion_enabled,
+            completion_criteria,
+            required_progress_rate,
+            issue_certificate,
+            notes,
+            materials,
+            learning_objective,
+            selection_method,
+            waitlist_capacity
         ) VALUES (
             #{id},
             #{institutionId},
             #{courseCode},
             #{title},
             #{description, jdbcType=VARCHAR},
-            #{category, jdbcType=VARCHAR},
+            #{classificationCode, jdbcType=VARCHAR},
             #{educationType},
             #{startDate},
             #{endDate},
@@ -85,7 +197,23 @@
             #{createdAt},
             #{updatedAt},
             #{deletedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
-            #{thumbnailFileId, jdbcType=OTHER}
+            #{thumbnailFileId, jdbcType=OTHER},
+            #{tags, jdbcType=VARCHAR},
+            #{targetAudiences, jdbcType=VARCHAR},
+            #{instructorProfileVisible},
+            #{tuitionType},
+            #{tuitionAmount, jdbcType=DECIMAL},
+            #{materialFeeType},
+            #{materialFeeAmount, jdbcType=DECIMAL},
+            #{completionEnabled},
+            #{completionCriteria, jdbcType=VARCHAR},
+            #{requiredProgressRate, jdbcType=INTEGER},
+            #{issueCertificate},
+            #{notes, jdbcType=VARCHAR},
+            #{materials, jdbcType=VARCHAR},
+            #{learningObjective, jdbcType=VARCHAR},
+            #{selectionMethod},
+            #{waitlistCapacity, jdbcType=INTEGER}
         )
     </insert>
 
@@ -93,55 +221,13 @@
         id="selectById"
         flushCache="true"
         resultMap="courseRowResultMap">
-        SELECT
-            id,
-            institution_id,
-            course_code,
-            title,
-            description,
-            category,
-            education_type,
-            start_date,
-            end_date,
-            recruit_start_date,
-            recruit_end_date,
-            capacity,
-            location,
-            online_url,
-            credit_bank_eligible,
-            credit_value,
-            status,
-            created_at,
-            updated_at,
-            deleted_at,
-            thumbnail_file_id
+        SELECT <include refid="courseColumns"/>
         FROM tb_courses
         WHERE id = #{id}
     </select>
 
     <select id="selectActiveById" resultMap="courseRowResultMap">
-        SELECT
-            id,
-            institution_id,
-            course_code,
-            title,
-            description,
-            category,
-            education_type,
-            start_date,
-            end_date,
-            recruit_start_date,
-            recruit_end_date,
-            capacity,
-            location,
-            online_url,
-            credit_bank_eligible,
-            credit_value,
-            status,
-            created_at,
-            updated_at,
-            deleted_at,
-            thumbnail_file_id
+        SELECT <include refid="courseColumns"/>
         FROM tb_courses
         WHERE id = #{id}
           AND deleted_at IS NULL
@@ -151,28 +237,7 @@
         id="selectActiveByIdForUpdate"
         flushCache="true"
         resultMap="courseRowResultMap">
-        SELECT
-            id,
-            institution_id,
-            course_code,
-            title,
-            description,
-            category,
-            education_type,
-            start_date,
-            end_date,
-            recruit_start_date,
-            recruit_end_date,
-            capacity,
-            location,
-            online_url,
-            credit_bank_eligible,
-            credit_value,
-            status,
-            created_at,
-            updated_at,
-            deleted_at,
-            thumbnail_file_id
+        SELECT <include refid="courseColumns"/>
         FROM tb_courses
         WHERE id = #{id}
           AND deleted_at IS NULL
@@ -182,28 +247,7 @@
     <select
         id="selectActiveByInstitutionAndCode"
         resultMap="courseRowResultMap">
-        SELECT
-            id,
-            institution_id,
-            course_code,
-            title,
-            description,
-            category,
-            education_type,
-            start_date,
-            end_date,
-            recruit_start_date,
-            recruit_end_date,
-            capacity,
-            location,
-            online_url,
-            credit_bank_eligible,
-            credit_value,
-            status,
-            created_at,
-            updated_at,
-            deleted_at,
-            thumbnail_file_id
+        SELECT <include refid="courseColumns"/>
         FROM tb_courses
         WHERE institution_id = #{institutionId}
           AND course_code = #{courseCode}
@@ -213,30 +257,38 @@
     <select
         id="selectActivePage"
         resultMap="courseRowResultMap">
-        SELECT
-            id,
-            institution_id,
-            course_code,
-            title,
-            description,
-            category,
-            education_type,
-            start_date,
-            end_date,
-            recruit_start_date,
-            recruit_end_date,
-            capacity,
-            location,
-            online_url,
-            credit_bank_eligible,
-            credit_value,
-            status,
-            created_at,
-            updated_at,
-            deleted_at,
-            thumbnail_file_id
+        SELECT <include refid="courseColumns"/>
         FROM tb_courses
         WHERE deleted_at IS NULL
+        <if test="criteria.keyword != null">
+            AND (
+                LOWER(title) LIKE '%' || #{criteria.keyword} || '%' ESCAPE '\'
+                OR EXISTS (
+                    SELECT 1 FROM tb_institutions i
+                     WHERE i.id = institution_id
+                       AND LOWER(i.name) LIKE '%' || #{criteria.keyword} || '%' ESCAPE '\'
+                )
+                OR EXISTS (
+                    SELECT 1 FROM tb_course_instructors ci
+                      JOIN tb_users u ON u.id = ci.user_id
+                     WHERE ci.course_id = tb_courses.id
+                       AND LOWER(u.name) LIKE '%' || #{criteria.keyword} || '%' ESCAPE '\'
+                )
+            )
+        </if>
+        <if test="criteria.educationType != null">
+            AND education_type = #{criteria.educationType}
+        </if>
+        <if test="criteria.selectionMethod != null">
+            AND selection_method = #{criteria.selectionMethod}
+        </if>
+        <!-- 분류는 하위 포함: 코드가 자릿수 기반이라 접두사 비교로 끝난다(설계서 §12.3). -->
+        <if test="criteria.classificationPrefix != null">
+            AND classification_code LIKE #{criteria.classificationPrefix} || '%'
+        </if>
+        <if test="criteria.status != null">
+            AND status = #{criteria.status}
+        </if>
         ORDER BY
         <choose>
             <when test="criteria.sort.name() == 'UPDATED_AT'">updated_at</when>
@@ -254,10 +306,52 @@
         LIMIT #{criteria.limit} OFFSET #{criteria.offset}
     </select>
 
-    <select id="countActive" resultType="long">
+    <!-- q·educationType·selectionMethod·status 필터가 있는 목록의 총 개수. selectActiveViewPage 와 조건이 같아야 한다. -->
+    <select id="countActiveFiltered" resultType="long">
         SELECT COUNT(*)
         FROM tb_courses
         WHERE deleted_at IS NULL
+        <if test="!includeAllDraft">
+            AND (
+                status &lt;&gt; 'DRAFT'
+                <if test="draftVisibleInstitutionIds != null and !draftVisibleInstitutionIds.isEmpty()">
+                    OR institution_id IN
+                    <foreach collection="draftVisibleInstitutionIds" item="draftInstitutionId"
+                        open="(" separator="," close=")">
+                        #{draftInstitutionId, javaType=java.util.UUID,
+                            typeHandler=org.apache.ibatis.type.ObjectTypeHandler}
+                    </foreach>
+                </if>
+            )
+        </if>
+        <if test="keyword != null">
+            AND (
+                LOWER(title) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+                OR EXISTS (
+                    SELECT 1 FROM tb_institutions i
+                     WHERE i.id = institution_id
+                       AND LOWER(i.name) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+                )
+                OR EXISTS (
+                    SELECT 1 FROM tb_course_instructors ci
+                      JOIN tb_users u ON u.id = ci.user_id
+                     WHERE ci.course_id = tb_courses.id
+                       AND LOWER(u.name) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+                )
+            )
+        </if>
+        <if test="educationType != null">
+            AND education_type = #{educationType}
+        </if>
+        <if test="selectionMethod != null">
+            AND selection_method = #{selectionMethod}
+        </if>
+        <if test="classificationPrefix != null">
+            AND classification_code LIKE #{classificationPrefix} || '%'
+        </if>
+        <if test="status != null">
+            AND status = #{status}
+        </if>
     </select>
 
     <update id="updateActive">
@@ -265,7 +359,7 @@
            SET course_code = #{courseCode},
                title = #{title},
                description = #{description, jdbcType=VARCHAR},
-               category = #{category, jdbcType=VARCHAR},
+               classification_code = #{classificationCode, jdbcType=VARCHAR},
                education_type = #{educationType},
                start_date = #{startDate},
                end_date = #{endDate},
@@ -278,9 +372,117 @@
                credit_value = #{creditValue, jdbcType=DECIMAL},
                status = #{status},
                thumbnail_file_id = #{thumbnailFileId, jdbcType=OTHER},
-               updated_at = #{updatedAt}
+               updated_at = #{updatedAt},
+               tags = #{tags, jdbcType=VARCHAR},
+               target_audiences = #{targetAudiences, jdbcType=VARCHAR},
+               instructor_profile_visible = #{instructorProfileVisible},
+               tuition_type = #{tuitionType},
+               tuition_amount = #{tuitionAmount, jdbcType=DECIMAL},
+               material_fee_type = #{materialFeeType},
+               material_fee_amount = #{materialFeeAmount, jdbcType=DECIMAL},
+               completion_enabled = #{completionEnabled},
+               completion_criteria = #{completionCriteria, jdbcType=VARCHAR},
+               required_progress_rate = #{requiredProgressRate, jdbcType=INTEGER},
+               issue_certificate = #{issueCertificate},
+               notes = #{notes, jdbcType=VARCHAR},
+               materials = #{materials, jdbcType=VARCHAR},
+               learning_objective = #{learningObjective, jdbcType=VARCHAR},
+               selection_method = #{selectionMethod},
+               waitlist_capacity = #{waitlistCapacity, jdbcType=INTEGER}
          WHERE id = #{id}
            AND deleted_at IS NULL
     </update>
+
+    <update id="softDeleteDraft">
+        UPDATE tb_courses
+           SET deleted_at = #{deletedAt},
+               updated_at = #{deletedAt}
+         WHERE id = #{id}
+           AND status = 'DRAFT'
+           AND deleted_at IS NULL
+    </update>
+
+    <select id="selectActiveViewById" resultMap="courseViewRowResultMap">
+        SELECT <include refid="courseViewColumns"/>
+        FROM tb_courses
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+    </select>
+
+    <select id="selectActiveViewsByIds" resultMap="courseViewRowResultMap">
+        SELECT <include refid="courseViewColumns"/>
+        FROM tb_courses
+        WHERE deleted_at IS NULL
+          AND id IN
+        <foreach collection="ids" item="courseId" open="(" separator="," close=")">
+            #{courseId, javaType=java.util.UUID, typeHandler=org.apache.ibatis.type.ObjectTypeHandler}
+        </foreach>
+    </select>
+
+    <select
+        id="selectActiveViewPage"
+        resultMap="courseViewRowResultMap">
+        SELECT <include refid="courseViewColumns"/>
+        FROM tb_courses
+        WHERE deleted_at IS NULL
+        <if test="!criteria.includeAllDraft">
+            AND (
+                status &lt;&gt; 'DRAFT'
+                <if test="criteria.draftVisibleInstitutionIds != null
+                    and !criteria.draftVisibleInstitutionIds.isEmpty()">
+                    OR institution_id IN
+                    <foreach collection="criteria.draftVisibleInstitutionIds" item="draftInstitutionId"
+                        open="(" separator="," close=")">
+                        #{draftInstitutionId, javaType=java.util.UUID,
+                            typeHandler=org.apache.ibatis.type.ObjectTypeHandler}
+                    </foreach>
+                </if>
+            )
+        </if>
+        <if test="criteria.keyword != null">
+            AND (
+                LOWER(title) LIKE '%' || #{criteria.keyword} || '%' ESCAPE '\'
+                OR EXISTS (
+                    SELECT 1 FROM tb_institutions i
+                     WHERE i.id = institution_id
+                       AND LOWER(i.name) LIKE '%' || #{criteria.keyword} || '%' ESCAPE '\'
+                )
+                OR EXISTS (
+                    SELECT 1 FROM tb_course_instructors ci
+                      JOIN tb_users u ON u.id = ci.user_id
+                     WHERE ci.course_id = tb_courses.id
+                       AND LOWER(u.name) LIKE '%' || #{criteria.keyword} || '%' ESCAPE '\'
+                )
+            )
+        </if>
+        <if test="criteria.educationType != null">
+            AND education_type = #{criteria.educationType}
+        </if>
+        <if test="criteria.selectionMethod != null">
+            AND selection_method = #{criteria.selectionMethod}
+        </if>
+        <!-- 분류는 하위 포함: 코드가 자릿수 기반이라 접두사 비교로 끝난다(설계서 §12.3). -->
+        <if test="criteria.classificationPrefix != null">
+            AND classification_code LIKE #{criteria.classificationPrefix} || '%'
+        </if>
+        <if test="criteria.status != null">
+            AND status = #{criteria.status}
+        </if>
+        ORDER BY
+        <choose>
+            <when test="criteria.sort.name() == 'UPDATED_AT'">updated_at</when>
+            <when test="criteria.sort.name() == 'COURSE_CODE'">course_code</when>
+            <when test="criteria.sort.name() == 'TITLE'">title</when>
+            <when test="criteria.sort.name() == 'STATUS'">status</when>
+            <when test="criteria.sort.name() == 'START_DATE'">start_date</when>
+            <when test="criteria.sort.name() == 'END_DATE'">end_date</when>
+            <otherwise>created_at</otherwise>
+        </choose>
+        <choose>
+            <when test="criteria.direction.name() == 'ASC'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>, id ASC
+        LIMIT #{criteria.limit} OFFSET #{criteria.offset}
+    </select>
 
 </mapper>

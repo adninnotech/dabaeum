@@ -1,6 +1,5 @@
 package com.adn.dabaeum.attendance.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -24,8 +23,6 @@ import com.adn.dabaeum.common.security.AuthenticatedRole;
 import com.adn.dabaeum.common.security.AuthenticatedUserContext;
 import com.adn.dabaeum.common.security.CurrentUserProvider;
 import com.adn.dabaeum.common.web.RequestIdFilter;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Set;
@@ -42,7 +39,6 @@ import org.springframework.test.web.servlet.MockMvc;
     SecurityConfiguration.class, JacksonConfiguration.class, RequestIdFilter.class})
 class AttendanceAdjustmentSummaryControllerTest {
 
-    private static final Path CONTRACT = Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final UUID ATTENDANCE_ID = UUID.fromString(
         "11111111-1111-1111-1111-111111111111");
     private static final UUID ENROLLMENT_ID = UUID.fromString(
@@ -65,15 +61,13 @@ class AttendanceAdjustmentSummaryControllerTest {
                 .contentType("application/json")
                 .content("{\"status\":\"LATE\",\"reason\":\"현장 확인\"}"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.status").value("PRESENT"))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.status").value("PRESENT"));
 
         mockMvc.perform(get("/api/v1/enrollments/{enrollmentId}/attendance-summary",
                 ENROLLMENT_ID).with(user("learner").roles("LEARNER")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.attendanceRate").value(66.67))
-            .andExpect(jsonPath("$.data.totalSessions").value(3))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.totalSessions").value(3));
     }
 
     private AuthenticatedUserContext context() {

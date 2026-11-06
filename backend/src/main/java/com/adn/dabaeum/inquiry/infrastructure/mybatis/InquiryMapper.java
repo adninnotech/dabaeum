@@ -17,13 +17,15 @@ public interface InquiryMapper {
     List<InquiryViewRow> selectByUserId(
         @Param("userId") UUID userId,
         @Param("status") String status,
+        @Param("keyword") String keyword,
         @Param("limit") int limit,
         @Param("offset") int offset
     );
 
     long countByUserId(
         @Param("userId") UUID userId,
-        @Param("status") String status
+        @Param("status") String status,
+        @Param("keyword") String keyword
     );
 
     List<InquiryViewRow> selectByInstructorUserId(
@@ -52,5 +54,37 @@ public interface InquiryMapper {
         @Param("institutionId") UUID institutionId,
         @Param("status") String status,
         @Param("courseId") UUID courseId
+    );
+
+    List<InquiryViewRow> selectByCourseId(
+        @Param("courseId") UUID courseId,
+        @Param("type") String type,
+        @Param("limit") int limit,
+        @Param("offset") int offset
+    );
+
+    long countByCourseId(
+        @Param("courseId") UUID courseId,
+        @Param("type") String type
+    );
+
+    List<InquiryViewRow> selectForAdmin(
+        @Param("status") String status,
+        @Param("inquiryType") String inquiryType,
+        @Param("educationType") String educationType,
+        @Param("institutionId") UUID institutionId,
+        @Param("courseId") UUID courseId,
+        @Param("keyword") String keyword,
+        @Param("limit") int limit,
+        @Param("offset") int offset
+    );
+
+    long countForAdmin(
+        @Param("status") String status,
+        @Param("inquiryType") String inquiryType,
+        @Param("educationType") String educationType,
+        @Param("institutionId") UUID institutionId,
+        @Param("courseId") UUID courseId,
+        @Param("keyword") String keyword
     );
 }

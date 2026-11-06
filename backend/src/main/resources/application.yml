@@ -1,7 +1,3 @@
-jasypt:
-  encryptor:
-    password: ${JASYPT_ENCRYPTOR_PASSWORD}
-
 spring:
   application:
     name: dabaeum
@@ -34,16 +30,91 @@ server:
   shutdown: graceful
 
 dabaeum:
+  batch:
+    # 보존 기간 삭제 등 주기 배치. 여러 대여도 advisory lock 으로 한 대만 돈다(설계서 §2.1).
+    enabled: ${DABAEUM_BATCH_ENABLED:true}
+    retention-cron: "0 30 4 * * *"
+  popularity:
+    # 인기 점수 = 신청 × enrollment-weight + 조회 × view-weight, 최근 window-days 일(설계서 §8.2). 매시 5분 재계산.
+    window-days: 30
+    enrollment-weight: 3
+    view-weight: 1
+    cron: "0 5 * * * *"
+  usage:
+    # 이용 통계 일별 집계(docs/specs/usage-statistics.md §5). 매시 20분, 밀린 날부터 어제까지 쓴다(없으면 조회 한 번).
+    aggregation-cron: "0 20 * * * *"
+  public-courses:
+    # 공공데이터 평생학습강좌 연동 (docs/specs/public-lifelong-courses.md §7). 자동 수집은 dev 서버에서만 켠다.
+    enabled: ${DABAEUM_PUBLIC_COURSES_ENABLED:false}
+    cron: "0 0 3 * * *"
+    base-url: https://api.data.go.kr/openapi/tn_pubr_public_lftm_lrn_lctre_api
+    # Decoding 키(인코딩 전 값). 비어 있으면 수집은 SERVICE_KEY_MISSING 으로 끝난다. 앱 기동은 막지 않는다.
+    service-key: ${DABAEUM_PUBLIC_DATA_SERVICE_KEY:}
+    page-size: 1000
+    read-timeout: 30s
+    request-pause: 200ms
+    stale-run-after: 1h
+    # 2026-10-08 실측. 대구광역시·구·군 10, 대구시교육청 도서관 10. 이름이 아니라 코드로 거른다.
+    institution-codes:
+      - "6270000"   # 대구광역시
+      - "3410000"   # 중구
+      - "3420000"   # 동구
+      - "3430000"   # 서구
+      - "3440000"   # 남구
+      - "3450000"   # 북구
+      - "3460000"   # 수성구
+      - "3470000"   # 달서구
+      - "3480000"   # 달성군
+      - "5141000"   # 군위군
+      - "7240044"   # 시립두류도서관
+      - "7240045"   # 시립북부도서관
+      - "7240048"   # 시립서부도서관
+      - "7240049"   # 시립동부도서관
+      - "7240050"   # 시립남부도서관
+      - "7240051"   # 시립달성도서관
+      - "7240278"   # 시립수성도서관
+      - "7240415"   # 2.28기념학생도서관
+      - "7240470"   # 삼국유사군위도서관
+      - "7240494"   # 국채보상운동기념도서관
   http-logging:
-    # 본문 로깅은 개발 프로필에서만 켠다. 마스킹은 기본 켜짐이며 개발 프로필에서만 끈다.
+    # dev 프로필은 본문을 끄고, local 프로필에서만 디버깅용 본문 로그를 사용한다.
     body-enabled: ${DABAEUM_HTTP_LOG_BODY:true}
     mask-sensitive: ${DABAEUM_HTTP_LOG_MASK:true}
+    # 본문 JSON 을 들여쓴 여러 줄로 남긴다. 기본은 한 줄(수집·grep 용)이다.
+    pretty-json: ${DABAEUM_HTTP_LOG_PRETTY:false}
+  enrollment:
+    withdrawal:
+      # 학습자 본인 수강 철회 마감. 수업 시작(첫 회차, 없으면 startDate 00:00) 이 시간 전까지만 본인이 철회할 수 있다.
+      self-cutoff: ${DABAEUM_ENROLLMENT_SELF_WITHDRAW_CUTOFF:24h}
+  completion:
+    # 이수 기준 출석률(%). 서버가 계산한 출석률이 이보다 낮으면 사유 없이도 미이수(자동 사유 "출석률 미달").
+    min-attendance-rate: ${DABAEUM_COMPLETION_MIN_ATTENDANCE_RATE:80}
+  recommendation:
+    # 홈 추천 강좌(docs/specs/course-recommendation.md §5). 값은 경험칙이다 — 근거 데이터가 쌓이면 바꾼다.
+    default-limit: 6
+    max-limit: 20
+    max-exclude: 20
+    fresh-days: 7
+    fresh-bonus: 5
+    model:
+      # 모델 학습 배치(docs/specs/course-recommendation.md §12.2). 서버에 Python·venv 를 준비한 뒤에만 켠다(§12.7).
+      enabled: ${DABAEUM_RECOMMENDATION_MODEL_ENABLED:false}
+      cron: "0 0 3 * * *"
+      python: /home/adn/dabaeum/ml-venv/bin/python
+      script: /home/adn/dabaeum/ml/recommend/run.py
+      timeout: 30m
+      # 양성 표본이 이보다 적으면 학습을 건너뛴다(§12.4).
+      min-positive-samples: 2000
+      top-n-per-user: 50
+      report-dir: /home/adn/dabaeum/ml/reports
+      model-dir: /home/adn/dabaeum/ml/models
   attendance:
     qr-token:
       # QR 출석 토큰 유효기간. 출결 창 종료가 더 이르면 그쪽이 우선한다.
-      ttl: ${DABAEUM_ATTENDANCE_QR_TOKEN_TTL:60s}
+      # 2026-11-03 현장 운영 기준으로 60초 → 30초(사진으로 찍어 나간 QR 을 더 빨리 무력화).
+      ttl: ${DABAEUM_ATTENDANCE_QR_TOKEN_TTL:30s}
   files:
-    # 업로드 파일 루트. 배포 환경에서는 DABAEUM_FILES_ROOT 로 절대경로를 지정한다.
+    # 업로드 파일 루트. 서버에서는 DABAEUM_FILES_ROOT=/home/adn/dabaeum/files 로 지정한다.
     root: ${DABAEUM_FILES_ROOT:./build/file-storage}
     max-size: 10MB
   blockchain:
@@ -62,34 +133,90 @@ dabaeum:
     project-id: ${DABAEUM_DAEGUCHAIN_PROJECT_ID:}
     # 블록 높이 표시용. 에뮬레이터 /health 전용이며 실제 대구체인에는 없으므로 비운다.
     health-url: ${DABAEUM_DAEGUCHAIN_HEALTH_URL:}
+  nft:
+    # 수료증·배지 NFT 발행 (docs/specs/daeguchain-nft-issuance.md). 켜기 전에 컨트랙트 두 개를 만든다.
+    enabled: ${DABAEUM_NFT_ENABLED:false}
+    # fake(메모리) | daeguchain(실제 mainnet, 기록 영구)
+    ledger: ${DABAEUM_NFT_LEDGER:fake}
+    # 이 시각 이후 발급분만 NFT 로 남긴다 (ISO-8601, 예: 2026-11-01T00:00:00+09:00)
+    start-at: ${DABAEUM_NFT_START_AT:}
+    # 토큰 uri: urn(식별 문자열, 기본) | url(웹 주소). 대구시 게이트웨이가 허용 목록 밖 웹 주소를 막아
+    # 운영 도메인이 허용되기 전에는 urn 으로 발행한다 (2026-10-28 실측).
+    uri-mode: ${DABAEUM_NFT_URI_MODE:urn}
+    # url 모드: 토큰 uri 의 origin(https, 비우면 "도메인 대기"). urn 모드: 메타데이터 원문 안 이미지 주소에만 쓴다.
+    metadata-base-url: ${DABAEUM_NFT_METADATA_BASE_URL:}
+    # 발급 지갑 개인키는 공통 설정에 두지 않는다(application-dev.yml).
+    wallet-address: ${DABAEUM_NFT_OWNER_ADDRESS:}
+    badge-contract-address: ${DABAEUM_NFT_BADGE_CONTRACT_ADDRESS:}
+    certificate-contract-address: ${DABAEUM_NFT_CERT_CONTRACT_ADDRESS:}
+    daeguchain:
+      base-url: ${DABAEUM_DAEGUCHAIN_BASE_URL:https://www.daegu.go.kr}
+      token: ${DABAEUM_DAEGUCHAIN_TOKEN:}
+      chain: ${DABAEUM_DAEGUCHAIN_CHAIN:dchain}
+    worker:
+      fixed-delay: 10s
+      batch-size: 20
+      max-attempts: 3
+      retry-base-delay: 5m
+      submitting-stale-after: 10m
   security:
+    # 브라우저 교차 출처 허용 목록(쉼표 구분). 비우면 CORS 를 열지 않는다.
+    # 테스트베드에서 파일로 연 페이지가 localhost 백엔드를 부를 때만 * 로 연다.
+    cors:
+      allowed-origins: ${DABAEUM_CORS_ALLOWED_ORIGINS:}
     local-account:
       jwt:
         issuer: dabaeum-local
         audience: dabaeum-api
-        key-id: local-development-1
-        signing-key: ${DABAEUM_JWT_SIGNING_KEY}
         access-token-ttl: 1h
-    # 다대구(대구체인) QR 로그인. private-key 는 포털에서 받은 RSA 개인키(PKCS#8 Base64 한 줄).
-    # 로그인은 requiredVC=Name:PhoneNum:Birthdate 로 요청한다 — 이름·전화·생년월일을
-    # 복호화해 tb_users 에 저장하고, ci·성별·내외국인은 받아도 무시한다.
-    dadaegu:
-      site-id: ${DABAEUM_DADAEGU_SITE_ID}
-      private-key: ${DABAEUM_DADAEGU_PRIVATE_KEY}
   vc:
-    public-base-url: ${DABAEUM_VC_PUBLIC_BASE_URL:http://127.0.0.1:8080}
+    public-base-url: http://118.45.182.100:8080
+    # 예전 공개 주소. 그 주소로 서명된 수료증을 검증할 때만 인정한다.
+    past-public-base-urls: ${DABAEUM_VC_PAST_PUBLIC_BASE_URLS:}
     context-version: v1
     key-version: development-1
   credential-proof:
     key-id: urn:dabaeum:credential-key:development-1
     private-key-path: ${DABAEUM_VC_PRIVATE_KEY_PATH:}
     public-key-path: ${DABAEUM_VC_PUBLIC_KEY_PATH:}
+    # local | openbao (ADR-0006). provider=openbao 면 발급·Status List·키 관리가 Transit 으로 간다
+    # (계획 3~6). 전환 절차는 docs/ops/openbao-kms-runbook.md.
+    # 운영 프로필(prod)에서 local 은 기동을 거부한다.
+    provider: ${DABAEUM_CREDENTIAL_PROOF_PROVIDER:local}
+    legacy-backfill:
+      enabled: ${DABAEUM_LEGACY_BACKFILL_ENABLED:false}
+    openbao:
+      uri: ${DABAEUM_OPENBAO_URI:http://127.0.0.1:8200}
+      sign-mount: education-sign
+      status-mount: education-status
+      app-role-path: approle
+      # Role ID·Secret ID 는 환경변수로만. 저장소·로그에 넣지 않는다.
+      signing:
+        role-id: ${DABAEUM_OPENBAO_SIGNING_ROLE_ID:}
+        secret-id: ${DABAEUM_OPENBAO_SIGNING_SECRET_ID:}
+      status:
+        role-id: ${DABAEUM_OPENBAO_STATUS_ROLE_ID:}
+        secret-id: ${DABAEUM_OPENBAO_STATUS_SECRET_ID:}
+      key-admin:
+        role-id: ${DABAEUM_OPENBAO_KEY_ADMIN_ROLE_ID:}
+        secret-id: ${DABAEUM_OPENBAO_KEY_ADMIN_SECRET_ID:}
   fabric:
     # 원장 워커 스케줄. Fabric SDK 연동은 제거됐고 이름만 남았다 (ADR-0005). 워커는 Provider 중립이다.
     worker:
       enabled: false
       fixed-delay: 5s
       batch-size: 10
+  kms:
+    recovery:
+      enabled: false
+      initial-delay: 10s
+      fixed-delay: 5m
+      batch-size: 20
+    # 기관 승인·생성 뒤 서명키 자동 생성 워커. credential-proof.provider=openbao 일 때만 돈다.
+    provisioning:
+      enabled: true
+      initial-delay: 15s
+      fixed-delay: 30s
 
 mybatis:
   mapper-locations: classpath*:mybatis/mapper/**/*.xml

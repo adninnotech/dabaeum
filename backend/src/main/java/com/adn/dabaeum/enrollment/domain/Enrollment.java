@@ -55,7 +55,7 @@ public record Enrollment(
                 "cancelled enrollment transition data is invalid");
             case WITHDRAWN -> requireState(
                 approvedAt != null && rejectedAt == null && cancelledAt == null
-                    && withdrawnAt != null && rejectionReason == null && cancellationReason == null,
+                    && withdrawnAt != null && rejectionReason == null,
                 "withdrawn enrollment transition data is invalid");
         }
     }

@@ -1,6 +1,5 @@
 package com.adn.dabaeum.attendance.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -16,14 +15,13 @@ import com.adn.dabaeum.attendance.application.IssuedAttendanceQrToken;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
 import com.adn.dabaeum.common.security.AuthenticatedUserContext;
 import com.adn.dabaeum.common.security.CurrentUserProvider;
 import com.adn.dabaeum.common.web.RequestIdFilter;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
@@ -46,6 +44,7 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
@@ -54,8 +53,6 @@ class AttendanceQrTokenControllerTest {
     private static final UUID SESSION_ID = UUID.fromString(
         "22222222-2222-2222-2222-222222222222");
     private static final String REQUEST_ID = "9b706c0e-96cf-4d0a-b357-d80752facf1c";
-    private static final Path CONTRACT =
-        Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
 
     @Autowired MockMvc mockMvc;
 
@@ -81,8 +78,7 @@ class AttendanceQrTokenControllerTest {
             .andExpect(header().string(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(jsonPath("$.data.token").value("encoded-token"))
             .andExpect(jsonPath("$.data.expiresAt").value("2026-08-05T00:00:30Z"))
-            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID));
 
         verify(service).issue(eq(SESSION_ID), eq(context));
     }

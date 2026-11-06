@@ -1,265 +1,227 @@
 <template>
-  <q-page padding>
-    <div class="page-inner">
-      <div class="app-page-header row items-center justify-between q-mb-lg">
-        <div>
-          <div class="app-page-header__title text-h5 text-weight-bold">학습지갑</div>
-          <div class="app-page-header__subtitle text-grey-7">Credential · Badge 보관</div>
+  <q-page class="learner-page">
+    <div class="learner-container learner-page__body wallet-body">
+      <!-- 학습관리와 같은 학습자 화면 문법 — 큰 제목 + LearnerTabs (콘솔용 머리·q-tabs 를 걷어냈다) -->
+      <header class="wallet-head">
+        <div class="wallet-head__text">
+          <h1 class="wallet-head__title">학습지갑</h1>
+          <p class="wallet-head__sub">받은 수료증과 배지를 모아 봅니다.</p>
         </div>
-        <q-btn outline color="primary" icon="refresh" label="새로고침" :loading="loading" @click="loadWallet" />
-      </div>
+        <div class="wallet-head__actions">
+          <!-- 둘 다 다른 화면으로 가는 길(링크)인데 남색 테두리 버튼이라 제목·수료증보다 먼저 눈에 걸렸다(hallmark).
+               본문(수료증 목록)이 주인공이 되게 회색 글자 링크로 낮춘다. 아이콘도 윤곽선 하나로 맞춘다 -->
+          <!-- 포트폴리오는 지갑에 모인 수료증·배지를 한 장으로 묶어 공유하는 화면이다 -->
+          <q-btn flat no-caps icon="o_folder_shared" label="학습 포트폴리오" to="/wallet/portfolio" class="wallet-head__link" />
+          <!-- 번호로 진위를 보는 일은 로그인 없는 공개 화면(/verify)에서 한다 — 지갑 안 "검증" 탭을 옮겼다 -->
+          <q-btn flat no-caps icon="o_verified" label="수료증 진위 확인" to="/verify" class="wallet-head__link" />
+          <q-btn flat round color="grey-7" icon="refresh" aria-label="새로고침" :loading="loading" @click="loadWallet" />
+        </div>
+      </header>
 
-      <q-banner v-if="!isLoggedIn" class="bg-blue-1 q-mb-md rounded-borders">
+      <q-banner v-if="!isLoggedIn" class="learner-notice">
         로그인 후 학습지갑을 확인할 수 있습니다.
         <template #action>
           <q-btn flat color="primary" label="로그인" @click="goLogin" />
         </template>
       </q-banner>
 
-      <q-banner v-if="errorMessage" class="bg-red-1 text-negative q-mb-md rounded-borders">
-        {{ errorMessage }}
+      <AppErrorBanner :message="errorMessage">
         <template #action>
           <q-btn flat color="negative" label="다시 시도" @click="loadWallet" />
         </template>
-      </q-banner>
+      </AppErrorBanner>
 
       <div class="relative-position">
         <q-inner-loading :showing="loading" />
 
-        <q-tabs
-          v-model="tab"
-          dense
-          class="text-primary"
-          active-color="primary"
-          indicator-color="primary"
-          align="left"
-        >
-          <q-tab name="credentials" label="수료증(VC)" />
-          <q-tab name="badges" label="배지" />
-          <q-tab name="verify" label="검증" />
-        </q-tabs>
-        <q-separator />
+        <!-- 누르기 전에 몇 개인지 — '수료증 1', '배지 1/7' -->
+        <LearnerTabs :tabs="tabLabels" :model-value="activeTabLabel" @update:model-value="selectTab" />
 
-        <q-tab-panels v-model="tab" animated>
-          <q-tab-panel name="credentials" class="q-px-none">
-            <div v-if="!loading && credentials.length === 0" class="text-grey-7 q-pa-md">
-              발급된 수료증이 없습니다.
-            </div>
-            <div v-for="item in credentials" :key="item.id" class="q-mb-md">
-              <q-card flat bordered>
-                <q-card-section class="row items-center justify-between">
-                  <div>
-                    <div class="text-subtitle1 text-weight-bold">
-                      {{ item.courseTitle || item.credentialNo || item.id }}
-                    </div>
-                    <div class="text-caption text-grey-7">
-                      {{ item.credentialNo }} · v{{ item.versionNo || '-' }}
-                    </div>
-                  </div>
-                  <StatusBadge :status="item.status" />
-                </q-card-section>
-                <q-separator />
-                <q-card-section class="text-body2">
-                  <div>유효기간: {{ $formatDateKst(item.validFrom) }} ~ {{ $formatDateKst(item.validUntil) }}</div>
-                  <div class="ellipsis">vcHash: {{ item.vcHash || '-' }}</div>
-                </q-card-section>
-                <q-card-actions align="right">
-                  <q-btn
-                    flat
-                    color="primary"
-                    label="상세"
-                    @click="$router.push(`/wallet/credentials/${item.id}`)"
-                  />
-                </q-card-actions>
-              </q-card>
-            </div>
-          </q-tab-panel>
+        <section v-if="tab === 'credentials'" class="wallet-panel">
+          <WalletCredentialList v-if="!loading || credentials.length" :credentials="credentials" />
+        </section>
 
-          <q-tab-panel name="badges" class="q-px-none">
-            <div v-if="!loading && badges.length === 0" class="text-grey-7 q-pa-md">
-              발급된 배지가 없습니다.
+        <section v-else-if="tab === 'badges'" class="wallet-panel">
+          <!-- 배지 현황(설계서 §11·§16): 사용 중인 정의 전체를 보여 주고 받은 것만 색으로 — definitionId 로 맞춘다 -->
+          <AppErrorBanner :message="catalogError || myBadgesError" />
+          <div v-if="!catalogError" class="wallet-badges">
+            <div class="wallet-badges__bar">
+              <p class="wallet-badges__count">
+                <strong>{{ earnedCount }}</strong> / {{ badgeTotal }}개 보유
+              </p>
+              <router-link to="/badges" class="wallet-badges__link">배지 도감 보기</router-link>
             </div>
-            <div class="row q-col-gutter-md">
-              <div v-for="badge in badges" :key="badge.id" class="col-12 col-sm-6">
-                <q-card flat bordered class="text-center">
-                  <q-card-section>
-                    <q-avatar size="64px" color="primary" text-color="white" icon="military_tech" />
-                    <div class="text-subtitle1 text-weight-bold q-mt-md">
-                      {{ badge.badgeName || badge.name || '배지' }}
-                    </div>
-                    <q-badge class="q-mt-sm" :color="statusColor[badge.status] || 'grey'">
-                      {{ badge.status || '-' }}
-                    </q-badge>
-                    <div class="text-caption text-grey-7 q-mt-sm">
-                      {{ badge.badgeType || '-' }} · {{ badge.nftTokenId || '-' }}
-                    </div>
-                  </q-card-section>
-                </q-card>
-              </div>
-            </div>
-          </q-tab-panel>
+            <!-- 다음 단계까지 남은 강좌 수 — '1 / 7개 보유'만으로는 몰랐다 -->
+            <BadgeProgress
+              v-if="!myBadgesError"
+              :definitions="badgeDefinitions"
+              :completed-count="completedCourseCount"
+            />
+            <AppEmptyState
+              v-if="!badgeLoading && !badgeDefinitions.length"
+              compact
+              title="아직 준비된 배지가 없습니다"
+            />
+            <BadgeGrid
+              v-else
+              :definitions="sortedDefinitions"
+:earned-by-definition="earnedByDefinition"
+              :revoked-by-definition="revokedByDefinition"
+              :show-earned="!myBadgesError"
+              :classification-tree="badgeClassificationTree"
+              :course-titles="badgeCourseTitles"
+              detail-base="/wallet/badges"
+            />
 
-          <q-tab-panel name="verify" class="q-px-none">
-            <q-card flat bordered>
-              <q-card-section>
-                <div class="text-subtitle1 text-weight-bold">수료증 검증</div>
-                <div class="text-caption text-grey-7">POST /credentials/verify · GET /vc/status/{credentialNo}</div>
-                <q-input v-model="verifyNo" outlined dense class="q-mt-md" label="credentialNo" />
-                <q-btn
-                  class="q-mt-md"
-                  color="primary"
-                  unelevated
-                  label="검증하기"
-                  :loading="verifying"
-                  :disable="!verifyNo.trim()"
-                  @click="onVerify"
-                />
-                <q-btn
-                  class="q-mt-md q-ml-sm"
-                  outline
-                  color="primary"
-                  label="공개 상태 조회"
-                  :loading="checkingPublic"
-                  :disable="!verifyNo.trim()"
-                  @click="onPublicStatus"
-                />
-                <div v-if="verifyResultLabel" class="q-mt-md">
-                  결과:
-                  <q-badge :color="verifyResultOk ? 'positive' : 'negative'">
-                    {{ verifyResultLabel }}
-                  </q-badge>
-                </div>
-                <pre v-if="verifyPayload" class="verify-payload q-mt-md">{{ verifyPayload }}</pre>
-              </q-card-section>
-            </q-card>
-          </q-tab-panel>
-        </q-tab-panels>
+            <!-- 정의 없이 수동으로 받은 옛 배지 -->
+            <section v-if="legacyBadges.length" class="wallet-badges__legacy">
+              <h3 class="wallet-badges__legacy-title">그 밖에 받은 배지</h3>
+              <ul class="wallet-badges__legacy-list">
+                <li
+                  v-for="badge in legacyBadges"
+                  :key="badge.id"
+                  class="wallet-badges__legacy-item"
+                  role="link"
+                  tabindex="0"
+                  @click="$router.push(`/wallet/badges/${badge.id}`)"
+                  @keydown="openLegacyBadge($event, badge)"
+                >
+                  <BadgeMedal :size="40" :image-url="badge.imageUrl || ''" :alt="badge.badgeName" />
+                  <span class="wallet-badges__legacy-name">{{ badge.badgeName || '배지' }}</span>
+                  <span v-if="badge.status !== 'ISSUED'" class="wallet-badges__legacy-status">
+                    {{ STATUS_LABEL[badge.status] || badge.status }}
+                  </span>
+                  <span class="wallet-badges__legacy-date">
+                    {{ $formatDateKst(badge.issuedAt || badge.createdAt) }}
+                  </span>
+                </li>
+              </ul>
+            </section>
+          </div>
+        </section>
+
       </div>
     </div>
   </q-page>
 </template>
 
 <script>
-import StatusBadge from '@/components/StatusBadge.vue';
+import AppEmptyState from '@/components/AppEmptyState.vue';
+import AppErrorBanner from '@/components/AppErrorBanner.vue';
+import LearnerTabs from '@/components/LearnerTabs.vue';
+import WalletCredentialList from '@/components/wallet/WalletCredentialList.vue';
+import BadgeGrid from '@/components/badge/BadgeGrid.vue';
+import BadgeProgress from '@/components/badge/BadgeProgress.vue';
+import BadgeMedal from '@/components/badge/BadgeMedal.vue';
+import badgeCatalog from '@/mixins/badge-catalog';
+import { STATUS_LABEL } from '@/utils/status';
 import { mapState } from 'pinia';
-import { DEFAULT_INSTITUTION_ID } from '@/config/api';
-import { listMyCredentials, listUserBadges, listUserCredentials, getPublicCredentialStatus, verifyCredential } from '@/services/credential-api';
+import { listMyCredentials, listUserCredentials } from '@/services/credential-api';
 import { useAuthStore } from '@/stores/auth-store';
+import { loginRequiredRoute } from '@/utils/auth-redirect';
+
+const TABS = [
+  { key: 'credentials', label: '수료증' },
+  { key: 'badges', label: '배지' },
+];
 
 export default {
-  components: { StatusBadge },
+  components: {
+    AppEmptyState,
+    AppErrorBanner,
+    BadgeGrid,
+    BadgeMedal,
+    BadgeProgress,
+    LearnerTabs,
+    WalletCredentialList,
+  },
   name: 'WalletPage',
+  mixins: [badgeCatalog],
   data() {
     return {
-      tab: 'credentials',
+      // 배지 상세에서 돌아오면 ?tab=badges 로 배지 탭을 연다
+      tab: TABS.some((item) => item.key === this.$route.query.tab) ? this.$route.query.tab : 'credentials',
+      STATUS_LABEL,
       credentials: [],
-      badges: [],
       loading: false,
-      verifying: false,
-      checkingPublic: false,
       errorMessage: '',
-      verifyNo: '',
-      verifyResultLabel: '',
-      verifyResultOk: false,
-      verifyPayload: '',
     };
   },
   computed: {
     ...mapState(useAuthStore, ['isLoggedIn', 'userId']),
+    // 재발급으로 대체된 옛 버전은 세지 않는다 — 목록과 같은 기준(한 수료증 = 한 줄)
+    credentialCount() {
+      return new Set(this.credentials.map((item) => item.credentialGroupId || item.id)).size;
+    },
+    tabLabels() {
+      return TABS.map((item) => {
+        if (item.key === 'credentials' && this.credentials.length) return `${item.label} ${this.credentialCount}`;
+        if (item.key === 'badges' && this.badgeTotal) return `${item.label} ${this.earnedCount}/${this.badgeTotal}`;
+        return item.label;
+      });
+    },
+    activeTabLabel() {
+      return this.tabLabels[TABS.findIndex((item) => item.key === this.tab)] || this.tabLabels[0];
+    },
+    badgeUserId() {
+      return this.isLoggedIn ? this.userId : null;
+    },
+    // 받은 배지를 앞에 — 도감 순서는 그 안에서 유지한다
+    sortedDefinitions() {
+      const earned = this.badgeDefinitions.filter((item) => this.earnedByDefinition[item.id]);
+      const locked = this.badgeDefinitions.filter((item) => !this.earnedByDefinition[item.id]);
+      return [...earned, ...locked];
+    },
+  },
+  created() {
+    // 옛 "검증" 탭 주소·북마크는 공개 진위 확인 화면으로 보낸다
+    if (this.$route.query.tab === 'verify') this.$router.replace({ name: 'credential-verify' });
   },
   mounted() {
+    // 옛 검증 탭 주소면 /verify 로 넘어가는 중이다 — 지갑을 읽지 않는다
+    if (this.$route.query.tab === 'verify') return;
     this.loadWallet();
   },
   methods: {
+    selectTab(label) {
+      const found = TABS[this.tabLabels.indexOf(label)];
+      if (!found || found.key === this.tab) return;
+      this.tab = found.key;
+      // 상세에서 뒤로 왔을 때 같은 탭이 열리게 주소에 남긴다
+      this.$router.replace({ query: { ...this.$route.query, tab: found.key } });
+    },
+    openLegacyBadge(event, badge) {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        this.$router.push(`/wallet/badges/${badge.id}`);
+      }
+    },
     goLogin() {
-      this.$router.push({ path: '/login', query: { redirect: '/wallet' } });
+      this.$router.push(loginRequiredRoute('/wallet'));
     },
     async loadWallet() {
       if (!this.isLoggedIn) {
         this.credentials = [];
-        this.badges = [];
         return;
       }
+      this.loadBadgeCatalog();
 
       this.loading = true;
       this.errorMessage = '';
       try {
         let credPage;
         try {
-          credPage = await listMyCredentials({ page: 0, size: 50, sort: 'createdAt,desc' });
+          credPage = await listMyCredentials({ page: 0, size: 50 });
         } catch {
-          credPage = await listUserCredentials(this.userId, { page: 0, size: 50, sort: 'createdAt,desc' });
+          credPage = await listUserCredentials(this.userId, { page: 0, size: 50 });
         }
-        const badgePage = await listUserBadges(this.userId, { page: 0, size: 50, sort: 'createdAt,desc' }).catch(() => ({ data: [] }));
         this.credentials = Array.isArray(credPage.data) ? credPage.data : [];
-        this.badges = Array.isArray(badgePage.data) ? badgePage.data : [];
+
       } catch (error) {
         this.credentials = [];
-        this.badges = [];
         this.errorMessage = error.message || '학습지갑을 불러오지 못했습니다.';
       } finally {
         this.loading = false;
-      }
-    },
-    async onVerify() {
-      const credentialNo = this.verifyNo.trim();
-      if (!credentialNo) return;
-
-      this.verifying = true;
-      this.verifyResultLabel = '';
-      this.verifyResultOk = false;
-      this.verifyPayload = '';
-      try {
-        const result = await verifyCredential({
-          credentialNo,
-          verificationType: 'API',
-          requesterType: 'INSTITUTION',
-          requesterId: DEFAULT_INSTITUTION_ID,
-        });
-        const status =
-          result?.result ||
-          result?.verificationResult ||
-          result?.status ||
-          (result?.valid === true ? 'VALID' : result?.valid === false ? 'INVALID' : 'OK');
-        this.verifyResultLabel = String(status);
-        this.verifyResultOk =
-          String(status).toUpperCase() === 'VALID' ||
-          String(status).toUpperCase() === 'OK' ||
-          result?.valid === true;
-        this.verifyPayload = JSON.stringify(result, null, 2);
-      } catch (error) {
-        this.verifyResultLabel = 'INVALID';
-        this.verifyResultOk = false;
-        this.verifyPayload = error.message || '검증 실패';
-        this.$q.notify({
-          type: 'negative',
-          message: error.message || '검증에 실패했습니다.',
-          position: 'top',
-        });
-      } finally {
-        this.verifying = false;
-      }
-    },
-    async onPublicStatus() {
-      const credentialNo = this.verifyNo.trim();
-      if (!credentialNo) return;
-      this.checkingPublic = true;
-      this.verifyResultLabel = '';
-      this.verifyResultOk = false;
-      this.verifyPayload = '';
-      try {
-        const result = await getPublicCredentialStatus(credentialNo);
-        const status = result?.status || result?.credentialStatus || 'OK';
-        this.verifyResultLabel = String(status);
-        this.verifyResultOk = String(status).toUpperCase() !== 'REVOKED' && String(status).toUpperCase() !== 'INVALID';
-        this.verifyPayload = JSON.stringify(result, null, 2);
-      } catch (error) {
-        this.verifyResultLabel = 'ERROR';
-        this.verifyResultOk = false;
-        this.verifyPayload = error.message || '공개 상태 조회 실패';
-        this.$q.notify({ type: 'negative', message: error.message || '공개 상태 조회에 실패했습니다.', position: 'top' });
-      } finally {
-        this.checkingPublic = false;
       }
     },
   },
@@ -267,20 +229,182 @@ export default {
 </script>
 
 <style scoped>
-.page-inner {
-  max-width: 900px;
-  margin: 0 auto;
+/* 카드 격자 화면 — 읽기용 960px 대신 헤더와 같은 폭(1200)으로. 좁으면 양옆이 헤더보다 안으로 들어가 잘려 보였다 */
+.learner-page__body.wallet-body {
+  max-width: 100%;
 }
-.rounded-borders {
-  border-radius: 12px;
+
+/* 머리 — 학습관리 제목과 같은 크기, 왼쪽 선은 탭과 맞춘다 */
+.wallet-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
 }
-.verify-payload {
+
+.wallet-head__text {
+  min-width: 0;
+}
+
+.wallet-head__title {
   margin: 0;
-  padding: 12px;
-  background: #f5f7fb;
-  border-radius: 8px;
-  font-size: 12px;
-  white-space: pre-wrap;
-  word-break: break-all;
+  font-size: 26px;
+  line-height: 31px;
+  font-weight: 700;
+  color: var(--db-text-body);
 }
+
+.wallet-head__sub {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--db-text-sub);
+}
+
+.wallet-head__actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.wallet-head__link {
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--db-text-sub);
+  border-radius: 6px;
+}
+
+.wallet-head__link :deep(.q-icon) {
+  margin-right: 6px;
+  font-size: 18px;
+}
+
+.wallet-head__link:hover,
+.wallet-head__link:focus-visible {
+  color: var(--db-accent);
+}
+
+.wallet-panel {
+  padding-top: 20px;
+}
+
+@media (max-width: 599px) {
+  .wallet-head {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  /* 버튼 두 개 + 새로고침이 폰 폭을 넘는다 — 줄을 넘긴다 */
+  .wallet-head__actions {
+    flex-wrap: wrap;
+    flex-shrink: 1;
+    min-width: 0;
+  }
+}
+
+.wallet-badges {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.wallet-badges__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wallet-badges__count {
+  margin: 0;
+  font-size: 15px;
+  color: var(--db-text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.wallet-badges__count strong {
+  font-size: 20px;
+  color: var(--db-accent);
+}
+
+.wallet-badges__link {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--db-accent);
+}
+
+.wallet-badges__legacy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wallet-badges__legacy-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--db-text-title);
+}
+
+.wallet-badges__legacy-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wallet-badges__legacy-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--db-bg-white);
+  border: 1px solid var(--db-border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.wallet-badges__legacy-item:hover {
+  background: var(--db-bg-subtle);
+}
+
+.wallet-badges__legacy-item:focus-visible {
+  outline: 2px solid var(--db-accent);
+  outline-offset: 2px;
+}
+
+.wallet-badges__legacy-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--db-text-body);
+}
+
+.wallet-badges__legacy-status {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--db-bg-page);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--db-text-sub);
+}
+
+.wallet-badges__legacy-date {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--db-text-sub);
+  font-variant-numeric: tabular-nums;
+}
+
 </style>

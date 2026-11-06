@@ -73,14 +73,14 @@ class Stage4CourseEnrollmentIntegrationTest extends RemotePostgresIntegrationTes
 
         CourseSession session = new CourseSession(UUID.randomUUID(), lifecycleCourse.id(), 1,
             Instant.parse("2099-09-01T01:00:00Z"), Instant.parse("2099-09-01T02:00:00Z"),
-            "서울 교육장", null, null, CourseSessionStatus.SCHEDULED, now, now);
+            "서울 교육장", null, null, CourseSessionStatus.SCHEDULED, now, now, null);
         sessionRepository.save(session);
         assertThat(sessionRepository.update(new CourseSession(session.id(), session.courseId(),
             session.sessionNo(), session.startsAt(), session.endsAt(), session.location(), null, null,
-            CourseSessionStatus.OPEN, now, now.plusSeconds(60)))).isTrue();
+            CourseSessionStatus.OPEN, now, now.plusSeconds(60), session.topic()))).isTrue();
         CourseSession completed = new CourseSession(session.id(), session.courseId(), session.sessionNo(),
             session.startsAt(), session.endsAt(), session.location(), null, null,
-            CourseSessionStatus.COMPLETED, now, now.plusSeconds(120));
+            CourseSessionStatus.COMPLETED, now, now.plusSeconds(120), session.topic());
         assertThat(sessionRepository.update(completed)).isTrue();
 
         Course enrollmentCourse = course(institution.id(), 2, CourseStatus.RECRUITING, now);
@@ -148,7 +148,7 @@ class Stage4CourseEnrollmentIntegrationTest extends RemotePostgresIntegrationTes
 
     private Course replaceStatus(Course course, CourseStatus status, Instant now) {
         return new Course(course.id(), course.institutionId(), course.courseCode(), course.title(),
-            course.description(), course.category(), course.educationType(), course.startDate(),
+            course.description(), course.classificationCode(), course.educationType(), course.startDate(),
             course.endDate(), course.recruitStartDate(), course.recruitEndDate(), course.capacity(),
             course.location(), course.onlineUrl(), course.creditBankEligible(), course.creditValue(),
             status, course.createdAt(), now, course.deletedAt());

@@ -49,7 +49,9 @@ class UserMeApplicationServiceTest {
             repository,
             () -> USER_ID,
             Clock.fixed(NOW, ZoneOffset.UTC),
-            org.mockito.Mockito.mock(com.adn.dabaeum.file.domain.StoredFileRepository.class)
+            org.mockito.Mockito.mock(com.adn.dabaeum.file.domain.StoredFileRepository.class),
+            org.mockito.Mockito.mock(com.adn.dabaeum.role.domain.UserRoleRepository.class),
+            org.mockito.Mockito.mock(UserInterestService.class)
         );
     }
 
@@ -58,7 +60,7 @@ class UserMeApplicationServiceTest {
         User existing = user();
         when(repository.findById(USER_ID)).thenReturn(Optional.of(existing));
 
-        assertThat(service.getMe(USER_ID)).isSameAs(existing);
+        assertThat(service.getMe(USER_ID).user()).isSameAs(existing);
         verify(repository).findById(USER_ID);
     }
 
@@ -123,7 +125,7 @@ class UserMeApplicationServiceTest {
         );
 
         assertThat(exception.status()).isEqualTo(
-            HttpStatus.UNPROCESSABLE_ENTITY
+            HttpStatus.UNPROCESSABLE_CONTENT
         );
         assertThat(exception.code()).isEqualTo(ApiErrorCode.VALIDATION_FAILED);
     }

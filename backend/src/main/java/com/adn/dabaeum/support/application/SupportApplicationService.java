@@ -2,6 +2,7 @@ package com.adn.dabaeum.support.application;
 
 import com.adn.dabaeum.common.security.AuthenticatedUserContext;
 import com.adn.dabaeum.support.domain.CommonCode;
+import com.adn.dabaeum.support.domain.Faq;
 import com.adn.dabaeum.support.domain.Notice;
 import com.adn.dabaeum.support.domain.NoticeAudience;
 import com.adn.dabaeum.support.domain.TermsContent;
@@ -15,7 +16,12 @@ public interface SupportApplicationService {
 
     Notice getPublishedNotice(UUID noticeId);
 
-    NoticePage listAdminNotices(AuthenticatedUserContext actor, int page, int size);
+    /** 관리자 수정 화면용. 초안·예약 공지도 돌려준다. */
+    Notice getAdminNotice(UUID noticeId, AuthenticatedUserContext actor);
+
+    NoticePage listAdminNotices(
+        AuthenticatedUserContext actor, int page, int size,
+        String keyword, NoticeAudience audience, com.adn.dabaeum.support.domain.NoticeStatus status);
 
     Notice createNotice(NoticeCommand command);
 
@@ -25,7 +31,17 @@ public interface SupportApplicationService {
 
     FaqPage listFaqs(int page, int size);
 
+    FaqPage listAdminFaqs(AuthenticatedUserContext actor, int page, int size);
+
+    Faq createFaq(FaqCommand command);
+
+    Faq updateFaq(FaqCommand command);
+
+    void deleteFaq(UUID faqId, AuthenticatedUserContext actor);
+
     TermsContent getTerms(TermsType type);
+
+    TermsContent createTerms(TermsContentCommand command);
 
     List<CommonCode> listCodes(String codeGroup);
 }

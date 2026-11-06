@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.adn.dabaeum.attendance.domain.Attendance;
@@ -70,7 +71,6 @@ class AttendanceRecordQueryServiceTest {
     @Mock CourseRepository courseRepository;
     @Mock CourseInstructorRepository instructorRepository;
     @Mock EnrollmentRepository enrollmentRepository;
-    @Mock AttendanceQrTokenApplicationService qrTokenService;
 
     private AttendanceApplicationService service;
 
@@ -82,7 +82,6 @@ class AttendanceRecordQueryServiceTest {
             courseRepository,
             instructorRepository,
             enrollmentRepository,
-            qrTokenService,
             new AuthorizationPolicy(),
             Clock.fixed(NOW, ZoneOffset.UTC),
             new FixedAttendanceIdGenerator()
@@ -90,37 +89,15 @@ class AttendanceRecordQueryServiceTest {
     }
 
     @Test
-    void recordsQrForApprovedSubjectWithServerCheckedAt() {
-        givenSessionCourseEnrollment();
-        when(qrTokenService.validate("a".repeat(32), SESSION_ID))
-            .thenReturn(new ValidatedAttendanceQrToken(
-                UUID.fromString("88888888-8888-8888-8888-888888888888"),
-                SESSION_ID, NOW.minusSeconds(1), NOW.plusSeconds(29)));
+    void rejectsQrMethodBeforeTouchingAnythingAndDoesNotPersist() {
+        ApiException unsupported = (ApiException) org.assertj.core.api.Assertions.catchThrowable(
+            () -> service.record(new RecordAttendanceCommand(
+                SESSION_ID, ENROLLMENT_ID, AttendanceMethod.QR, AttendanceStatus.PRESENT,
+                null, AttendanceSource.APP, "a".repeat(32)), subject()));
 
-        Attendance result = service.record(new RecordAttendanceCommand(
-            SESSION_ID, ENROLLMENT_ID, AttendanceMethod.QR, AttendanceStatus.PRESENT,
-            null, AttendanceSource.APP, "a".repeat(32)), subject());
-
-        assertThat(result.attendanceMethod()).isEqualTo(AttendanceMethod.QR);
-        assertThat(result.checkedAt()).isEqualTo(NOW);
-        assertThat(result.createdBy()).isEqualTo(SUBJECT_ID);
-        assertThat(result.qrTokenId()).isNotNull();
-        verify(attendanceRepository).save(result);
-    }
-
-    @Test
-    void rejectsQrForDifferentSubjectAndDoesNotPersist() {
-        when(sessionRepository.findById(SESSION_ID)).thenReturn(Optional.of(session()));
-        when(courseRepository.findActiveById(COURSE_ID)).thenReturn(Optional.of(course()));
-        when(enrollmentRepository.findById(ENROLLMENT_ID)).thenReturn(Optional.of(enrollment()));
-
-        assertThatThrownBy(() -> service.record(new RecordAttendanceCommand(
-            SESSION_ID, ENROLLMENT_ID, AttendanceMethod.QR, AttendanceStatus.PRESENT,
-            null, AttendanceSource.APP, "a".repeat(32)), manager()))
-            .isInstanceOf(ApiException.class)
-            .extracting("code")
-            .isEqualTo(ApiErrorCode.FORBIDDEN);
-        verify(attendanceRepository, never()).save(any());
+        assertThat(unsupported.status().value()).isEqualTo(422);
+        assertThat(unsupported.code()).isEqualTo(ApiErrorCode.ATTENDANCE_METHOD_NOT_SUPPORTED);
+        verifyNoInteractions(sessionRepository, enrollmentRepository, attendanceRepository);
     }
 
     @Test
@@ -134,16 +111,23 @@ class AttendanceRecordQueryServiceTest {
 
         when(attendanceRepository.findBySessionAndEnrollment(SESSION_ID, ENROLLMENT_ID))
             .thenReturn(Optional.of(attendance()));
-        when(qrTokenService.validate("a".repeat(32), SESSION_ID))
-            .thenReturn(new ValidatedAttendanceQrToken(
-                UUID.fromString("88888888-8888-8888-8888-888888888888"),
-                SESSION_ID, NOW.minusSeconds(1), NOW.plusSeconds(29)));
         assertThatThrownBy(() -> service.record(new RecordAttendanceCommand(
-            SESSION_ID, ENROLLMENT_ID, AttendanceMethod.QR, AttendanceStatus.PRESENT,
-            null, AttendanceSource.APP, "a".repeat(32)), subject()))
+            SESSION_ID, ENROLLMENT_ID, AttendanceMethod.ADMIN, AttendanceStatus.PRESENT,
+            null, AttendanceSource.ADMIN_WEB, null), institutionAdmin()))
             .isInstanceOf(ApiException.class)
             .extracting("code")
             .isEqualTo(ApiErrorCode.ATTENDANCE_CONFLICT);
+    }
+
+    @Test
+    void rejectsQrDadaeguOnLegacyEndpoint() {
+        ApiException unsupported = (ApiException) org.assertj.core.api.Assertions.catchThrowable(
+            () -> service.record(new RecordAttendanceCommand(
+                SESSION_ID, ENROLLMENT_ID, AttendanceMethod.QR_DADAEGU, AttendanceStatus.PRESENT,
+                null, AttendanceSource.APP, "a".repeat(32)), subject()));
+        assertThat(unsupported.status().value()).isEqualTo(422);
+        assertThat(unsupported.code()).isEqualTo(ApiErrorCode.ATTENDANCE_METHOD_NOT_SUPPORTED);
+        verify(attendanceRepository, never()).save(any());
     }
 
     @Test
@@ -175,7 +159,8 @@ class AttendanceRecordQueryServiceTest {
         when(courseRepository.findActiveById(COURSE_ID)).thenReturn(Optional.of(course()));
         when(enrollmentRepository.findById(ENROLLMENT_ID)).thenReturn(Optional.of(enrollment()));
 
-        assertThat(service.get(ENROLLMENT_ID, subject())).isEqualTo(attendance());
+        assertThat(service.get(ENROLLMENT_ID, subject()).attendance()).isEqualTo(attendance());
+        assertThat(service.get(ENROLLMENT_ID, subject()).adjustments()).isEmpty();
     }
 
     private void givenSessionCourseEnrollment() {
@@ -203,7 +188,7 @@ class AttendanceRecordQueryServiceTest {
     private CourseSession session() {
         return new CourseSession(SESSION_ID, COURSE_ID, 1, NOW.minusSeconds(60),
             NOW.plusSeconds(600), "room", NOW.minusSeconds(10), NOW.plusSeconds(300),
-            CourseSessionStatus.OPEN, NOW.minusSeconds(120), NOW.minusSeconds(120));
+            CourseSessionStatus.OPEN, NOW.minusSeconds(120), NOW.minusSeconds(120), null);
     }
 
     private Course course() {
@@ -221,6 +206,11 @@ class AttendanceRecordQueryServiceTest {
     private AuthenticatedUserContext manager() {
         return new AuthenticatedUserContext(MANAGER_ID, "LOCAL",
             Set.of(new AuthenticatedRole("INSTRUCTOR", INSTITUTION_ID)));
+    }
+
+    private AuthenticatedUserContext institutionAdmin() {
+        return new AuthenticatedUserContext(MANAGER_ID, "LOCAL",
+            Set.of(new AuthenticatedRole("INSTITUTION_ADMIN", INSTITUTION_ID)));
     }
 
     private static final class FixedAttendanceIdGenerator implements AttendanceIdGenerator {

@@ -12,6 +12,8 @@ public record NoticeCommand(
     String body,
     NoticeAudience audience,
     NoticeStatus status,
+    /** 예약 게시용. null 이면 기존 동작(게시 상태면 요청 시각). */
+    Instant publishedAt,
     AuthenticatedUserContext actor,
     Instant requestedAt
 ) {

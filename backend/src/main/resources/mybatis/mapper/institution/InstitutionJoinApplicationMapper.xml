@@ -82,6 +82,9 @@
             <if test="status != null">
                 status = #{status}
             </if>
+            <if test="applicantUserId != null">
+                AND applicant_user_id = #{applicantUserId}
+            </if>
         </where>
         ORDER BY created_at DESC, id ASC
         LIMIT #{limit} OFFSET #{offset}
@@ -94,7 +97,19 @@
             <if test="status != null">
                 status = #{status}
             </if>
+            <if test="applicantUserId != null">
+                AND applicant_user_id = #{applicantUserId}
+            </if>
         </where>
+    </select>
+
+    <select id="existsPendingByApplicant" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1
+            FROM tb_institution_applications
+            WHERE applicant_user_id = #{applicantUserId}
+              AND status = 'PENDING'
+        )
     </select>
 
     <update id="updateDecision">

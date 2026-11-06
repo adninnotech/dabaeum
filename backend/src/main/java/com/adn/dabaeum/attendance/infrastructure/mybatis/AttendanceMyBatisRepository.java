@@ -1,12 +1,14 @@
 package com.adn.dabaeum.attendance.infrastructure.mybatis;
 
 import com.adn.dabaeum.attendance.domain.Attendance;
+import com.adn.dabaeum.attendance.domain.AttendanceLearner;
 import com.adn.dabaeum.attendance.domain.AttendanceMethod;
 import com.adn.dabaeum.attendance.domain.AttendancePageCriteria;
 import com.adn.dabaeum.attendance.domain.AttendanceRepository;
 import com.adn.dabaeum.attendance.domain.AttendanceSource;
 import com.adn.dabaeum.attendance.domain.AttendanceStatus;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -55,6 +57,16 @@ public class AttendanceMyBatisRepository implements AttendanceRepository {
     @Override
     public long countBySession(UUID sessionId) {
         return mapper.countBySession(sessionId);
+    }
+
+    @Override
+    public List<AttendanceLearner> findLearners(Collection<UUID> enrollmentIds) {
+        if (enrollmentIds.isEmpty()) {
+            return List.of();
+        }
+        return mapper.selectLearners(enrollmentIds).stream()
+            .map(row -> new AttendanceLearner(row.enrollmentId(), row.userId(), row.userName()))
+            .toList();
     }
 
     @Override

@@ -34,6 +34,7 @@
             verified_at,
             metadata,
             password_hash,
+            password_changed_at,
             created_at,
             updated_at
         ) VALUES (
@@ -45,6 +46,7 @@
             #{createdAt},
             NULL,
             #{passwordHash},
+            #{createdAt},
             #{createdAt},
             #{updatedAt}
         )
@@ -85,7 +87,34 @@
     <update id="updatePasswordHash">
         UPDATE tb_user_identities
            SET password_hash = #{passwordHash},
+               password_changed_at = #{updatedAt},
                updated_at = #{updatedAt}
+         WHERE provider = 'LOCAL'
+           AND user_id = #{userId}
+           AND password_hash IS NOT NULL
+    </update>
+
+    <!-- 컬럼이 NULL 이어도 "행이 있음" 을 구분하려고 has_local 을 같이 읽는다. -->
+    <resultMap id="passwordAgeRowResultMap"
+               type="com.adn.dabaeum.authentication.infrastructure.mybatis.PasswordAgeRow">
+        <constructor>
+            <arg column="has_local" javaType="_boolean"/>
+            <arg column="password_changed_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <select id="selectPasswordAge" resultMap="passwordAgeRowResultMap">
+        SELECT TRUE AS has_local,
+               password_changed_at
+          FROM tb_user_identities
+         WHERE provider = 'LOCAL'
+           AND user_id = #{userId}
+           AND password_hash IS NOT NULL
+    </select>
+
+    <update id="markPasswordTemporary">
+        UPDATE tb_user_identities
+           SET password_changed_at = NULL
          WHERE provider = 'LOCAL'
            AND user_id = #{userId}
            AND password_hash IS NOT NULL

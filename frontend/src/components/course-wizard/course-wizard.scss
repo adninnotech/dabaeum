@@ -1,0 +1,493 @@
+/* 강의 등록 위저드 공통 — 단계 컴포넌트(components/course-wizard/*)가 함께 쓴다.
+   페이지 하나의 scoped 스타일이던 것을 나누며 .wizard-page 아래로 묶었다(일반 이름 .field 등이 밖으로 새지 않게) */
+.wizard-page {
+  .visibility-note {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--db-text-sub);
+  }
+
+  &.wizard-page {
+    --wz-primary: var(--db-primary);
+    --wz-text: var(--db-text-title);
+    --wz-label: var(--db-text-body);
+    --wz-help: var(--db-text-help);
+    --wz-caption: var(--db-text-sub);
+    --wz-border: var(--db-border);
+    --wz-border-rt: var(--db-border-rt);
+    --wz-bg: var(--db-bg-page);
+    --wz-btn-sub: var(--db-bg-subtle);
+    --wz-req: var(--db-status-pink);
+    --wz-accent: var(--db-accent);
+    background: var(--wz-bg);
+  }
+
+  .wizard-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 48px 40px 20px;
+  }
+
+  .wizard-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    align-self: flex-start;
+    margin-bottom: -8px;
+    font-size: 14px;
+    color: var(--db-text-sub);
+    text-decoration: none;
+  }
+
+  .wizard-back:hover,
+  .wizard-back:focus-visible {
+    color: var(--db-accent);
+    text-decoration: underline;
+  }
+
+  .wizard-title {
+    margin: 0;
+    font-size: 30px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--wz-text);
+  }
+
+  .wizard-body {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+
+  .wizard-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .wizard-sub {
+    width: 320px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* 세로로 쌓일 때 align-items:flex-start 가 남아 본문이 내용 폭(회차 표 940px)만큼 늘어나
+     폰에서 페이지 전체가 992px 로 밀렸다 — 쌓이면 폭을 화면에 맞춘다 */
+  @media (max-width: 1023px) {
+    .wizard-body {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .wizard-sub {
+      width: 100%;
+    }
+  }
+
+  /* 스텝 브레드크럼 */
+  .wizard-steps {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 74px;
+    padding: 22px 30px;
+    background: var(--db-bg-white);
+    border: 0.5px solid var(--wz-border);
+    border-radius: 8px;
+  }
+
+  .wizard-steps__line {
+    flex: 1;
+    height: 1px;
+    background: var(--wz-caption);
+  }
+
+  .wizard-steps__item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* button 기본 모양을 지워 예전 div 와 똑같이 보이게 한다 */
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: inherit;
+    text-align: inherit;
+    cursor: default;
+  }
+
+  .wizard-steps__item:focus-visible {
+    outline: 2px solid var(--wz-primary);
+    outline-offset: 4px;
+    border-radius: 4px;
+  }
+
+  .wizard-steps__item.done {
+    cursor: pointer;
+  }
+
+  .wizard-steps__num {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid var(--wz-border);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--wz-caption);
+  }
+
+  .wizard-steps__label {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--wz-caption);
+    white-space: nowrap;
+  }
+
+  .wizard-steps__item.active .wizard-steps__num {
+    background: var(--wz-primary);
+    border-color: var(--wz-primary);
+    color: var(--db-on-color);
+    font-weight: 700;
+  }
+
+  .wizard-steps__item.active .wizard-steps__label {
+    color: var(--wz-primary);
+  }
+
+  .wizard-steps__item.done .wizard-steps__label {
+    color: var(--wz-primary);
+    font-weight: 700;
+  }
+
+  /* 카드 */
+  .wizard-card {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px 16px;
+    background: var(--db-bg-white);
+    border: 1px solid var(--wz-border);
+    border-radius: 8px;
+  }
+
+  .wizard-card__title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--wz-label);
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  /* 칸 아래 검증 문구 — q-input 밖 블록(편집기·분류·이미지·회차 표 등)용 */
+  .field-error {
+    color: var(--db-status-pink);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+
+  .field-label {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--wz-label);
+  }
+
+  .field-help {
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--wz-caption);
+  }
+
+  .req {
+    color: var(--wz-req);
+  }
+
+  .row-fields {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+
+  /* 기관명은 길다 — 분류 선택(ClassificationPicker)과 같은 높이·라벨 방식으로 */
+  .field--institution {
+    width: min(420px, 100%);
+  }
+
+  .field--title,
+  .field--half {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .wizard-card .wz-input .q-field__control,
+
+  .wizard-card .wz-editor {
+    border: 1px solid var(--wz-border-rt);
+    border-radius: 8px;
+  }
+
+  .wizard-card .wz-checkboxes.q-option-group--inline > div {
+    margin-right: 48px;
+  }
+
+  .input-counter {
+    font-size: 12px;
+    color: var(--wz-caption);
+  }
+
+  .input-unit {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--wz-text);
+  }
+
+  /* 라디오 행 */
+  .radio-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 34px;
+    padding: 4px 10px;
+    background: var(--db-bg-white);
+    border: 1px solid var(--wz-border);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .radio-text {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .radio-row--tall {
+    min-height: 58px;
+  }
+
+  .radio-row--tall .radio-text {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .radio-label {
+    width: 92px;
+    flex-shrink: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--wz-label);
+  }
+
+  .radio-row--tall .radio-label {
+    width: auto;
+  }
+
+  .radio-caption {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--wz-help);
+  }
+
+  /* 푸터 */
+  .wizard-footer {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 86px;
+    padding: 10px 40px;
+    background: var(--db-bg-white);
+    border-top: 1px solid var(--wz-border);
+  }
+
+  .wizard-footer__left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .wizard-footer__hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--wz-caption);
+  }
+
+  .wizard-footer__hint--error {
+    color: var(--db-error);
+  }
+
+  .wizard-footer__right {
+    display: flex;
+    gap: 10px;
+  }
+
+  .btn-draft {
+    width: 120px;
+    height: 40px;
+    background: var(--wz-btn-sub);
+  }
+
+  .btn-nav {
+    height: 40px;
+    min-width: 100px;
+  }
+
+  .thumb-box:focus-visible {
+    outline: 2px solid var(--db-accent);
+    outline-offset: 2px;
+  }
+
+  /* hover — 눌러지는 곳만 반응한다. 마우스가 있는 기기에서만, 움직임은 색·테두리로만(들썩이지 않게) */
+  .radio-row,
+  .thumb-box,
+  .wizard-steps__num,
+  .wizard-steps__label {
+    transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+  }
+
+  .thumb-box__icon {
+    color: var(--wz-caption);
+    transition: color 0.15s ease, transform 0.2s ease;
+  }
+
+  @media (hover: hover) {
+    /* 라디오 줄 — 줄 전체가 눌리는 자리라는 걸 보인다 */
+    .radio-row:hover {
+      border-color: var(--wz-accent);
+      background: var(--db-bg-subtle);
+    }
+
+    .radio-row:hover .radio-label {
+      color: var(--wz-text);
+    }
+
+    /* 지난 단계 — 눌러 돌아갈 수 있는 것만(지금·다음 단계는 disabled) */
+    .wizard-steps__item.done:hover .wizard-steps__num {
+      border-color: var(--wz-primary);
+      background: var(--db-accent-soft);
+      color: var(--wz-primary);
+    }
+
+    .wizard-steps__item.done:hover .wizard-steps__label {
+      text-decoration: underline;
+      text-underline-offset: 4px;
+    }
+
+    /* 대표 이미지 — 빈 칸은 점선이 실선·파랑으로, 구름 아이콘이 살짝 위로 */
+    .thumb-box:hover {
+      border-color: var(--wz-accent);
+      background: var(--db-accent-soft);
+    }
+
+    .thumb-box:has(.thumb-img):hover {
+      background: none;
+    }
+
+    .thumb-box:hover .thumb-box__icon {
+      color: var(--wz-accent);
+      transform: translateY(-3px);
+    }
+
+    .thumb-box:hover .thumb-box__text {
+      color: var(--wz-accent);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .radio-row,
+    .thumb-box,
+    .thumb-box__icon,
+    .wizard-steps__num,
+    .wizard-steps__label {
+      transition: none;
+    }
+
+    .thumb-box:hover .thumb-box__icon {
+      transform: none;
+    }
+  }
+
+  /* 폰: 스텝 이름 4개(nowrap 16px)와 하단 버튼 4개(최소 100~120px)가 375px 를 넘어 [다음 단계]가 밀려났다 */
+  @media (max-width: 599px) {
+    .wizard-section {
+      padding: 20px 16px 16px;
+    }
+
+    .wizard-title {
+      font-size: 22px;
+    }
+
+    .wizard-steps {
+      height: auto;
+      padding: 12px 14px;
+      gap: 8px;
+    }
+
+    .wizard-steps__item:not(.active) .wizard-steps__label {
+      display: none;
+    }
+
+    .wizard-steps__num {
+      width: 26px;
+      height: 26px;
+    }
+
+    .wizard-steps__line {
+      min-width: 8px;
+    }
+
+    /* [임시저장]이 한 줄을 따로 차지해 바가 109px 이었다 — 한 줄에 셋 */
+    .wizard-footer {
+      flex-wrap: wrap;
+      gap: 6px 8px;
+      height: auto;
+      padding: 10px 16px;
+    }
+
+    /* 폰: 저장 상태 글자는 단추 위 한 줄 — 없으면 줄을 차지하지 않는다 */
+    .wizard-footer__left {
+      flex-basis: 100%;
+    }
+
+    .wizard-footer__left:empty {
+      display: none;
+    }
+
+    .wizard-footer__right .btn-draft {
+      width: auto;
+      flex: 1 1 0;
+    }
+
+    .wizard-footer__right {
+      flex: 1;
+      gap: 8px;
+    }
+
+    .wizard-footer__right .btn-nav {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    .btn-draft {
+      width: auto;
+      padding: 0 12px;
+    }
+
+  }
+}

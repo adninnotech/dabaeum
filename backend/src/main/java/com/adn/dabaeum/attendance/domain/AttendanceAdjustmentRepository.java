@@ -8,4 +8,7 @@ public interface AttendanceAdjustmentRepository {
     void save(AttendanceAdjustment adjustment);
 
     List<AttendanceAdjustment> findByAttendanceId(UUID attendanceId);
+
+    /** 출결 상세용. 최신순이며 보정자 이름을 함께 읽는다. */
+    List<AttendanceAdjustmentEntry> findEntriesByAttendanceId(UUID attendanceId);
 }

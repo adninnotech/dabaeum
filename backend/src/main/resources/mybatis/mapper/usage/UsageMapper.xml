@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- docs/specs/usage-statistics.md §5~§7. 관리자 조회는 일별 집계만 읽는다. -->
+<mapper namespace="com.adn.dabaeum.usage.infrastructure.mybatis.UsageMapper">
+
+    <resultMap id="memberProfile" type="com.adn.dabaeum.usage.domain.MemberProfile">
+        <constructor>
+            <arg column="gender" javaType="java.lang.String"/>
+            <arg column="birth_date" javaType="java.time.LocalDate"/>
+        </constructor>
+    </resultMap>
+
+    <select id="selectMember" resultMap="memberProfile">
+        SELECT gender, birth_date FROM tb_users WHERE id = #{userId}
+    </select>
+
+    <insert id="insertEventIfAbsent">
+        INSERT INTO tb_usage_events (event_date, event_type, viewer_key, target_key, member_type, gender, age_band,
+                                     zero_result, created_at)
+        VALUES (#{event.date}, #{event.type}, #{event.viewerKey}, #{event.targetKey}, #{event.segment.memberType},
+                #{event.segment.gender}, #{event.segment.ageBand}, #{event.zeroResult}, #{event.at})
+        ON CONFLICT (event_date, event_type, viewer_key, target_key) DO NOTHING
+    </insert>
+
+    <delete id="deleteEventsBefore">
+        DELETE FROM tb_usage_events WHERE event_date &lt; #{date}
+    </delete>
+
+    <insert id="insertSaltIfAbsent">
+        INSERT INTO tb_usage_salts (salt_date, salt) VALUES (#{date}, #{salt})
+        ON CONFLICT (salt_date) DO NOTHING
+    </insert>
+
+    <resultMap id="saltRow" type="com.adn.dabaeum.usage.infrastructure.mybatis.UsageSaltRow">
+        <constructor>
+            <arg column="salt" javaType="_byte[]"/>
+        </constructor>
+    </resultMap>
+
+    <select id="selectSalt" resultMap="saltRow">
+        SELECT salt FROM tb_usage_salts WHERE salt_date = #{date}
+    </select>
+
+    <delete id="deleteSaltsBefore">
+        DELETE FROM tb_usage_salts WHERE salt_date &lt; #{date}
+    </delete>
+
+    <select id="selectLastAggregatedDay" resultType="java.time.LocalDate">
+        SELECT MAX(stat_date) FROM tb_usage_aggregated_days
+    </select>
+
+    <delete id="deleteDailyStats">
+        DELETE FROM tb_usage_daily_stats WHERE stat_date = #{day}
+    </delete>
+
+    <!-- 연령대 규칙은 StatisticsMapper.xml ageBandAtApplication 과 같다. ${on} 은 고정 속성이다. -->
+    <sql id="ageBand">
+        CASE WHEN u.birth_date IS NULL THEN 'UNKNOWN'
+             ELSE LEAST(GREATEST((EXTRACT(YEAR FROM age(${on}, u.birth_date))::int / 10) * 10, 10), 70)::text
+        END
+    </sql>
+
+    <!--
+      방문·검색·배너는 기록 순간의 구간값을 그대로 센다. 강좌 조회·수강 신청은 user_id 로 회원 테이블과 잇는다
+      (성별은 지금 값, 연령은 그날 기준, 회원 행이 없으면 UNKNOWN).
+    -->
+    <insert id="insertDailyStats">
+        INSERT INTO tb_usage_daily_stats (stat_date, metric, target_key, member_type, gender, age_band, count)
+        SELECT #{day}, e.event_type,
+               CASE WHEN e.event_type = 'BANNER_CLICK' THEN e.target_key ELSE '' END,
+               e.member_type, e.gender, e.age_band, COUNT(*)
+          FROM tb_usage_events e
+         WHERE e.event_date = #{day}
+         GROUP BY 2, 3, 4, 5, 6
+        UNION ALL
+        SELECT #{day}, 'COURSE_VIEW', '',
+               CASE WHEN v.user_id IS NULL THEN 'GUEST' ELSE 'MEMBER' END,
+               COALESCE(u.gender, 'UNKNOWN'),
+               <include refid="ageBand"><property name="on" value="v.view_date"/></include>,
+               COUNT(*)
+          FROM tb_course_views v
+          LEFT JOIN tb_users u ON u.id = v.user_id
+         WHERE v.view_date = #{day}
+         GROUP BY 4, 5, 6
+        UNION ALL
+        SELECT #{day}, 'ENROLLMENT', '', 'MEMBER',
+               COALESCE(u.gender, 'UNKNOWN'),
+               <include refid="ageBand"><property name="on" value="(e.applied_at AT TIME ZONE 'Asia/Seoul')::date"/></include>,
+               COUNT(*)
+          FROM tb_enrollments e
+          LEFT JOIN tb_users u ON u.id = e.user_id
+         WHERE e.applied_at &gt;= #{dayStart} AND e.applied_at &lt; #{dayEnd}
+         GROUP BY 5, 6
+    </insert>
+
+    <delete id="deleteKeywordStats">
+        DELETE FROM tb_search_keyword_daily WHERE stat_date = #{day}
+    </delete>
+
+    <insert id="insertKeywordStats">
+        INSERT INTO tb_search_keyword_daily (stat_date, keyword, searchers, zero_result_searchers)
+        SELECT #{day}, target_key, COUNT(*), COUNT(*) FILTER (WHERE zero_result)
+          FROM tb_usage_events
+         WHERE event_date = #{day}
+           AND event_type = 'SEARCH'
+           AND target_key &lt;&gt; #{masked}
+         GROUP BY target_key
+        HAVING COUNT(*) &gt;= #{minSearchers}
+    </insert>
+
+    <insert id="markAggregated">
+        INSERT INTO tb_usage_aggregated_days (stat_date, aggregated_at) VALUES (#{day}, #{at})
+        ON CONFLICT (stat_date) DO UPDATE SET aggregated_at = EXCLUDED.aggregated_at
+    </insert>
+
+    <sql id="metricSums">
+        COALESCE(SUM(s.count) FILTER (WHERE s.metric = 'VISIT'), 0) AS visitors,
+        COALESCE(SUM(s.count) FILTER (WHERE s.metric = 'SEARCH'), 0) AS searches,
+        COALESCE(SUM(s.count) FILTER (WHERE s.metric = 'COURSE_VIEW'), 0) AS course_views,
+        COALESCE(SUM(s.count) FILTER (WHERE s.metric = 'ENROLLMENT'), 0) AS enrollments,
+        COALESCE(SUM(s.count) FILTER (WHERE s.metric = 'BANNER_CLICK'), 0) AS banner_clicks
+    </sql>
+
+    <resultMap id="trendRow" type="com.adn.dabaeum.usage.domain.UsageTrendRow">
+        <constructor>
+            <arg column="period" javaType="java.lang.String"/>
+            <arg column="visitors" javaType="_long"/>
+            <arg column="searches" javaType="_long"/>
+            <arg column="course_views" javaType="_long"/>
+            <arg column="enrollments" javaType="_long"/>
+            <arg column="banner_clicks" javaType="_long"/>
+        </constructor>
+    </resultMap>
+
+    <!-- 빈 날·빈 달도 0 으로 낸다. -->
+    <select id="selectTrend" resultMap="trendRow">
+        SELECT to_char(d.day, <choose><when test="monthly">'YYYY-MM'</when><otherwise>'YYYY-MM-DD'</otherwise></choose>) AS period,
+               <include refid="metricSums"/>
+          FROM generate_series(#{from}::date, #{to}::date, INTERVAL '1 day') AS d(day)
+          LEFT JOIN tb_usage_daily_stats s ON s.stat_date = d.day::date
+         GROUP BY 1
+         ORDER BY 1
+    </select>
+
+    <resultMap id="counts" type="com.adn.dabaeum.usage.domain.UsageCounts">
+        <constructor>
+            <arg column="visitors" javaType="_long"/>
+            <arg column="searches" javaType="_long"/>
+            <arg column="course_views" javaType="_long"/>
+            <arg column="enrollments" javaType="_long"/>
+            <arg column="banner_clicks" javaType="_long"/>
+        </constructor>
+    </resultMap>
+
+    <select id="selectTotals" resultMap="counts">
+        SELECT <include refid="metricSums"/>
+          FROM tb_usage_daily_stats s
+         WHERE s.stat_date BETWEEN #{from} AND #{to}
+    </select>
+
+    <resultMap id="segmentCount" type="com.adn.dabaeum.usage.domain.SegmentCount">
+        <constructor>
+            <arg column="member_type" javaType="java.lang.String"/>
+            <arg column="gender" javaType="java.lang.String"/>
+            <arg column="age_band" javaType="java.lang.String"/>
+            <arg column="count" javaType="_long"/>
+        </constructor>
+    </resultMap>
+
+    <select id="selectSegments" resultMap="segmentCount">
+        SELECT member_type, gender, age_band, SUM(count) AS count
+          FROM tb_usage_daily_stats
+         WHERE metric = #{metric}
+           AND stat_date BETWEEN #{from} AND #{to}
+         GROUP BY member_type, gender, age_band
+    </select>
+
+    <resultMap id="keywordCount" type="com.adn.dabaeum.usage.domain.KeywordCount">
+        <constructor>
+            <arg column="keyword" javaType="java.lang.String"/>
+            <arg column="searchers" javaType="_long"/>
+        </constructor>
+    </resultMap>
+
+    <select id="selectKeywords" resultMap="keywordCount">
+        SELECT keyword,
+               SUM(<choose><when test="zeroResult">zero_result_searchers</when><otherwise>searchers</otherwise></choose>) AS searchers
+          FROM tb_search_keyword_daily
+         WHERE stat_date BETWEEN #{from} AND #{to}
+         GROUP BY keyword
+        HAVING SUM(<choose><when test="zeroResult">zero_result_searchers</when><otherwise>searchers</otherwise></choose>) &gt; 0
+         ORDER BY 2 DESC, keyword
+         LIMIT #{limit}
+    </select>
+
+    <resultMap id="bannerClickCount" type="com.adn.dabaeum.usage.domain.BannerClickCount">
+        <constructor>
+            <arg column="banner_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="deleted" javaType="_boolean"/>
+            <arg column="clickers" javaType="_long"/>
+        </constructor>
+    </resultMap>
+
+    <select id="selectBannerClicks" resultMap="bannerClickCount">
+        SELECT s.target_key::uuid AS banner_id, b.title, (b.id IS NULL OR b.deleted_at IS NOT NULL) AS deleted,
+               SUM(s.count) AS clickers
+          FROM tb_usage_daily_stats s
+          LEFT JOIN tb_banners b ON b.id = s.target_key::uuid
+         WHERE s.metric = 'BANNER_CLICK'
+           AND s.stat_date BETWEEN #{from} AND #{to}
+         GROUP BY s.target_key, b.id, b.title, b.deleted_at
+         ORDER BY clickers DESC, b.title
+    </select>
+
+</mapper>

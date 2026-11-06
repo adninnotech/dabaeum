@@ -115,6 +115,17 @@ class AttendanceQrTokenApplicationServiceTest {
     }
 
     @Test
+    void rejectsQrIssueForOnlineSessionWithoutTime() {
+        CourseSession session = onlineSessionWithoutTime();
+        when(sessionRepository.findByIdForUpdate(SESSION_ID)).thenReturn(Optional.of(session));
+        when(courseRepository.findActiveById(COURSE_ID)).thenReturn(Optional.of(course()));
+
+        assertThatThrownBy(() -> service.issue(SESSION_ID, globalAdmin()))
+            .isInstanceOf(ApiException.class)
+            .extracting("code").isEqualTo(ApiErrorCode.ATTENDANCE_CONFLICT);
+    }
+
+    @Test
     void validatesStoredTokenAndDistinguishesExpiryFromInvalidity() {
         UUID tokenId = UUID.fromString("66666666-6666-6666-6666-666666666666");
         AttendanceQrTokenPayload payload = new AttendanceQrTokenPayload(
@@ -129,6 +140,10 @@ class AttendanceQrTokenApplicationServiceTest {
         when(tokenRepository.findByHash(stored.tokenHash())).thenReturn(Optional.of(stored));
 
         assertThat(service.validate("encoded-token", SESSION_ID).tokenId()).isEqualTo(tokenId);
+        // 출결 기록의 createdBy 로 쓴다 — 학생이 로그인하지 않는 다대구 경로에서 유일한 "누가 열었나" 근거.
+        assertThat(service.validate("encoded-token", SESSION_ID).issuedBy()).isEqualTo(ADMIN_ID);
+        // 학생이 QR URL 로 들어오면 회차를 모른 채 토큰만 온다. 회차는 토큰이 서명해 담고 있다.
+        assertThat(service.validate("encoded-token", null).sessionId()).isEqualTo(SESSION_ID);
 
         when(codec.decodeAndVerify("expired-token")).thenReturn(new AttendanceQrTokenPayload(
             1, tokenId, SESSION_ID, NOW.minusSeconds(60), NOW.minusSeconds(30), payload.nonce()));
@@ -139,7 +154,13 @@ class AttendanceQrTokenApplicationServiceTest {
 
     private CourseSession session(CourseSessionStatus status, Instant opens, Instant closes) {
         return new CourseSession(SESSION_ID, COURSE_ID, 1, NOW.minusSeconds(120),
-            NOW.plusSeconds(600), null, opens, closes, status, NOW.minusSeconds(120), NOW);
+            NOW.plusSeconds(600), null, opens, closes, status, NOW.minusSeconds(120), NOW, null);
+    }
+
+    private CourseSession onlineSessionWithoutTime() {
+        return new CourseSession(SESSION_ID, COURSE_ID, 1, null,
+            null, null, null, null, CourseSessionStatus.OPEN, NOW.minusSeconds(120), NOW,
+            "1강. 데이터란 무엇인가");
     }
 
     private Course course() {

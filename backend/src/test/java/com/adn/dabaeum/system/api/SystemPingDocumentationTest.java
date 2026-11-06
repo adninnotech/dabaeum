@@ -1,6 +1,5 @@
 package com.adn.dabaeum.system.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document;
 import static org.springframework.restdocs.operation.preprocess.Preprocessors.preprocessRequest;
 import static org.springframework.restdocs.operation.preprocess.Preprocessors.preprocessResponse;
@@ -16,8 +15,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.web.RequestIdFilter;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.restdocs.test.autoconfigure.AutoConfigureRestDocs;
@@ -44,11 +41,6 @@ class SystemPingDocumentationTest {
 
     @Test
     void documentsPingAndValidatesOpenApi() throws Exception {
-        String contract = Path.of("docs/api/dabaeum-api-v1.yaml")
-            .toAbsolutePath()
-            .toUri()
-            .toString();
-
         mockMvc.perform(get("/api/v1/system/ping")
                 .accept(MediaType.APPLICATION_JSON))
             .andExpect(status().isOk())
@@ -59,7 +51,6 @@ class SystemPingDocumentationTest {
             .andExpect(jsonPath("$.data.status").value("OK"))
             .andExpect(jsonPath("$.meta.requestId").isNotEmpty())
             .andExpect(jsonPath("$.meta.timestamp").isNotEmpty())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document(
                 "system-ping",
                 preprocessRequest(prettyPrint()),

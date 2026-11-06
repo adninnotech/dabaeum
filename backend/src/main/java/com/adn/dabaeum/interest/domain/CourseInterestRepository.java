@@ -12,9 +12,10 @@ public interface CourseInterestRepository {
 
     Optional<CourseInterest> findByUserIdAndCourseId(UUID userId, UUID courseId);
 
-    List<CourseInterestView> findByUserId(UUID userId, int limit, int offset);
+    List<CourseInterestView> findByUserId(
+        UUID userId, String keyword, int limit, int offset);
 
-    long countByUserId(UUID userId);
+    long countByUserId(UUID userId, String keyword);
 
     boolean delete(UUID id);
 }

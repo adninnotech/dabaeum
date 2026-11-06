@@ -31,6 +31,8 @@ public interface CourseSessionMapper {
         @Param("sessionNo") int sessionNo
     );
 
+    List<CourseSessionRow> selectByCourseId(@Param("courseId") UUID courseId);
+
     List<CourseSessionRow> selectPage(
         @Param("criteria") CourseSessionPageCriteria criteria
     );
@@ -38,4 +40,23 @@ public interface CourseSessionMapper {
     long countByCourseId(@Param("courseId") UUID courseId);
 
     int update(CourseSessionRow row);
+
+    int reopen(
+        @Param("id") UUID id,
+        @Param("from") String from,
+        @Param("to") String to,
+        @Param("updatedAt") Instant updatedAt
+    );
+
+    boolean existsSessionDependenciesByCourseId(@Param("courseId") UUID courseId);
+
+    boolean existsNonScheduledByCourseId(@Param("courseId") UUID courseId);
+
+    Instant selectFirstActiveStartByCourseId(@Param("courseId") UUID courseId);
+
+    int deleteAllByCourseId(@Param("courseId") UUID courseId);
+
+    int shiftSessionNoByOffset(@Param("courseId") UUID courseId, @Param("offset") int offset);
+
+    int updateSessionNo(@Param("id") UUID id, @Param("sessionNo") int sessionNo);
 }

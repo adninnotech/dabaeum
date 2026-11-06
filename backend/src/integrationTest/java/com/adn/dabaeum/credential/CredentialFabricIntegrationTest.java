@@ -23,7 +23,7 @@ class CredentialFabricIntegrationTest extends RemotePostgresIntegrationTestSuppo
 
     @Test
     void remoteCredentialSchemaAndVerificationAuditAreAvailableAndRollbackScoped() {
-        assertThat(flyway().info().current().getVersion().toString()).isEqualTo("19");
+        assertThat(flyway().info().current().getVersion().toString()).isEqualTo("62");
         assertThat(jdbcTemplate.queryForObject("""
             SELECT COUNT(*) FROM information_schema.columns
              WHERE table_schema = 'public'

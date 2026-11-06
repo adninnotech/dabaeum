@@ -1,28 +1,41 @@
 package com.adn.dabaeum.credential.config;
 
 import java.net.URI;
+import java.util.List;
 import java.util.regex.Pattern;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 @ConfigurationProperties(prefix = "dabaeum.vc")
 public record VcProperties(
     String publicBaseUrl,
     String contextVersion,
-    String keyVersion
+    String keyVersion,
+    List<String> pastPublicBaseUrls
 ) {
 
     private static final String SUPPORTED_CONTEXT_VERSION = "v1";
     private static final Pattern KEY_VERSION =
         Pattern.compile("^[A-Za-z0-9][A-Za-z0-9._-]*$");
 
+    /**
+     * pastPublicBaseUrls 는 이전 공개 주소다. 그 주소로 서명된 문서를 검증할 때만 인정하고 새 문서에는 쓰지 않는다.
+     */
+    @ConstructorBinding
     public VcProperties {
         publicBaseUrl = normalizeBaseUrl(publicBaseUrl);
+        pastPublicBaseUrls = pastPublicBaseUrls == null ? List.of()
+            : pastPublicBaseUrls.stream().map(VcProperties::normalizeBaseUrl).toList();
         if (!SUPPORTED_CONTEXT_VERSION.equals(contextVersion)) {
             throw new IllegalArgumentException("VC context version is invalid");
         }
         if (keyVersion == null || !KEY_VERSION.matcher(keyVersion).matches()) {
             throw new IllegalArgumentException("VC key version is invalid");
         }
+    }
+
+    public VcProperties(String publicBaseUrl, String contextVersion, String keyVersion) {
+        this(publicBaseUrl, contextVersion, keyVersion, List.of());
     }
 
     private static String normalizeBaseUrl(String value) {

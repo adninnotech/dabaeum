@@ -425,7 +425,7 @@ class CredentialApplicationServiceTest {
 
     private Course course(UUID id, UUID institutionId) {
         return new Course(id, institutionId, "C-" + id.toString().substring(0, 8), "Course", null,
-            "category", CourseEducationType.ONLINE, LocalDate.of(2026, 8, 1),
+            "TSIX_040201", CourseEducationType.ONLINE, LocalDate.of(2026, 8, 1),
             LocalDate.of(2026, 8, 31), null, null, 30, null, null, true, new BigDecimal("3.00"),
             CourseStatus.COMPLETED, NOW.minusSeconds(3600), NOW.minusSeconds(60), null);
     }
@@ -482,7 +482,7 @@ class CredentialApplicationServiceTest {
     }
 
     private Course course() {
-        return new Course(COURSE_ID, INSTITUTION_ID, "C-001", "Course", null, "category",
+        return new Course(COURSE_ID, INSTITUTION_ID, "C-001", "Course", null, "TSIX_040201",
             CourseEducationType.ONLINE, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
             null, null, 30, null, null, true, new BigDecimal("3.00"),
             CourseStatus.COMPLETED, NOW.minusSeconds(3600), NOW.minusSeconds(60), null);
@@ -615,17 +615,22 @@ class CredentialApplicationServiceTest {
         @Override public void save(Enrollment enrollment) { throw new UnsupportedOperationException(); }
         @Override public Optional<Enrollment> findById(UUID id) { return Optional.ofNullable(byId.get(id)); }
         @Override public Optional<Enrollment> findByIdForUpdate(UUID id) { return findById(id); }
+        @Override public List<Enrollment> findAllByIds(List<UUID> ids) { throw new UnsupportedOperationException(); }
         @Override public List<UUID> findInstitutionIdsByUserId(UUID userId) {
             return institutionIdsByUser.getOrDefault(userId, List.of());
         }
         @Override public Optional<Enrollment> findActiveByCourseIdAndUserId(UUID courseId, UUID userId) { throw new UnsupportedOperationException(); }
-        @Override public List<Enrollment> findPageByCourseId(EnrollmentPageCriteria criteria) { throw new UnsupportedOperationException(); }
+        @Override public List<Enrollment> findActiveByCourseId(UUID courseId) { throw new UnsupportedOperationException(); }
+        @Override public List<com.adn.dabaeum.enrollment.domain.EnrollmentListItem> findEnrollmentListByCourseId(EnrollmentPageCriteria criteria) { throw new UnsupportedOperationException(); }
         @Override public long countByCourseId(UUID courseId) { throw new UnsupportedOperationException(); }
         @Override public long countApprovedByCourseId(UUID courseId) { throw new UnsupportedOperationException(); }
+        @Override public boolean hasAttendance(UUID enrollmentId) { throw new UnsupportedOperationException(); }
+        @Override public boolean hasCompletionDecision(UUID enrollmentId) { throw new UnsupportedOperationException(); }
         @Override public boolean updateState(Enrollment updated, EnrollmentStatus expectedStatus) { throw new UnsupportedOperationException(); }
     }
 
     private static final class FakeCourseRepository implements CourseRepository {
+        @Override public long countActive(String keyword, com.adn.dabaeum.course.domain.CourseEducationType educationType, com.adn.dabaeum.course.domain.CourseSelectionMethod selectionMethod, com.adn.dabaeum.course.domain.CourseStatus status, boolean includeAllDraft, List<UUID> draftVisibleInstitutionIds, String classificationPrefix) { throw new UnsupportedOperationException(); }
         private final Map<UUID, Course> byId = new HashMap<>();
         @Override public void save(Course course) { throw new UnsupportedOperationException(); }
         @Override public Optional<Course> findById(UUID id) { return Optional.ofNullable(byId.get(id)); }
@@ -633,8 +638,11 @@ class CredentialApplicationServiceTest {
         @Override public Optional<Course> findActiveByIdForUpdate(UUID id) { return findById(id); }
         @Override public Optional<Course> findActiveByInstitutionAndCode(UUID institutionId, String courseCode) { throw new UnsupportedOperationException(); }
         @Override public List<Course> findActivePage(CoursePageCriteria criteria) { throw new UnsupportedOperationException(); }
-        @Override public long countActive() { throw new UnsupportedOperationException(); }
         @Override public boolean updateActive(Course course) { throw new UnsupportedOperationException(); }
+        @Override public boolean softDeleteDraft(UUID id, java.time.Instant deletedAt) { throw new UnsupportedOperationException(); }
+        @Override public Optional<com.adn.dabaeum.course.domain.CourseView> findActiveViewById(UUID id) { throw new UnsupportedOperationException(); }
+        @Override public java.util.List<com.adn.dabaeum.course.domain.CourseView> findActiveViewsByIds(java.util.List<UUID> ids) { throw new UnsupportedOperationException(); }
+        @Override public List<com.adn.dabaeum.course.domain.CourseView> findActiveViewPage(CoursePageCriteria criteria) { throw new UnsupportedOperationException(); }
     }
 
     private static final class FakeCredentialGroupRepository implements CredentialGroupRepository {

@@ -6,7 +6,10 @@ public record InstitutionPageCriteria(
     int offset,
     int limit,
     InstitutionSort sort,
-    SortDirection direction
+    SortDirection direction,
+    String keyword,
+    InstitutionStatus status,
+    String region
 ) {
 
     public InstitutionPageCriteria {

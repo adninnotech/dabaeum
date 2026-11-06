@@ -15,6 +15,7 @@ import com.adn.dabaeum.common.api.ApiErrorCode;
 import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
 import com.adn.dabaeum.common.security.AuthenticatedUserContext;
+import com.adn.dabaeum.completion.config.CompletionProperties;
 import com.adn.dabaeum.completion.domain.Completion;
 import com.adn.dabaeum.completion.domain.CompletionConfirmedEvent;
 import com.adn.dabaeum.completion.domain.CompletionOutboxRepository;
@@ -83,7 +84,9 @@ class CompletionApplicationServiceTest {
             new AuthorizationPolicy(),
             org.mockito.Mockito.mock(com.adn.dabaeum.credential.domain.CredentialGroupRepository.class),
             org.mockito.Mockito.mock(com.adn.dabaeum.correction.domain.AdminCorrectionRepository.class),
-            Clock.fixed(NOW, ZoneOffset.UTC));
+            new CompletionProperties(new BigDecimal("80")),
+            Clock.fixed(NOW, ZoneOffset.UTC),
+            java.util.List.of());
         when(enrollmentRepository.findById(ENROLLMENT_ID)).thenReturn(Optional.of(enrollment()));
         when(courseRepository.findActiveById(COURSE_ID)).thenReturn(Optional.of(course()));
         when(instructorRepository.existsByCourseIdAndUserIdAndRole(any(), any(), any()))
@@ -104,7 +107,7 @@ class CompletionApplicationServiceTest {
             ENROLLMENT_ID, new BigDecimal("66.67"), 120, null, null), manager());
 
         assertThat(result.status()).isEqualTo(CompletionStatus.ELIGIBLE);
-        assertThat(result.attendanceRate()).isEqualByComparingTo("66.67");
+        assertThat(result.attendanceRate()).isEqualByComparingTo("100.00");
         verify(enrollmentRepository).findByIdForUpdate(ENROLLMENT_ID);
         verify(completionRepository).save(result);
     }
@@ -137,14 +140,55 @@ class CompletionApplicationServiceTest {
         Completion mismatched = service.evaluate(new EvaluateCompletionCommand(
             ENROLLMENT_ID, new BigDecimal("1.00"), 5, new BigDecimal("1.00"), null), manager());
         assertThat(mismatched.status()).isEqualTo(CompletionStatus.ELIGIBLE);
-        assertThat(mismatched.attendanceRate()).isEqualByComparingTo(new BigDecimal("66.67"));
+        assertThat(mismatched.attendanceRate()).isEqualByComparingTo(new BigDecimal("100.00"));
         assertThat(mismatched.completedMinutes()).isEqualTo(120);
 
         Completion omitted = service.evaluate(new EvaluateCompletionCommand(
             ENROLLMENT_ID, null, null, null, null), manager());
         assertThat(omitted.status()).isEqualTo(CompletionStatus.ELIGIBLE);
-        assertThat(omitted.attendanceRate()).isEqualByComparingTo(new BigDecimal("66.67"));
+        assertThat(omitted.attendanceRate()).isEqualByComparingTo(new BigDecimal("100.00"));
         assertThat(omitted.completedMinutes()).isEqualTo(120);
+    }
+
+    // 이수 기준 출석률(80%) 미만이면 사유 없이 보내도 미이수다. 전에는 사유 유무로만 갈려 0% 도 이수가능이었다(QA CMP-03).
+    @Test
+    void belowTheAttendanceThresholdIsNotCompletedWithAnAutomaticReason() {
+        givenFirstEvaluation(new BigDecimal("0.00"));
+
+        Completion result = service.evaluate(new EvaluateCompletionCommand(
+            ENROLLMENT_ID, null, null, null, null), manager());
+
+        assertThat(result.status()).isEqualTo(CompletionStatus.NOT_COMPLETED);
+        assertThat(result.failureReason()).isEqualTo("출석률 미달 (0.00% < 80%)");
+    }
+
+    @Test
+    void belowTheThresholdKeepsTheCallersReason() {
+        givenFirstEvaluation(new BigDecimal("66.67"));
+
+        Completion result = service.evaluate(new EvaluateCompletionCommand(
+            ENROLLMENT_ID, null, null, null, "과제 미제출"), manager());
+
+        assertThat(result.status()).isEqualTo(CompletionStatus.NOT_COMPLETED);
+        assertThat(result.failureReason()).isEqualTo("과제 미제출");
+    }
+
+    @Test
+    void exactlyTheThresholdIsEligible() {
+        givenFirstEvaluation(new BigDecimal("80.00"));
+
+        Completion result = service.evaluate(new EvaluateCompletionCommand(
+            ENROLLMENT_ID, null, null, null, null), manager());
+
+        assertThat(result.status()).isEqualTo(CompletionStatus.ELIGIBLE);
+        assertThat(result.failureReason()).isNull();
+    }
+
+    private void givenFirstEvaluation(BigDecimal rate) {
+        when(metricsQuery.calculate(ENROLLMENT_ID, NOW)).thenReturn(metrics(rate));
+        when(completionRepository.findByEnrollmentId(ENROLLMENT_ID)).thenReturn(Optional.empty());
+        when(enrollmentRepository.findByIdForUpdate(ENROLLMENT_ID)).thenReturn(Optional.of(enrollment()));
+        when(idGenerator.generate()).thenReturn(COMPLETION_ID);
     }
 
     @Test
@@ -180,9 +224,36 @@ class CompletionApplicationServiceTest {
         verify(outboxRepository).save(any(CompletionConfirmedEvent.class));
     }
 
+    @Test
+    void revertNotifiesListenersSoAutoBadgesAreReevaluated() {
+        CompletionConfirmedListener listener = org.mockito.Mockito.mock(CompletionConfirmedListener.class);
+        CompletionApplicationService withListener = new DefaultCompletionApplicationService(
+            completionRepository, outboxRepository, idGenerator, enrollmentRepository,
+            courseRepository, instructorRepository, sessionRepository, metricsQuery,
+            new AuthorizationPolicy(),
+            org.mockito.Mockito.mock(com.adn.dabaeum.credential.domain.CredentialGroupRepository.class),
+            org.mockito.Mockito.mock(com.adn.dabaeum.correction.domain.AdminCorrectionRepository.class),
+            new CompletionProperties(new BigDecimal("80")),
+            Clock.fixed(NOW, ZoneOffset.UTC),
+            java.util.List.of(listener));
+        Completion confirmed = new Completion(COMPLETION_ID, ENROLLMENT_ID, CompletionStatus.COMPLETED,
+            new BigDecimal("66.67"), 120, null, NOW, NOW, MANAGER_ID, NOW, null, NOW, NOW);
+        when(completionRepository.findByEnrollmentIdForUpdate(ENROLLMENT_ID)).thenReturn(Optional.of(confirmed));
+        when(completionRepository.revertConfirmation(any(), eq(CompletionStatus.COMPLETED))).thenReturn(true);
+        AuthenticatedUserContext admin = new AuthenticatedUserContext(UUID.randomUUID(), "LOCAL",
+            Set.of(new AuthenticatedRole("PLATFORM_ADMIN", null)));
+
+        withListener.revertConfirmation(ENROLLMENT_ID, "입력 오류 정정", admin);
+
+        verify(listener).onCompletionReverted(COMPLETION_ID, SUBJECT_ID, COURSE_ID, NOW);
+    }
+
     private AttendanceMetrics metrics() {
-        return new AttendanceMetrics(ENROLLMENT_ID, 3, 1, 1, 1, 0,
-            new BigDecimal("66.67"), 120);
+        return metrics(new BigDecimal("100.00"));
+    }
+
+    private AttendanceMetrics metrics(BigDecimal rate) {
+        return new AttendanceMetrics(ENROLLMENT_ID, 3, 2, 1, 0, 0, rate, 120);
     }
 
     private Completion eligible() {

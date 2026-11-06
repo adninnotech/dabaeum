@@ -1,5 +1,7 @@
 package com.adn.dabaeum.enrollment.api;
 
+import com.adn.dabaeum.accesslog.domain.AccessLogAction;
+import com.adn.dabaeum.accesslog.web.PersonalDataAccess;
 import com.adn.dabaeum.common.security.CurrentUserProvider;
 import com.adn.dabaeum.common.web.RequestIdFilter;
 import com.adn.dabaeum.enrollment.application.EnrollmentQueryService;
@@ -48,6 +50,7 @@ public class EnrollmentQueryController {
     }
 
     @GetMapping("/institutions/{institutionId}/enrollments")
+    @PersonalDataAccess(action = AccessLogAction.READ, targetField = "userId")
     public InstitutionEnrollmentPageResponse listInstitutionEnrollments(
         @PathVariable UUID institutionId,
         @RequestParam(defaultValue = "0") int page,
@@ -80,12 +83,14 @@ public class EnrollmentQueryController {
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "20") int size,
         @RequestParam(required = false) String status,
+        @RequestParam(required = false) String q,
         HttpServletRequest servletRequest
     ) {
         mapper.validatePaging(page, size);
         var result = service.listLearningCourses(
             currentUserProvider.requireContext(),
-            mapper.parseLearningStatus(status), page, size);
+            mapper.parseLearningStatus(status),
+            com.adn.dabaeum.common.api.KeywordQuery.normalize(q), page, size);
         return mapper.toLearningCoursePageResponse(result, requestId(servletRequest));
     }
 
@@ -99,6 +104,21 @@ public class EnrollmentQueryController {
         mapper.validatePaging(page, size);
         var result = service.listInstructorEnrollmentProgress(
             currentUserProvider.requireContext(), courseId, page, size);
+        return mapper.toProgressPageResponse(result, requestId(servletRequest));
+    }
+
+    @GetMapping("/instructors/{userId}/enrollment-status")
+    @PersonalDataAccess(action = AccessLogAction.READ, targetField = "userId")
+    public EnrollmentProgressPageResponse listInstructorEnrollmentProgressByUser(
+        @PathVariable UUID userId,
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "20") int size,
+        @RequestParam(required = false) UUID courseId,
+        HttpServletRequest servletRequest
+    ) {
+        mapper.validatePaging(page, size);
+        var result = service.listInstructorEnrollmentProgressOf(
+            userId, courseId, page, size);
         return mapper.toProgressPageResponse(result, requestId(servletRequest));
     }
 

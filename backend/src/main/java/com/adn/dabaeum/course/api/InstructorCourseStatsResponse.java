@@ -4,6 +4,8 @@ public record InstructorCourseStatsResponse(
     long total,
     long recruiting,
     long inProgress,
-    long completed
+    long completed,
+    long studentCount,
+    long inquiryCount
 ) {
 }

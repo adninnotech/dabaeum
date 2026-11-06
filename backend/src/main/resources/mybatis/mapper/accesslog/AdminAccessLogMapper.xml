@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.accesslog.infrastructure.mybatis.AdminAccessLogMapper">
+
+    <!-- uuid[] 는 varchar[] 로 넘기고 SQL 에서 바꾼다. MyBatis ArrayTypeHandler 는 UUID 배열 타입 이름을 모른다. -->
+    <insert id="insert">
+        INSERT INTO tb_admin_access_logs (
+            id, actor_id, actor_role, action, endpoint, target_user_ids,
+            result_count, status_code, ip_address, user_agent, request_id, created_at
+        ) VALUES (
+            #{id},
+            #{actorId},
+            #{actorRole},
+            #{action},
+            #{endpoint},
+            CAST(#{targetUserIds, jdbcType=ARRAY, typeHandler=org.apache.ibatis.type.ArrayTypeHandler} AS uuid[]),
+            #{resultCount},
+            #{statusCode},
+            CAST(#{ipAddress, jdbcType=VARCHAR} AS inet),
+            #{userAgent, jdbcType=VARCHAR},
+            #{requestId, jdbcType=OTHER},
+            #{createdAt}
+        )
+    </insert>
+
+    <resultMap id="entryRowResultMap"
+               type="com.adn.dabaeum.accesslog.infrastructure.mybatis.AdminAccessLogEntryRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="actor_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="actor_name" javaType="java.lang.String"/>
+            <arg column="actor_role" javaType="java.lang.String"/>
+            <arg column="action" javaType="java.lang.String"/>
+            <arg column="endpoint" javaType="java.lang.String"/>
+            <arg column="target_user_ids_csv" javaType="java.lang.String"/>
+            <arg column="result_count" javaType="_int"/>
+            <arg column="status_code" javaType="_int"/>
+            <arg column="ip_address" javaType="java.lang.String"/>
+            <arg column="user_agent" javaType="java.lang.String"/>
+            <arg column="request_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="searchConditions">
+         WHERE 1 = 1
+        <if test="criteria.actorId != null">
+           AND l.actor_id = #{criteria.actorId}
+        </if>
+        <if test="criteria.action != null">
+           AND l.action = #{criteria.action}
+        </if>
+        <if test="criteria.from != null">
+           AND l.created_at &gt;= #{criteria.from}
+        </if>
+        <if test="criteria.toExclusive != null">
+           AND l.created_at &lt; #{criteria.toExclusive}
+        </if>
+    </sql>
+
+    <!-- 배열·inet 은 문자열로 바꿔 읽는다(생성자 매핑에서 배열 타입 처리를 피한다). -->
+    <select id="search" resultMap="entryRowResultMap">
+        SELECT l.id, l.actor_id, u.name AS actor_name, l.actor_role, l.action, l.endpoint,
+               array_to_string(l.target_user_ids, ',') AS target_user_ids_csv,
+               l.result_count, l.status_code, host(l.ip_address) AS ip_address, l.user_agent,
+               l.request_id, l.created_at
+          FROM tb_admin_access_logs l
+          LEFT JOIN tb_users u ON u.id = l.actor_id
+        <include refid="searchConditions"/>
+         ORDER BY l.created_at DESC, l.id DESC
+         LIMIT #{criteria.limit} OFFSET #{criteria.offset}
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*) FROM tb_admin_access_logs l
+        <include refid="searchConditions"/>
+    </select>
+
+    <delete id="deleteCreatedBefore">
+        DELETE FROM tb_admin_access_logs
+         WHERE created_at &lt; #{threshold}
+    </delete>
+
+</mapper>

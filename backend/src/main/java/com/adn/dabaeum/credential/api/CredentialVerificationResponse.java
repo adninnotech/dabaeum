@@ -13,7 +13,10 @@ public record CredentialVerificationResponse(
     String requesterType,
     String requesterId,
     CredentialVerificationResult result,
+    String verificationScope,
     Instant verifiedAt,
-    Instant createdAt
+    Instant createdAt,
+    String issuerName,
+    Instant issuedAt
 ) {
 }

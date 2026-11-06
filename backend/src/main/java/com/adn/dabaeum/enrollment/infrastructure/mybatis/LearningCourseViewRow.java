@@ -1,5 +1,6 @@
 package com.adn.dabaeum.enrollment.infrastructure.mybatis;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -13,6 +14,14 @@ public record LearningCourseViewRow(
     String educationType,
     LocalDate startDate,
     LocalDate endDate,
-    Instant appliedAt
+    Instant appliedAt,
+    String instructorName,
+    String classificationCode,
+    Integer sessionCount,
+    String tags,
+    String tuitionType,
+    BigDecimal tuitionAmount,
+    UUID thumbnailFileId,
+    Long attendedCount
 ) {
 }

@@ -6,13 +6,17 @@ import com.adn.dabaeum.attendance.domain.AttendanceRepository;
 import com.adn.dabaeum.attendance.domain.AttendanceAdjustmentRepository;
 import com.adn.dabaeum.attendance.application.AttendanceApplicationService;
 import com.adn.dabaeum.institution.domain.InstitutionRepository;
+import com.adn.dabaeum.institution.domain.InstitutionSigningKeyRequestRepository;
 import com.adn.dabaeum.instructor.domain.InstructorApplicationRepository;
 import com.adn.dabaeum.identity.domain.UserIdentityRepository;
 import com.adn.dabaeum.role.domain.UserRoleRepository;
+import com.adn.dabaeum.user.domain.UserAgreementRepository;
+import com.adn.dabaeum.user.domain.UserInterestRepository;
 import com.adn.dabaeum.user.domain.UserRepository;
 import com.adn.dabaeum.course.domain.CourseRepository;
 import com.adn.dabaeum.course.domain.CourseInstructorRepository;
 import com.adn.dabaeum.course.domain.CourseSessionRepository;
+import com.adn.dabaeum.course.domain.CourseAttachmentRepository;
 import com.adn.dabaeum.course.application.CourseSessionIdGenerator;
 import com.adn.dabaeum.enrollment.application.EnrollmentIdGenerator;
 import com.adn.dabaeum.enrollment.domain.EnrollmentRepository;
@@ -22,8 +26,16 @@ import com.adn.dabaeum.completion.domain.CompletionRepository;
 import com.adn.dabaeum.correction.domain.AdminCorrectionRepository;
 import com.adn.dabaeum.credential.domain.CredentialGroupRepository;
 import com.adn.dabaeum.credential.domain.CredentialStatusListRepository;
+import com.adn.dabaeum.credential.domain.InstitutionSignKeyRepository;
+import com.adn.dabaeum.credential.domain.InstitutionSignKeyVersionRepository;
+import com.adn.dabaeum.credential.domain.LegacySignKeyBackfillRepository;
 import com.adn.dabaeum.credential.application.CredentialApplicationService;
 import com.adn.dabaeum.credential.application.CredentialVerificationService;
+import com.adn.dabaeum.credential.application.KmsOperationAdjudicationService;
+import com.adn.dabaeum.credential.application.SigningKeyCompromiseService;
+import com.adn.dabaeum.credential.application.SigningKeyLifecycleService;
+import com.adn.dabaeum.credential.application.SigningKeyProvisioningService;
+import com.adn.dabaeum.credential.application.SigningKeyRotationService;
 import com.adn.dabaeum.file.domain.StoredFileRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -40,10 +52,19 @@ class ApplicationContextTest {
     InstitutionRepository institutionRepository;
 
     @MockitoBean
+    InstitutionSigningKeyRequestRepository institutionSigningKeyRequestRepository;
+
+    @MockitoBean
     InstructorApplicationRepository instructorApplicationRepository;
 
     @MockitoBean
     UserRepository userRepository;
+
+    @MockitoBean
+    UserInterestRepository userInterestRepository;
+
+    @MockitoBean
+    UserAgreementRepository userAgreementRepository;
 
     @MockitoBean
     UserIdentityRepository userIdentityRepository;
@@ -55,10 +76,16 @@ class ApplicationContextTest {
     CourseRepository courseRepository;
 
     @MockitoBean
+    com.adn.dabaeum.classification.domain.CourseClassificationRepository courseClassificationRepository;
+
+    @MockitoBean
     CourseInstructorRepository courseInstructorRepository;
 
     @MockitoBean
     CourseSessionRepository courseSessionRepository;
+
+    @MockitoBean
+    CourseAttachmentRepository courseAttachmentRepository;
 
     @MockitoBean
     CourseSessionIdGenerator courseSessionIdGenerator;
@@ -100,6 +127,21 @@ class ApplicationContextTest {
     CredentialVerificationService credentialVerificationService;
 
     @MockitoBean
+    SigningKeyProvisioningService signingKeyProvisioningService;
+
+    @MockitoBean
+    SigningKeyRotationService signingKeyRotationService;
+
+    @MockitoBean
+    SigningKeyLifecycleService signingKeyLifecycleService;
+
+    @MockitoBean
+    SigningKeyCompromiseService signingKeyCompromiseService;
+
+    @MockitoBean
+    KmsOperationAdjudicationService kmsOperationAdjudicationService;
+
+    @MockitoBean
     StoredFileRepository storedFileRepository;
 
     @MockitoBean
@@ -110,6 +152,15 @@ class ApplicationContextTest {
 
     @MockitoBean
     CredentialStatusListRepository credentialStatusListRepository;
+
+    @MockitoBean
+    InstitutionSignKeyRepository institutionSignKeyRepository;
+
+    @MockitoBean
+    InstitutionSignKeyVersionRepository institutionSignKeyVersionRepository;
+
+    @MockitoBean
+    LegacySignKeyBackfillRepository legacySignKeyBackfillRepository;
 
     @Test
     void contextLoads() {

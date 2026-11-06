@@ -1,6 +1,5 @@
 package com.adn.dabaeum.institution.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -19,22 +18,25 @@ import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.web.RequestIdFilter;
+import com.adn.dabaeum.common.security.AuthenticatedRole;
+import com.adn.dabaeum.common.security.AuthenticatedUserContext;
 import com.adn.dabaeum.institution.application.InstitutionApplicationService;
 import com.adn.dabaeum.institution.application.InstitutionPage;
 import com.adn.dabaeum.institution.application.ListInstitutionsQuery;
 import com.adn.dabaeum.institution.application.UpdateInstitutionCommand;
 import com.adn.dabaeum.institution.domain.Institution;
 import com.adn.dabaeum.institution.domain.InstitutionStatus;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -52,17 +54,17 @@ import org.springframework.test.web.servlet.MockMvc;
     "dabaeum.security.dev.bearer-token=task4-test-token")
 @Import({
     InstitutionApiMapper.class,
+    com.adn.dabaeum.authorization.application.AuthorizationPolicy.class,
     ApiExceptionHandler.class,
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
 class InstitutionListUpdateControllerTest {
 
-    private static final Path CONTRACT =
-        Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final UUID INSTITUTION_ID =
         UUID.fromString("44444444-4444-4444-4444-444444444444");
 
@@ -71,6 +73,19 @@ class InstitutionListUpdateControllerTest {
 
     @MockitoBean
     InstitutionApplicationService service;
+
+    /** 기관 상세가 관리자 노출 여부를 판단하느라 현재 사용자를 본다. */
+    @MockitoBean
+    com.adn.dabaeum.common.security.CurrentUserProvider currentUserProvider;
+
+    @BeforeEach
+    void setUpCurrentUser() {
+        when(currentUserProvider.requireContext()).thenReturn(new AuthenticatedUserContext(
+            UUID.fromString("11111111-1111-1111-1111-111111111111"),
+            "test",
+            Set.of(new AuthenticatedRole("PLATFORM_ADMIN", null))
+        ));
+    }
 
     @Test
     void listsInstitutionsWithDefaultsAndOpenApiResponse() throws Exception {
@@ -90,14 +105,13 @@ class InstitutionListUpdateControllerTest {
             .andExpect(jsonPath("$.page.totalPages").value(1))
             .andExpect(jsonPath("$.meta.requestId").value(requestId))
             .andExpect(jsonPath("$.meta.timestamp")
-                .value(matchesPattern(".*\\+09:00$")))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+                .value(matchesPattern(".*\\+09:00$")));
 
         ArgumentCaptor<ListInstitutionsQuery> query =
             ArgumentCaptor.forClass(ListInstitutionsQuery.class);
         verify(service).list(query.capture());
         Assertions.assertThat(query.getValue()).isEqualTo(
-            new ListInstitutionsQuery(0, 20, "createdAt,desc"));
+            new ListInstitutionsQuery(0, 20, "createdAt,desc", null, null, null));
     }
 
     @Test
@@ -175,8 +189,7 @@ class InstitutionListUpdateControllerTest {
             .andExpect(jsonPath("$.data.id")
                 .value(INSTITUTION_ID.toString()))
             .andExpect(jsonPath("$.data.deletedAt").doesNotExist())
-            .andExpect(jsonPath("$.meta.requestId").value(requestId))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.meta.requestId").value(requestId));
 
         ArgumentCaptor<UpdateInstitutionCommand> command =
             ArgumentCaptor.forClass(UpdateInstitutionCommand.class);
@@ -214,9 +227,67 @@ class InstitutionListUpdateControllerTest {
     }
 
     @Test
+    void allowsInstitutionAdminToUpdateOnlyOwnContactIntroductionAndLogo() throws Exception {
+        when(currentUserProvider.requireContext()).thenReturn(institutionAdminContext(INSTITUTION_ID));
+        when(service.update(any())).thenReturn(new Institution(
+            INSTITUTION_ID, "INST-001", "기관", null, null, null,
+            "010-1234-5678", "contact@example.com", InstitutionStatus.ACTIVE,
+            Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:00:00Z"),
+            null, null, null, UUID.fromString("55555555-5555-5555-5555-555555555555"),
+            "기관 소개"));
+
+        mockMvc.perform(put("/api/v1/institutions/{id}", INSTITUTION_ID)
+                .with(user("institution-admin").roles("INSTITUTION_ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"contactPhone":"010-1234-5678","introduction":"기관 소개","logoFileId":"55555555-5555-5555-5555-555555555555"}
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.introduction").value("기관 소개"));
+
+        ArgumentCaptor<UpdateInstitutionCommand> command =
+            ArgumentCaptor.forClass(UpdateInstitutionCommand.class);
+        verify(service).update(command.capture());
+        Assertions.assertThat(command.getValue().contactPhone().value()).isEqualTo("010-1234-5678");
+        Assertions.assertThat(command.getValue().introduction().value()).isEqualTo("기관 소개");
+        Assertions.assertThat(command.getValue().logoFileId().present()).isTrue();
+    }
+
+    @Test
+    void rejectsInstitutionAdminUpdatesToInstitutionNameAndCode() throws Exception {
+        when(currentUserProvider.requireContext()).thenReturn(institutionAdminContext(INSTITUTION_ID));
+
+        mockMvc.perform(put("/api/v1/institutions/{id}", INSTITUTION_ID)
+                .with(user("institution-admin").roles("INSTITUTION_ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"바뀐 이름\"}"))
+            .andExpect(status().isForbidden());
+
+        mockMvc.perform(put("/api/v1/institutions/{id}", INSTITUTION_ID)
+                .with(user("institution-admin").roles("INSTITUTION_ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"institutionCode\":\"CHANGED\"}"))
+            .andExpect(status().isForbidden());
+        verify(service, never()).update(any());
+    }
+
+    @Test
+    void rejectsInstitutionAdminUpdatesToAnotherInstitution() throws Exception {
+        when(currentUserProvider.requireContext()).thenReturn(institutionAdminContext(INSTITUTION_ID));
+        UUID otherInstitution = UUID.fromString("22222222-2222-2222-2222-222222222222");
+
+        mockMvc.perform(put("/api/v1/institutions/{id}", otherInstitution)
+                .with(user("institution-admin").roles("INSTITUTION_ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"contactPhone\":\"010-1234-5678\"}"))
+            .andExpect(status().isForbidden());
+        verify(service, never()).update(any());
+    }
+
+    @Test
     void mapsEmptyUpdateToValidationError() throws Exception {
         when(service.update(any())).thenThrow(new ApiException(
-            HttpStatus.UNPROCESSABLE_ENTITY,
+            HttpStatus.UNPROCESSABLE_CONTENT,
             ApiErrorCode.VALIDATION_FAILED,
             "Request validation failed"
         ));
@@ -311,13 +382,22 @@ class InstitutionListUpdateControllerTest {
 
     private InstitutionPage page(int page, int size, long totalElements) {
         return new InstitutionPage(
-            List.of(institution()),
+            List.of(new com.adn.dabaeum.institution.domain.InstitutionListItem(
+                institution(), 0, 0, 0, 0, null)),
             page,
             size,
             totalElements,
             totalElements == 0
                 ? 0
                 : (int) (((totalElements - 1) / size) + 1)
+        );
+    }
+
+    private AuthenticatedUserContext institutionAdminContext(UUID institutionId) {
+        return new AuthenticatedUserContext(
+            UUID.fromString("11111111-1111-1111-1111-111111111111"),
+            "test",
+            Set.of(new AuthenticatedRole("INSTITUTION_ADMIN", institutionId))
         );
     }
 

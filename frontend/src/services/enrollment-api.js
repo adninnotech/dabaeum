@@ -1,39 +1,5 @@
 import { apiRequest, asPage, unwrapData } from '@/services/api-client';
 import { listCourses } from '@/services/course-api';
-import { getUser } from '@/services/user-api';
-import { formatUserDisplayName } from '@/utils/user-display';
-
-const userCache = new Map();
-
-export async function fetchUserCached(userId) {
-  const id = String(userId || '').trim();
-  if (!id) return null;
-  if (userCache.has(id)) return userCache.get(id);
-  try {
-    const user = await getUser(id);
-    userCache.set(id, user);
-    return user;
-  } catch {
-    userCache.set(id, null);
-    return null;
-  }
-}
-
-/** 수강신청 목록에 신청자 이름(생년월일) 보조 필드 추가 */
-export async function enrichEnrollmentsWithUsers(rows) {
-  const list = Array.isArray(rows) ? rows : [];
-  const ids = [...new Set(list.map((row) => row.userId).filter(Boolean))];
-  await Promise.all(ids.map((id) => fetchUserCached(id)));
-  return list.map((row) => {
-    const user = row.userId ? userCache.get(row.userId) : null;
-    return {
-      ...row,
-      userName: user?.name || row.userName,
-      birthDate: user?.birthDate ?? row.birthDate,
-      applicantLabel: formatUserDisplayName(user || { userId: row.userId, id: row.userId }),
-    };
-  });
-}
 
 export async function listCourseEnrollments(courseId, { page = 0, size = 50, sort } = {}) {
   const payload = await apiRequest(`/courses/${courseId}/enrollments`, {
@@ -55,6 +21,15 @@ export async function createProxyEnrollment(courseId, body) {
     method: 'POST',
     body,
   });
+  return unwrapData(payload);
+}
+
+/**
+ * 수강 진도 상세 — { attendedCount, sessionCount(취소 회차 제외), progressPercent, lastStudiedAt, ... }.
+ * 출석 기준 진도라 나의 강의 목록 카드의 진도율과 같은 값이다
+ */
+export async function getEnrollmentProgress(enrollmentId) {
+  const payload = await apiRequest(`/enrollments/${enrollmentId}/progress`);
   return unwrapData(payload);
 }
 
@@ -92,8 +67,38 @@ export async function withdrawEnrollment(enrollmentId) {
   return unwrapData(payload);
 }
 
-/** BE에 사용자별 목록 API가 없어 과정×수강신청을 집계 */
+/** 최대 100건 일괄 승인·반려. reason은 REJECT일 때만 전송(APPROVE면 무시되므로 보내지 않는다) */
+export async function bulkDecideEnrollments({ enrollmentIds, decision, reason }) {
+  const payload = await apiRequest('/enrollments/bulk-decision', {
+    method: 'POST',
+    body: { enrollmentIds, decision, ...(decision === 'REJECT' ? { reason } : {}) },
+  });
+  return unwrapData(payload);
+}
+
+export async function listMyEnrollments({ page = 0, size = 50, sort, status } = {}) {
+  const payload = await apiRequest('/users/me/enrollments', {
+    query: { page, size, sort, status },
+  });
+  return asPage(payload);
+}
+
+/** 특정 사용자의 수강 내역(관리자 전용 GET /users/{userId}/enrollments) — 과정·기관 정보 포함 */
+export async function listEnrollmentsOfUser(userId, { page = 0, size = 100, sort, status } = {}) {
+  const payload = await apiRequest(`/users/${userId}/enrollments`, {
+    query: { page, size, sort, status },
+  });
+  return asPage(payload);
+}
+
+/** 전용 API 실패 시 과정×수강신청 집계로 폴백 */
 export async function listUserEnrollments(userId, { coursePageSize = 50 } = {}) {
+  try {
+    const page = await listMyEnrollments({ page: 0, size: coursePageSize, sort: 'createdAt,desc' });
+    if (Array.isArray(page.data)) return page.data;
+  } catch {
+    // 폴백
+  }
   const courses = await listCourses({ page: 0, size: coursePageSize, sort: 'createdAt,desc' });
   const rows = [];
 
@@ -119,3 +124,4 @@ export async function listUserEnrollments(userId, { coursePageSize = 50 } = {}) 
 
   return rows.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 }
+

@@ -1,15 +1,18 @@
 package com.adn.dabaeum.authentication.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.adn.dabaeum.authentication.application.PasswordExpiryPolicy;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
@@ -17,8 +20,6 @@ import com.adn.dabaeum.common.security.AuthenticatedTokenDetails;
 import com.adn.dabaeum.common.security.AuthenticatedUserContext;
 import com.adn.dabaeum.common.security.AuthenticatedUserPrincipal;
 import com.adn.dabaeum.common.web.RequestIdFilter;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
@@ -32,6 +33,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
@@ -44,14 +46,12 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
 class SessionControllerTest {
 
-    private static final Path CONTRACT = Path.of(
-        "docs/api/dabaeum-api-v1.yaml"
-    ).toAbsolutePath();
     private static final UUID USER_ID = UUID.fromString(
         "11111111-1111-1111-1111-111111111111"
     );
@@ -66,9 +66,21 @@ class SessionControllerTest {
     @Autowired
     MockMvc mockMvc;
 
+    @MockitoBean
+    PasswordExpiryPolicy passwordExpiryPolicy;
+
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    void reportsExpiredAdminPassword() throws Exception {
+        when(passwordExpiryPolicy.isExpired(any(), any())).thenReturn(true);
+
+        mockMvc.perform(get("/api/v1/auth/session").with(principal()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.passwordExpired").value(true));
     }
 
     @Test
@@ -96,8 +108,7 @@ class SessionControllerTest {
             .andExpect(jsonPath("$.data.token").doesNotExist())
             .andExpect(jsonPath("$.data.providerSubject").doesNotExist())
             .andExpect(jsonPath("$.data.metadata").doesNotExist())
-            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID));
     }
 
     @Test

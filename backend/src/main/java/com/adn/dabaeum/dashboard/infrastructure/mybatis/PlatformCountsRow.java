@@ -13,6 +13,14 @@ public record PlatformCountsRow(
     Long institutionAdminCount,
     Long withdrawnCount,
     Long instructorApplicationPending,
-    Long institutionApplicationPending
+    Long institutionApplicationPending,
+    Long instructorActiveCount,
+    Long instructorInactiveCount,
+    Long instructorWithdrawnCount,
+    Long recentSignupCount,
+    Long institutionActiveCount,
+    Long institutionInactiveCount,
+    Long completionCount,
+    Long badgeCount
 ) {
 }

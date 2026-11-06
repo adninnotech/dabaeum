@@ -1,5 +1,7 @@
 package com.adn.dabaeum.role.api;
 
+import com.adn.dabaeum.accesslog.domain.AccessLogAction;
+import com.adn.dabaeum.accesslog.web.PersonalDataAccess;
 import com.adn.dabaeum.authorization.application.AuthorizationPolicy;
 import com.adn.dabaeum.common.api.ApiResponse;
 import com.adn.dabaeum.common.web.RequestIdFilter;
@@ -40,6 +42,7 @@ public class RoleController {
     }
 
     @GetMapping("/{userId}/roles")
+    @PersonalDataAccess(action = AccessLogAction.READ)
     public ApiResponse<List<RoleResponse>> list(
         @PathVariable UUID userId,
         HttpServletRequest servletRequest
@@ -52,6 +55,7 @@ public class RoleController {
     }
 
     @PostMapping("/{userId}/roles")
+    @PersonalDataAccess(action = AccessLogAction.UPDATE)
     public ResponseEntity<ApiResponse<RoleResponse>> assign(
         @PathVariable UUID userId,
         @Valid @RequestBody RoleAssignmentRequest request,
@@ -70,6 +74,7 @@ public class RoleController {
     }
 
     @DeleteMapping("/{userId}/roles/{roleId}")
+    @PersonalDataAccess(action = AccessLogAction.DELETE)
     public ApiResponse<RoleResponse> revoke(
         @PathVariable UUID userId,
         @PathVariable UUID roleId,

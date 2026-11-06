@@ -4,9 +4,11 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Objects;
 import org.apache.sshd.client.SshClient;
+import org.apache.sshd.client.config.hosts.HostConfigEntryResolver;
 import org.apache.sshd.client.keyverifier.DefaultKnownHostsServerKeyVerifier;
 import org.apache.sshd.client.keyverifier.RejectAllServerKeyVerifier;
 import org.apache.sshd.client.session.ClientSession;
+import org.apache.sshd.common.keyprovider.KeyIdentityProvider;
 import org.apache.sshd.common.util.net.SshdSocketAddress;
 
 public final class ApacheMinaSshPortForwardingClient implements SshPortForwardingClient {
@@ -31,6 +33,10 @@ public final class ApacheMinaSshPortForwardingClient implements SshPortForwardin
 
         try {
             client = clientFactory.create();
+            // 비밀번호로만 인증한다. 사용자의 ~/.ssh/config·기본 키를 읽지 않는다 — 읽을 수 없는 키
+            // (예: sshd-core 가 지원하지 않는 ed25519)가 있으면 비밀번호 인증 전에 터널이 실패한다.
+            client.setHostConfigEntryResolver(HostConfigEntryResolver.EMPTY);
+            client.setKeyIdentityProvider(KeyIdentityProvider.EMPTY_KEYS_PROVIDER);
             client.setServerKeyVerifier(
                 new DefaultKnownHostsServerKeyVerifier(
                     RejectAllServerKeyVerifier.INSTANCE,

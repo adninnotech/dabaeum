@@ -2,6 +2,7 @@ package com.adn.dabaeum.attendance.api;
 
 import com.adn.dabaeum.attendance.application.AttendanceQrTokenApplicationService;
 import com.adn.dabaeum.attendance.application.AttendanceApplicationService;
+import com.adn.dabaeum.attendance.application.AttendanceDetail;
 import com.adn.dabaeum.attendance.application.AttendancePage;
 import com.adn.dabaeum.attendance.application.AttendanceMetrics;
 import com.adn.dabaeum.attendance.application.IssuedAttendanceQrToken;
@@ -89,9 +90,9 @@ public class AttendanceController {
         @PathVariable UUID attendanceId,
         HttpServletRequest request
     ) {
-        Attendance attendance = attendanceService.get(
+        AttendanceDetail detail = attendanceService.get(
             attendanceId, currentUserProvider.requireContext());
-        return mapper.toAttendanceResponse(attendance, requestId(request));
+        return mapper.toDetailResponse(detail, requestId(request));
     }
 
     @PatchMapping("/attendance/{attendanceId}")

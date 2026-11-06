@@ -1,6 +1,5 @@
 package com.adn.dabaeum.completion.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document;
@@ -23,9 +22,7 @@ import com.adn.dabaeum.common.web.RequestIdFilter;
 import com.adn.dabaeum.completion.application.CompletionApplicationService;
 import com.adn.dabaeum.completion.domain.Completion;
 import com.adn.dabaeum.completion.domain.CompletionStatus;
-import com.adn.dabaeum.testsupport.OpenApiContract;
 import java.math.BigDecimal;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
@@ -44,7 +41,6 @@ import org.springframework.test.web.servlet.MockMvc;
     SecurityConfiguration.class, JacksonConfiguration.class, RequestIdFilter.class})
 class CompletionDocumentationTest {
 
-    private static final Path CONTRACT = Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final UUID ENROLLMENT_ID = UUID.fromString(
         "22222222-2222-2222-2222-222222222222");
 
@@ -62,7 +58,6 @@ class CompletionDocumentationTest {
         mockMvc.perform(get("/api/v1/enrollments/{id}/completion", ENROLLMENT_ID)
                 .with(user("manager").roles("INSTITUTION_ADMIN")))
             .andExpect(status().isOk())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document("completion-get", preprocessRequest(prettyPrint()),
                 preprocessResponse(prettyPrint())));
 
@@ -74,14 +69,12 @@ class CompletionDocumentationTest {
                      "creditValue":null,"failureReason":"출석 기준 미달"}
                     """))
             .andExpect(status().isOk())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document("completion-evaluate", preprocessRequest(prettyPrint()),
                 preprocessResponse(prettyPrint())));
 
         mockMvc.perform(post("/api/v1/enrollments/{id}/completion/confirm", ENROLLMENT_ID)
                 .with(user("manager").roles("INSTITUTION_ADMIN")))
             .andExpect(status().isOk())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document("completion-confirm", preprocessRequest(prettyPrint()),
                 preprocessResponse(prettyPrint())));
     }

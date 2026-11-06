@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- 강좌 추천 (docs/specs/course-recommendation.md). 규칙 기반 가중치는 경험칙이다(§8). 모델 점수는 야간 배치가 쓴다(§12.5). -->
+<mapper namespace="com.adn.dabaeum.recommendation.infrastructure.mybatis.RecommendationMapper">
+
+    <resultMap id="referenceCourseResultMap" type="com.adn.dabaeum.recommendation.domain.ReferenceCourse">
+        <constructor>
+            <idArg column="course_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_title" javaType="java.lang.String"/>
+            <arg column="classification_code" javaType="java.lang.String"/>
+            <arg column="signal" javaType="com.adn.dabaeum.recommendation.domain.ReferenceSignal"/>
+            <arg column="signalled_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="similarResultMap" type="com.adn.dabaeum.recommendation.domain.SimilarCourse">
+        <constructor>
+            <idArg column="course_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="match_level" javaType="_int"/>
+            <arg column="matched_code" javaType="java.lang.String"/>
+            <arg column="matched_name" javaType="java.lang.String"/>
+            <arg column="source_course_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="source_title" javaType="java.lang.String"/>
+            <arg column="source_signal" javaType="com.adn.dabaeum.recommendation.domain.ReferenceSignal"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="scoredResultMap" type="com.adn.dabaeum.recommendation.domain.ScoredCourse">
+        <constructor>
+            <idArg column="course_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="score" javaType="java.math.BigDecimal"/>
+            <arg column="top_factor" javaType="com.adn.dabaeum.recommendation.domain.RecommendationTopFactor"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="interestCourseResultMap" type="com.adn.dabaeum.recommendation.domain.InterestCourse">
+        <constructor>
+            <idArg column="course_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="classification_code" javaType="java.lang.String"/>
+            <arg column="classification_name" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <!-- §3.1 기준 강좌: 찜 + 신청(대기·승인 포함) + 수료. 분류 코드 없는 강좌는 뺀다. -->
+    <sql id="reference_courses">
+        SELECT s.course_id, c.title AS course_title, c.classification_code, s.signal, s.signalled_at
+          FROM (
+                SELECT i.course_id, 'INTEREST' AS signal, i.created_at AS signalled_at
+                  FROM tb_course_interests i
+                 WHERE i.user_id = #{userId}
+                UNION ALL
+                SELECT e.course_id, 'ENROLLMENT', e.applied_at
+                  FROM tb_enrollments e
+                 WHERE e.user_id = #{userId}
+                   AND (e.status IN ('APPLIED', 'WAITLISTED', 'APPROVED')
+                        OR EXISTS (SELECT 1 FROM tb_completions cp
+                                    WHERE cp.enrollment_id = e.id AND cp.status = 'COMPLETED'))
+               ) s
+          JOIN tb_courses c ON c.id = s.course_id
+         WHERE c.classification_code IS NOT NULL
+    </sql>
+
+    <!--
+      §3.4 제외. 별칭 c = tb_courses. 모집 중이고 모집 기간 안이며 정원+대기가 남은 강좌만.
+      로그인 사용자는 찜·신청(대기·승인) 강좌를, 성인은 어린이·아동청소년 전용 강좌를, 홈 인기 섹션에 보인 강좌를 뺀다.
+    -->
+    <sql id="eligible">
+        c.deleted_at IS NULL
+        AND c.status = 'RECRUITING'
+        AND (c.recruit_start_date IS NULL OR c.recruit_start_date &lt;= #{filter.today})
+        AND (c.recruit_end_date IS NULL OR c.recruit_end_date &gt;= #{filter.today})
+        AND (c.capacity IS NULL
+             OR c.capacity + COALESCE(c.waitlist_capacity, 0) &gt;
+                (SELECT count(*) FROM tb_enrollments en
+                  WHERE en.course_id = c.id AND en.status IN ('APPROVED', 'WAITLISTED')))
+        <if test="filter.userId != null">
+        AND NOT EXISTS (SELECT 1 FROM tb_course_interests i
+                         WHERE i.user_id = #{filter.userId} AND i.course_id = c.id)
+        AND NOT EXISTS (SELECT 1 FROM tb_enrollments en
+                         WHERE en.user_id = #{filter.userId} AND en.course_id = c.id
+                           AND (en.status IN ('APPLIED', 'WAITLISTED', 'APPROVED')
+                                OR EXISTS (SELECT 1 FROM tb_completions cp
+                                            WHERE cp.enrollment_id = en.id AND cp.status = 'COMPLETED')))
+        </if>
+        <if test="filter.adultViewer">
+        AND NOT (COALESCE(c.target_audiences, '') &lt;&gt; ''
+                 AND NOT EXISTS (SELECT 1 FROM unnest(string_to_array(c.target_audiences, ',')) AS t(code)
+                                  WHERE t.code NOT IN ('CHILDREN', 'YOUTH')))
+        </if>
+        <if test="!filter.excludeCourseIds.isEmpty()">
+        AND c.id NOT IN
+        <foreach collection="filter.excludeCourseIds" item="excludedId" open="(" separator="," close=")">
+            #{excludedId, javaType=java.util.UUID, typeHandler=org.apache.ibatis.type.ObjectTypeHandler}
+        </foreach>
+        </if>
+    </sql>
+
+    <select id="selectReferenceCourses" resultMap="referenceCourseResultMap">
+        <include refid="reference_courses"/>
+        ORDER BY s.signalled_at DESC
+    </select>
+
+    <!--
+      §3.2 유사도: 소분류 3 > 중분류 2 > 대분류 1 (코드 TSIX_AABBCC, 상위는 하위 자리 00).
+      후보마다 가장 높은 일치(동률이면 최근 기준 강좌)를 고르고, 같은 기관·같은 제목은 모집 마감이 빠른 1건만 남긴다.
+      §3.3 정렬: 일치 수준 → 인기 점수(ALL, 신규 보정) → 모집 마감 → 최신.
+    -->
+    <select id="selectSimilar" resultMap="similarResultMap">
+        WITH reference_courses AS (
+            <include refid="reference_courses"/>
+        ), candidates AS MATERIALIZED (
+            <!-- 제외 조건은 강좌당 한 번만 계산한다(기준 강좌 × 강좌 곱 전에). -->
+            SELECT c.id AS course_id, c.institution_id, c.title, c.classification_code, c.recruit_end_date, c.created_at
+              FROM tb_courses c
+             WHERE c.classification_code IS NOT NULL
+               AND <include refid="eligible"/>
+        ), scored AS (
+            SELECT c.course_id, c.institution_id, c.title, c.recruit_end_date, c.created_at,
+                   s.course_id AS source_course_id, s.course_title AS source_title,
+                   s.signal AS source_signal, s.signalled_at, s.classification_code AS reference_code,
+                   CASE WHEN c.classification_code = s.classification_code THEN 3
+                        WHEN substr(c.classification_code, 1, 9) = substr(s.classification_code, 1, 9) THEN 2
+                        WHEN substr(c.classification_code, 1, 7) = substr(s.classification_code, 1, 7) THEN 1
+                        ELSE 0 END AS match_level
+              FROM candidates c
+             CROSS JOIN reference_courses s
+        ), best AS (
+            SELECT DISTINCT ON (course_id) *
+              FROM scored
+             WHERE match_level &gt; 0
+             ORDER BY course_id, match_level DESC, signalled_at DESC
+        ), ranked AS (
+            SELECT b.*,
+                   COALESCE(p.score, 0)
+                       + CASE WHEN b.created_at &gt;= #{freshSince} THEN #{freshBonus} ELSE 0 END AS rank_score,
+                   CASE b.match_level
+                        WHEN 3 THEN b.reference_code
+                        WHEN 2 THEN substr(b.reference_code, 1, 9) || '00'
+                        ELSE substr(b.reference_code, 1, 7) || '0000' END AS matched_code
+              FROM best b
+              LEFT JOIN tb_course_popularity p
+                     ON p.course_id = b.course_id
+                    AND p.segment_type = 'ALL' AND p.segment_key = '*' AND p.window_days = #{windowDays}
+        ), dedup AS (
+            SELECT DISTINCT ON (institution_id, title) *
+              FROM ranked
+             ORDER BY institution_id, title, recruit_end_date ASC NULLS LAST, created_at DESC
+        )
+        SELECT d.course_id, d.match_level, d.matched_code, cl.name AS matched_name,
+               d.source_course_id, d.source_title, d.source_signal
+          FROM dedup d
+          LEFT JOIN tb_course_classifications cl ON cl.code = d.matched_code
+         ORDER BY d.match_level DESC, d.rank_score DESC, d.recruit_end_date ASC NULLS LAST, d.created_at DESC
+         LIMIT #{limit}
+    </select>
+
+    <!--
+      §12.5 모델 점수. 야간 배치가 쓴 점수 행을 후보로 §3.4 제외를 그대로 적용하고,
+      같은 기관·같은 제목은 모집 마감이 빠른 1건만 남긴다. 정렬: 점수 → 모집 마감 → id.
+    -->
+    <select id="selectModelScored" resultMap="scoredResultMap">
+        WITH ranked AS (
+            SELECT DISTINCT ON (c.institution_id, c.title)
+                   s.course_id, s.score, s.top_factor, c.recruit_end_date
+              FROM tb_course_recommendation_scores s
+              JOIN tb_courses c ON c.id = s.course_id
+             WHERE s.user_id = #{userId}
+               AND <include refid="eligible"/>
+             ORDER BY c.institution_id, c.title, c.recruit_end_date ASC NULLS LAST, s.score DESC
+        )
+        -- 재학습 전의 옛 점수 행에 REGION 이 남아 있을 수 있다. 다음 학습에서 교체된다.
+        SELECT course_id, score, CASE WHEN top_factor = 'REGION' THEN 'POPULARITY' ELSE top_factor END AS top_factor
+          FROM ranked
+         ORDER BY score DESC, recruit_end_date ASC NULLS LAST, course_id
+         LIMIT #{limit}
+    </select>
+
+    <!-- 관심 분야. 강좌 분류(TSIX_AABBCC)의 1단계는 TSIX_AA0000 이다. 같은 기관·같은 제목은 1건. -->
+    <select id="selectInterestCourses" resultMap="interestCourseResultMap">
+        WITH ranked AS (
+            SELECT DISTINCT ON (c.institution_id, c.title)
+                   c.id AS course_id, cl.code AS classification_code, cl.name AS classification_name,
+                   COALESCE(p.score, 0) AS score, c.recruit_end_date
+              FROM tb_courses c
+              JOIN tb_course_classifications cl ON cl.code = left(c.classification_code, 7) || '0000'
+              LEFT JOIN tb_course_popularity p
+                     ON p.course_id = c.id AND p.segment_type = 'ALL' AND p.segment_key = '*'
+                    AND p.window_days = #{windowDays}
+             WHERE cl.code IN
+                   <foreach collection="codes" item="code" open="(" separator="," close=")">#{code}</foreach>
+               AND <include refid="eligible"/>
+             ORDER BY c.institution_id, c.title, c.recruit_end_date ASC NULLS LAST, COALESCE(p.score, 0) DESC
+        )
+        SELECT course_id, classification_code, classification_name
+          FROM ranked
+         ORDER BY score DESC, recruit_end_date ASC NULLS LAST, course_id
+         LIMIT #{limit}
+    </select>
+
+    <!-- §4 세그먼트 인기 순. 같은 기관·같은 제목은 1건. -->
+    <!-- UUID 단일 컬럼은 기본 타입 핸들러가 없어 text 로 받고 저장소에서 UUID 로 바꾼다. -->
+    <select id="selectPopular" resultType="java.lang.String">
+        WITH ranked AS (
+            SELECT DISTINCT ON (c.institution_id, c.title)
+                   p.course_id, p.score, p.enrollment_count
+              FROM tb_course_popularity p
+              JOIN tb_courses c ON c.id = p.course_id
+             WHERE p.segment_type = #{segmentType}
+               AND p.segment_key = #{segmentKey}
+               AND p.window_days = #{windowDays}
+               AND <include refid="eligible"/>
+             ORDER BY c.institution_id, c.title, c.recruit_end_date ASC NULLS LAST, p.score DESC
+        )
+        SELECT course_id::text
+          FROM ranked
+         ORDER BY score DESC, enrollment_count DESC, course_id
+         LIMIT #{limit}
+    </select>
+
+    <insert id="insertImpressions">
+        INSERT INTO tb_recommendation_impressions (
+            id, user_id, course_id, basis, reason_type, match_level, position, shown_at
+        ) VALUES
+        <foreach collection="rows" item="row" separator=",">
+            (#{row.id, javaType=java.util.UUID, typeHandler=org.apache.ibatis.type.ObjectTypeHandler},
+             #{row.userId, javaType=java.util.UUID, typeHandler=org.apache.ibatis.type.ObjectTypeHandler},
+             #{row.courseId, javaType=java.util.UUID, typeHandler=org.apache.ibatis.type.ObjectTypeHandler},
+             #{row.basis}, #{row.reasonType}, #{row.matchLevel}, #{row.position}, #{row.shownAt})
+        </foreach>
+    </insert>
+
+    <update id="markClicked">
+        UPDATE tb_recommendation_impressions
+           SET clicked_at = #{clickedAt}
+         WHERE id = #{id}
+           AND user_id = #{userId}
+           AND clicked_at IS NULL
+    </update>
+
+    <delete id="deleteImpressionsBefore">
+        DELETE FROM tb_recommendation_impressions WHERE shown_at &lt; #{threshold}
+    </delete>
+
+</mapper>

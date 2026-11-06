@@ -41,7 +41,7 @@ public class DefaultCourseInterestApplicationService
         Objects.requireNonNull(actor, "actor");
         if (courseId == null) {
             throw new ApiException(
-                HttpStatus.UNPROCESSABLE_ENTITY, ApiErrorCode.VALIDATION_FAILED,
+                HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.VALIDATION_FAILED,
                 "Request validation failed", java.util.List.of("courseId"));
         }
         courseRepository.findActiveById(courseId)
@@ -68,10 +68,12 @@ public class DefaultCourseInterestApplicationService
 
     @Override
     @Transactional(readOnly = true)
-    public CourseInterestPage listMine(AuthenticatedUserContext actor, int page, int size) {
+    public CourseInterestPage listMine(
+        AuthenticatedUserContext actor, String keyword, int page, int size
+    ) {
         int offset = Math.multiplyExact(page, size);
-        var data = interestRepository.findByUserId(actor.userId(), size, offset);
-        long totalElements = interestRepository.countByUserId(actor.userId());
+        var data = interestRepository.findByUserId(actor.userId(), keyword, size, offset);
+        long totalElements = interestRepository.countByUserId(actor.userId(), keyword);
         return new CourseInterestPage(
             data, page, size, totalElements, totalPages(totalElements, size));
     }

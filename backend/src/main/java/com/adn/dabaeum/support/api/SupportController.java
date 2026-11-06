@@ -1,6 +1,7 @@
 package com.adn.dabaeum.support.api;
 
 import com.adn.dabaeum.common.api.ApiResponse;
+import com.adn.dabaeum.common.api.KeywordQuery;
 import com.adn.dabaeum.common.security.CurrentUserProvider;
 import com.adn.dabaeum.common.web.RequestIdFilter;
 import com.adn.dabaeum.support.application.SupportApplicationService;
@@ -66,11 +67,17 @@ public class SupportController {
     public AdminNoticePageResponse listAdminNotices(
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "20") int size,
+        @RequestParam(required = false) String q,
+        @RequestParam(required = false) String audience,
+        @RequestParam(required = false) String status,
         HttpServletRequest servletRequest
     ) {
         mapper.validatePaging(page, size);
         var result = service.listAdminNotices(
-            currentUserProvider.requireContext(), page, size);
+            currentUserProvider.requireContext(), page, size,
+            KeywordQuery.normalize(q),
+            mapper.parseAudience(audience, false),
+            mapper.parseStatus(status, false));
         return mapper.toAdminPageResponse(result, requestId(servletRequest));
     }
 
@@ -85,6 +92,16 @@ public class SupportController {
             .location(URI.create("/api/v1/notices/" + notice.id()))
             .body(new ApiResponse<>(
                 mapper.toResponse(notice), mapper.meta(requestId(servletRequest))));
+    }
+
+    @GetMapping("/admin/notices/{noticeId}")
+    public ApiResponse<NoticeResponse> getAdminNotice(
+        @PathVariable UUID noticeId,
+        HttpServletRequest servletRequest
+    ) {
+        var notice = service.getAdminNotice(noticeId, currentUserProvider.requireContext());
+        return new ApiResponse<>(
+            mapper.toResponse(notice), mapper.meta(requestId(servletRequest)));
     }
 
     @PutMapping("/admin/notices/{noticeId}")
@@ -121,6 +138,53 @@ public class SupportController {
             service.listFaqs(page, size), requestId(servletRequest));
     }
 
+    @GetMapping("/admin/faqs")
+    public FaqPageResponse listAdminFaqs(
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "20") int size,
+        HttpServletRequest servletRequest
+    ) {
+        mapper.validatePaging(page, size);
+        var result = service.listAdminFaqs(
+            currentUserProvider.requireContext(), page, size);
+        return mapper.toFaqPageResponse(result, requestId(servletRequest));
+    }
+
+    @PostMapping("/admin/faqs")
+    public ResponseEntity<ApiResponse<FaqResponse>> createFaq(
+        @RequestBody(required = false) FaqCreateRequest request,
+        HttpServletRequest servletRequest
+    ) {
+        var faq = service.createFaq(mapper.toCreateCommand(
+            request, currentUserProvider.requireContext()));
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(new ApiResponse<>(
+                mapper.toResponse(faq), mapper.meta(requestId(servletRequest))));
+    }
+
+    @PutMapping("/admin/faqs/{faqId}")
+    public ApiResponse<FaqResponse> updateFaq(
+        @PathVariable UUID faqId,
+        @RequestBody(required = false) FaqUpdateRequest request,
+        HttpServletRequest servletRequest
+    ) {
+        var faq = service.updateFaq(mapper.toUpdateCommand(
+            faqId, request, currentUserProvider.requireContext()));
+        return new ApiResponse<>(
+            mapper.toResponse(faq), mapper.meta(requestId(servletRequest)));
+    }
+
+    @DeleteMapping("/admin/faqs/{faqId}")
+    public ApiResponse<com.adn.dabaeum.common.api.DeletionResponse> deleteFaq(
+        @PathVariable UUID faqId,
+        HttpServletRequest servletRequest
+    ) {
+        service.deleteFaq(faqId, currentUserProvider.requireContext());
+        return new ApiResponse<>(
+            new com.adn.dabaeum.common.api.DeletionResponse(faqId),
+            mapper.meta(requestId(servletRequest)));
+    }
+
     @GetMapping("/contents/terms")
     public ApiResponse<TermsResponse> getTerms(
         @RequestParam String type,
@@ -129,6 +193,18 @@ public class SupportController {
         return new ApiResponse<>(
             mapper.toResponse(service.getTerms(mapper.parseTermsType(type))),
             mapper.meta(requestId(servletRequest)));
+    }
+
+    @PostMapping("/admin/terms")
+    public ResponseEntity<ApiResponse<TermsResponse>> createTermsContent(
+        @RequestBody(required = false) TermsContentCreateRequest request,
+        HttpServletRequest servletRequest
+    ) {
+        var terms = service.createTerms(mapper.toCreateCommand(
+            request, currentUserProvider.requireContext()));
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(new ApiResponse<>(
+                mapper.toResponse(terms), mapper.meta(requestId(servletRequest))));
     }
 
     @GetMapping("/codes")

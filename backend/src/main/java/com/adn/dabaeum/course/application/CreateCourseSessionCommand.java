@@ -10,6 +10,7 @@ public record CreateCourseSessionCommand(
     Instant startsAt,
     Instant endsAt,
     String location,
+    String topic,
     Instant attendanceOpensAt,
     Instant attendanceClosesAt,
     CourseSessionStatus status

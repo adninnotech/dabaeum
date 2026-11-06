@@ -1,14 +1,19 @@
 package com.adn.dabaeum.authentication.api;
 
+import com.adn.dabaeum.accesslog.domain.AccessLogAction;
+import com.adn.dabaeum.accesslog.web.PersonalDataAccess;
 import com.adn.dabaeum.authentication.application.AccountRecoveryService;
 import com.adn.dabaeum.common.api.ApiMeta;
 import com.adn.dabaeum.common.api.ApiResponse;
 import com.adn.dabaeum.common.security.CurrentUserProvider;
 import com.adn.dabaeum.common.web.RequestIdFilter;
+import com.adn.dabaeum.common.web.RequestRateLimiter;
+import com.adn.dabaeum.user.domain.EmailAddress;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.Duration;
 import java.util.UUID;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
@@ -31,15 +36,18 @@ public class AccountRecoveryController {
     private final AccountRecoveryService service;
     private final CurrentUserProvider currentUserProvider;
     private final Clock clock;
+    private final RequestRateLimiter rateLimiter;
 
     public AccountRecoveryController(
         AccountRecoveryService service,
         CurrentUserProvider currentUserProvider,
-        Clock clock
+        Clock clock,
+        RequestRateLimiter rateLimiter
     ) {
         this.service = service;
         this.currentUserProvider = currentUserProvider;
         this.clock = clock;
+        this.rateLimiter = rateLimiter;
     }
 
     @GetMapping("/auth/email/availability")
@@ -57,7 +65,12 @@ public class AccountRecoveryController {
         @RequestBody(required = false) PasswordResetRequestRequest request,
         HttpServletRequest servletRequest
     ) {
-        service.requestPasswordReset(request == null ? null : request.email());
+        String email = request == null ? null : request.email();
+        String normalized = EmailAddress.normalized(email).orElse(null);
+        if (normalized == null || rateLimiter.allow(
+            "reset-email:" + normalized, 3, Duration.ofHours(1)) == 0) {
+            service.requestPasswordReset(email);
+        }
         return ResponseEntity.status(HttpStatus.ACCEPTED)
             .body(new ApiResponse<>(
                 new PasswordResetRequestedResponse(true),
@@ -78,6 +91,7 @@ public class AccountRecoveryController {
     }
 
     @PostMapping("/users/{userId}/password/reset")
+    @PersonalDataAccess(action = AccessLogAction.UPDATE)
     public ApiResponse<AdminPasswordResetResponse> adminReset(
         @PathVariable UUID userId,
         @RequestBody(required = false) AdminPasswordResetRequest request,

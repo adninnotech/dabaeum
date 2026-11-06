@@ -1,10 +1,13 @@
 package com.adn.dabaeum.enrollment.infrastructure.mybatis;
 
+import com.adn.dabaeum.course.domain.CourseEducationType;
+import com.adn.dabaeum.course.domain.CourseFeeType;
 import com.adn.dabaeum.course.domain.CourseStatus;
 import com.adn.dabaeum.enrollment.domain.EnrollmentQueryRepository;
 import com.adn.dabaeum.enrollment.domain.EnrollmentStatus;
 import com.adn.dabaeum.enrollment.domain.InstitutionEnrollmentView;
 import com.adn.dabaeum.enrollment.domain.MyEnrollmentView;
+import com.adn.dabaeum.user.domain.Gender;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.context.annotation.Profile;
@@ -59,6 +62,31 @@ public class EnrollmentQueryMyBatisRepository implements EnrollmentQueryReposito
     }
 
     @Override
+    public List<InstitutionEnrollmentView> findAllEnrollments(
+        EnrollmentStatus status, UUID institutionId, UUID courseId,
+        CourseEducationType educationType, String keyword, int limit, int offset, String sort
+    ) {
+        EnrollmentQuerySort querySort = EnrollmentQuerySort.from(sort);
+        return mapper.selectAllEnrollments(
+                status == null ? null : status.name(), institutionId, courseId,
+                educationType == null ? null : educationType.name(), keyword,
+                limit, offset, querySort.field, querySort.direction)
+            .stream()
+            .map(this::toDomain)
+            .toList();
+    }
+
+    @Override
+    public long countAllEnrollments(
+        EnrollmentStatus status, UUID institutionId, UUID courseId,
+        CourseEducationType educationType, String keyword
+    ) {
+        return mapper.countAllEnrollments(
+            status == null ? null : status.name(), institutionId, courseId,
+            educationType == null ? null : educationType.name(), keyword);
+    }
+
+    @Override
     public com.adn.dabaeum.enrollment.domain.LearningSummary learningSummary(UUID userId) {
         LearningSummaryRow row = mapper.selectLearningSummary(userId);
         if (row == null) {
@@ -70,21 +98,40 @@ public class EnrollmentQueryMyBatisRepository implements EnrollmentQueryReposito
     }
 
     @Override
+    public com.adn.dabaeum.enrollment.domain.LearningActivity learningActivity(UUID userId) {
+        LearningActivityRow row = mapper.selectLearningActivity(userId);
+        if (row == null) {
+            return new com.adn.dabaeum.enrollment.domain.LearningActivity(0, 0, 0);
+        }
+        // 화면은 정수 퍼센트만 쓰므로 여기서 반올림하고 0~100 으로 자른다.
+        double average = row.averageProgressPercent() == null
+            ? 0 : row.averageProgressPercent().doubleValue();
+        long percent = Math.round(average);
+        return new com.adn.dabaeum.enrollment.domain.LearningActivity(
+            zeroIfNull(row.totalStudyMinutes()),
+            (int) Math.min(100, Math.max(0, percent)),
+            zeroIfNull(row.inquiryCount()));
+    }
+
+    @Override
     public List<com.adn.dabaeum.enrollment.domain.LearningCourseView> findLearningCourses(
-        UUID userId, String learningStatus, int limit, int offset
+        UUID userId, String learningStatus, String keyword, int limit, int offset
     ) {
-        return mapper.selectLearningCourses(userId, learningStatus, limit, offset)
+        return mapper.selectLearningCourses(userId, learningStatus, keyword, limit, offset)
             .stream()
             .map(row -> new com.adn.dabaeum.enrollment.domain.LearningCourseView(
                 row.enrollmentId(), row.courseId(), row.title(), row.institutionName(),
                 row.learningStatus(), row.educationType(), row.startDate(),
-                row.endDate(), row.appliedAt()))
+                row.endDate(), row.appliedAt(), row.instructorName(), row.classificationCode(),
+                row.sessionCount(), row.tags(), CourseFeeType.valueOf(row.tuitionType()),
+                row.tuitionAmount(), row.thumbnailFileId(),
+                zeroIfNull(row.attendedCount())))
             .toList();
     }
 
     @Override
-    public long countLearningCourses(UUID userId, String learningStatus) {
-        return mapper.countLearningCourses(userId, learningStatus);
+    public long countLearningCourses(UUID userId, String learningStatus, String keyword) {
+        return mapper.countLearningCourses(userId, learningStatus, keyword);
     }
 
     @Override
@@ -112,10 +159,15 @@ public class EnrollmentQueryMyBatisRepository implements EnrollmentQueryReposito
     private com.adn.dabaeum.enrollment.domain.EnrollmentProgressView toProgress(
         EnrollmentProgressViewRow row
     ) {
+        com.adn.dabaeum.enrollment.domain.EnrolleeProfile profile =
+            new com.adn.dabaeum.enrollment.domain.EnrolleeProfile(
+                row.enrolleeName(), row.enrolleeBirthDate(),
+                row.enrolleeGender() == null ? null : Gender.valueOf(row.enrolleeGender()),
+                row.enrolleeEmail(), row.enrolleePhone(), row.enrolleeProfileImageId());
         return new com.adn.dabaeum.enrollment.domain.EnrollmentProgressView(
-            row.enrollmentId(), row.userId(), row.userName(), row.courseId(),
+            row.enrollmentId(), row.userId(), profile, row.courseId(),
             row.courseTitle(), zeroIfNull(row.attendedCount()),
-            zeroIfNull(row.sessionCount()), row.status());
+            zeroIfNull(row.sessionCount()), row.lastStudiedAt(), row.status(), null);
     }
 
     private static long zeroIfNull(Long value) {
@@ -127,14 +179,21 @@ public class EnrollmentQueryMyBatisRepository implements EnrollmentQueryReposito
             row.id(), row.courseId(), row.userId(),
             EnrollmentStatus.valueOf(row.status()),
             row.appliedAt(), row.createdAt(), row.courseTitle(), row.courseCode(),
-            CourseStatus.valueOf(row.courseStatus()), row.institutionName());
+            CourseStatus.valueOf(row.courseStatus()), row.institutionName(),
+            row.instructorName(), row.classificationCode(), row.educationType(),
+            row.sessionCount(), row.tags(), CourseFeeType.valueOf(row.tuitionType()),
+            row.tuitionAmount(), row.thumbnailFileId(), row.cancellationReason());
     }
 
     private InstitutionEnrollmentView toDomain(InstitutionEnrollmentViewRow row) {
+        int progressPercent = com.adn.dabaeum.enrollment.domain.EnrollmentProgressView.progressPercent(
+            zeroIfNull(row.attendedCount()), zeroIfNull(row.sessionCount()));
         return new InstitutionEnrollmentView(
             row.id(), row.courseId(), row.userId(),
             EnrollmentStatus.valueOf(row.status()),
-            row.appliedAt(), row.createdAt(), row.courseTitle(), row.userName());
+            row.appliedAt(), row.createdAt(), row.courseTitle(), row.userName(),
+            row.institutionName(), progressPercent, row.lastStudiedAt(),
+            row.processedAt(), row.waitlistPosition(), row.cancellationReason());
     }
 
     private enum EnrollmentQuerySort {

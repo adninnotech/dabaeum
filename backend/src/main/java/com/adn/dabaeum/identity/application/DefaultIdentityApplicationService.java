@@ -140,7 +140,7 @@ public class DefaultIdentityApplicationService
 
     private ApiException validation(String field) {
         return new ApiException(
-            HttpStatus.UNPROCESSABLE_ENTITY,
+            HttpStatus.UNPROCESSABLE_CONTENT,
             ApiErrorCode.VALIDATION_FAILED,
             "Request validation failed",
             List.of(field)
@@ -181,7 +181,7 @@ public class DefaultIdentityApplicationService
 
     private ApiException notVerified() {
         return new ApiException(
-            HttpStatus.UNPROCESSABLE_ENTITY,
+            HttpStatus.UNPROCESSABLE_CONTENT,
             ApiErrorCode.IDENTITY_NOT_VERIFIED,
             "Identity verification is required"
         );

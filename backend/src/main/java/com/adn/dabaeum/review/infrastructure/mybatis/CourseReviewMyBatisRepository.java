@@ -1,9 +1,15 @@
 package com.adn.dabaeum.review.infrastructure.mybatis;
 
+import com.adn.dabaeum.course.domain.CourseFeeType;
 import com.adn.dabaeum.review.domain.CourseReview;
 import com.adn.dabaeum.review.domain.CourseReviewRepository;
+import com.adn.dabaeum.review.domain.CourseReviewSummary;
 import com.adn.dabaeum.review.domain.CourseReviewView;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
@@ -36,14 +42,16 @@ public class CourseReviewMyBatisRepository implements CourseReviewRepository {
     }
 
     @Override
-    public List<CourseReviewView> findByUserId(UUID userId, int limit, int offset) {
-        return mapper.selectByUserId(userId, limit, offset)
+    public List<CourseReviewView> findByUserId(
+        UUID userId, String keyword, int limit, int offset
+    ) {
+        return mapper.selectByUserId(userId, keyword, limit, offset)
             .stream().map(this::toView).toList();
     }
 
     @Override
-    public long countByUserId(UUID userId) {
-        return mapper.countByUserId(userId);
+    public long countByUserId(UUID userId, String keyword) {
+        return mapper.countByUserId(userId, keyword);
     }
 
     @Override
@@ -57,9 +65,40 @@ public class CourseReviewMyBatisRepository implements CourseReviewRepository {
         return mapper.countByCourseId(courseId);
     }
 
+    @Override
+    public CourseReviewSummary summarizeByCourseId(UUID courseId) {
+        return toSummary(mapper.summarizeByCourseId(courseId));
+    }
+
+    @Override
+    public CourseReviewSummary summarizeByUserId(UUID userId) {
+        return toSummary(mapper.summarizeByUserId(userId));
+    }
+
+    @Override
+    public long countWritable(UUID userId) {
+        return mapper.countWritable(userId);
+    }
+
+    private CourseReviewSummary toSummary(ReviewSummaryRow row) {
+        Map<String, Long> distribution = new LinkedHashMap<>();
+        distribution.put("star5", row.count5());
+        distribution.put("star4", row.count4());
+        distribution.put("star3", row.count3());
+        distribution.put("star2", row.count2());
+        distribution.put("star1", row.count1());
+        BigDecimal averageRating = row.averageRating() == null
+            ? null : row.averageRating().setScale(2, RoundingMode.HALF_UP);
+        return new CourseReviewSummary(row.totalCount(), averageRating, distribution);
+    }
+
     private CourseReviewView toView(CourseReviewViewRow row) {
         return new CourseReviewView(
             row.id(), row.userId(), row.courseId(), row.rating(), row.content(),
-            row.createdAt(), row.courseTitle(), row.userName());
+            row.createdAt(), row.courseTitle(), row.userName(), row.institutionName(),
+            row.instructorName(), row.classificationCode(), row.educationType(),
+            row.sessionCount(), row.tags(),
+            row.tuitionType() == null ? null : CourseFeeType.valueOf(row.tuitionType()),
+            row.tuitionAmount(), row.thumbnailFileId());
     }
 }

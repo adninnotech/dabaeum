@@ -133,12 +133,40 @@ public final class DaeguChainStorageClient {
         }
         if (!"OK".equals(envelope.path("state").asString())) {
             JsonNode rcode = envelope.path("rcode");
-            String code = rcode.path("code").asString();
+            String message = maskToken(envelope.path("msg").asString());
+            String code = errorCode(rcode, message);
             int http = rcode.path("http").isNumber() ? rcode.path("http").asInt() : 0;
-            LOGGER.warn("대구체인 Storage API 오류 응답: path={} code={} msg={}",
-                path, code, envelope.path("msg").asString());
-            throw new DaeguChainApiException(code, http, envelope.path("msg").asString());
+            LOGGER.warn("대구체인 Storage API 오류 응답: path={} code={} bcode={} msg={}",
+                path, code, rcode.path("bcode").asString(), message);
+            throw new DaeguChainApiException(code, http, message);
         }
         return envelope.path("data");
+    }
+
+    /**
+     * 오류 코드를 Provider 가 아는 어휘로 맞춘다. 에뮬레이터는 {@code rcode.code} 에 이름을 주고,
+     * 실제 대구체인은 {@code state=OOPS} 에 {@code rcode.bcode}(B 코드)만 준다 (2026-09-11 테스트베드 실측).
+     * B0594 는 "Mitum API 에서 정의되지 않은 에러" 포괄 코드라 메시지까지 봐야 미존재를 가릴 수 있다.
+     */
+    private static String errorCode(JsonNode rcode, String message) {
+        String code = rcode.path("code").asString();
+        if (!code.isBlank()) {
+            return code;
+        }
+        return switch (rcode.path("bcode").asString()) {
+            case "B0701" -> "UNAUTHORIZED";
+            case "B0708" -> "DATA_ALREADY_EXISTS";
+            case "B0594" -> message.contains("not found - storage data") ? "DATA_NOT_FOUND" : "";
+            default -> "";
+        };
+    }
+
+    /** 실제 대구체인은 토큰 오류 메시지에 받은 토큰을 되돌려 준다. 설정 토큰이 로그·예외에 남지 않게 가린다. */
+    private String maskToken(String message) {
+        String token = properties.token();
+        if (token == null || message == null || !message.contains(token)) {
+            return message;
+        }
+        return message.replace(token, "****");
     }
 }

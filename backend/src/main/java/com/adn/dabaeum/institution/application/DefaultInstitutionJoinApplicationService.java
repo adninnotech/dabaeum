@@ -9,6 +9,8 @@ import com.adn.dabaeum.institution.domain.InstitutionJoinApplication;
 import com.adn.dabaeum.institution.domain.InstitutionJoinApplicationRepository;
 import com.adn.dabaeum.institution.domain.InstitutionJoinApplicationStatus;
 import com.adn.dabaeum.institution.domain.InstitutionRepository;
+import com.adn.dabaeum.institution.domain.InstitutionSigningKeyRequest;
+import com.adn.dabaeum.institution.domain.InstitutionSigningKeyRequestRepository;
 import com.adn.dabaeum.institution.domain.InstitutionStatus;
 import com.adn.dabaeum.role.domain.UserRole;
 import com.adn.dabaeum.role.domain.UserRoleAssignment;
@@ -20,6 +22,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.context.annotation.Profile;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +38,7 @@ public class DefaultInstitutionJoinApplicationService
     private final InstitutionIdGenerator institutionIdGenerator;
     private final AuthorizationPolicy authorizationPolicy;
     private final Clock clock;
+    private final InstitutionSigningKeyRequestRepository signingKeyRequests;
 
     public DefaultInstitutionJoinApplicationService(
         InstitutionJoinApplicationRepository applicationRepository,
@@ -42,7 +46,8 @@ public class DefaultInstitutionJoinApplicationService
         UserRoleRepository userRoleRepository,
         InstitutionIdGenerator institutionIdGenerator,
         AuthorizationPolicy authorizationPolicy,
-        Clock clock
+        Clock clock,
+        InstitutionSigningKeyRequestRepository signingKeyRequests
     ) {
         this.applicationRepository = applicationRepository;
         this.institutionRepository = institutionRepository;
@@ -50,12 +55,18 @@ public class DefaultInstitutionJoinApplicationService
         this.institutionIdGenerator = institutionIdGenerator;
         this.authorizationPolicy = authorizationPolicy;
         this.clock = clock;
+        this.signingKeyRequests = signingKeyRequests;
     }
 
     @Override
     @Transactional
     public InstitutionJoinApplication apply(ApplyInstitutionJoinCommand command) {
         Objects.requireNonNull(command, "command");
+        UUID applicantUserId = command.actor() == null ? null : command.actor().userId();
+        if (applicantUserId != null
+            && applicationRepository.existsPendingByApplicant(applicantUserId)) {
+            throw applicationConflict();
+        }
         Instant now = command.requestedAt();
         InstitutionJoinApplication application = new InstitutionJoinApplication(
             UUID.randomUUID(),
@@ -67,10 +78,15 @@ public class DefaultInstitutionJoinApplicationService
             command.address(),
             InstitutionJoinApplicationStatus.PENDING,
             null,
-            command.actor() == null ? null : command.actor().userId(),
+            applicantUserId,
             null, null, null,
             now, now);
-        applicationRepository.save(application);
+        try {
+            applicationRepository.save(application);
+        } catch (DuplicateKeyException exception) {
+            // 동시에 들어온 신청은 uq_tb_institution_applications_pending 이 막는다.
+            throw applicationConflict();
+        }
         return application;
     }
 
@@ -97,10 +113,26 @@ public class DefaultInstitutionJoinApplicationService
         int page, int size
     ) {
         authorizationPolicy.requirePlatformAdmin(actor);
+        return page(status, null, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public InstitutionJoinApplicationPage listMine(
+        AuthenticatedUserContext actor, InstitutionJoinApplicationStatus status,
+        int page, int size
+    ) {
+        Objects.requireNonNull(actor, "actor");
+        return page(status, actor.userId(), page, size);
+    }
+
+    private InstitutionJoinApplicationPage page(
+        InstitutionJoinApplicationStatus status, UUID applicantUserId, int page, int size
+    ) {
         int offset = Math.multiplyExact(page, size);
         List<InstitutionJoinApplication> data =
-            applicationRepository.findPage(status, size, offset);
-        long totalElements = applicationRepository.count(status);
+            applicationRepository.findPage(status, applicantUserId, size, offset);
+        long totalElements = applicationRepository.count(status, applicantUserId);
         int totalPages = totalElements == 0
             ? 0 : (int) ((totalElements + size - 1) / size);
         return new InstitutionJoinApplicationPage(
@@ -156,6 +188,9 @@ public class DefaultInstitutionJoinApplicationService
             approved, InstitutionJoinApplicationStatus.PENDING)) {
             throw statusConflict();
         }
+        // 같은 트랜잭션에서 서명키 생성을 요청한다. 키는 커밋 뒤 워커가 OpenBao 에 만든다.
+        signingKeyRequests.save(new InstitutionSigningKeyRequest(
+            UUID.randomUUID(), institution.id(), actor.userId(), now));
         return approved;
     }
 
@@ -205,6 +240,12 @@ public class DefaultInstitutionJoinApplicationService
         return new ApiException(
             HttpStatus.NOT_FOUND, ApiErrorCode.INSTITUTION_APPLICATION_NOT_FOUND,
             "Institution application not found");
+    }
+
+    private ApiException applicationConflict() {
+        return new ApiException(
+            HttpStatus.CONFLICT, ApiErrorCode.INSTITUTION_APPLICATION_CONFLICT,
+            "Institution application is already pending");
     }
 
     private ApiException statusConflict() {

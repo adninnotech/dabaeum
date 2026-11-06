@@ -12,13 +12,13 @@ public interface CourseQueryRepository {
 
     InstructorCourseStats instructorCourseStats(UUID instructorUserId);
 
-    List<Course> findInstitutionCourses(
+    List<CourseView> findInstitutionCourses(
         UUID institutionId, CourseStatus status, int limit, int offset, String sort);
 
     long countInstitutionCourses(UUID institutionId, CourseStatus status);
 
     List<InstitutionInstructorView> findInstitutionInstructors(
-        UUID institutionId, String status, int limit, int offset, String sort);
+        UUID institutionId, String status, String keyword, int limit, int offset, String sort);
 
-    long countInstitutionInstructors(UUID institutionId, String status);
+    long countInstitutionInstructors(UUID institutionId, String status, String keyword);
 }

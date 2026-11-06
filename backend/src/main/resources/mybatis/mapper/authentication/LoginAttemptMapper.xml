@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.authentication.infrastructure.mybatis.LoginAttemptMapper">
+
+    <select id="selectLockedUntil" resultType="java.time.Instant">
+        SELECT locked_until FROM tb_users WHERE id = #{userId}
+    </select>
+
+    <!--
+      증가와 잠금을 한 문장으로 한다. 읽고 나서 쓰면 두 서버가 동시에 4 를 읽어 5 번째 실패를 놓친다.
+      RETURNING 은 갱신 후 값을 본다: 잠금 직후만 failed_login_count 가 0 이다(잠그지 않은 실패는 1 이상).
+    -->
+    <select id="recordFailure" resultType="java.lang.Boolean" flushCache="true" useCache="false">
+        UPDATE tb_users
+           SET failed_login_count = CASE
+                   WHEN failed_login_count + 1 &gt;= #{threshold} THEN 0
+                   ELSE failed_login_count + 1
+               END,
+               locked_until = CASE
+                   WHEN failed_login_count + 1 &gt;= #{threshold} THEN #{lockUntil}
+                   ELSE locked_until
+               END
+         WHERE id = #{userId}
+        RETURNING failed_login_count = 0
+    </select>
+
+    <update id="clear">
+        UPDATE tb_users
+           SET failed_login_count = 0,
+               locked_until = NULL
+         WHERE id = #{userId}
+           AND (failed_login_count &lt;&gt; 0 OR locked_until IS NOT NULL)
+    </update>
+
+</mapper>

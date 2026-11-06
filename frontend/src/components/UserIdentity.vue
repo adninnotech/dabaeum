@@ -1,6 +1,6 @@
 <template>
   <div class="row items-center no-wrap q-gutter-sm">
-    <q-avatar :size="avatarSize" color="primary" text-color="white">{{ avatarLetter }}</q-avatar>
+    <AppUserAvatar :size="avatarSize" color="primary" text-color="white" />
     <div class="col ellipsis">
       <div class="text-body2 text-weight-medium ellipsis">{{ displayName }}</div>
       <div class="text-caption text-grey-7 ellipsis">{{ userEmail || '-' }}</div>
@@ -9,11 +9,13 @@
 </template>
 
 <script>
+import AppUserAvatar from '@/components/AppUserAvatar.vue';
 import { mapState } from 'pinia';
 import { useAuthStore } from '@/stores/auth-store';
 
 export default {
   name: 'UserIdentity',
+  components: { AppUserAvatar },
   props: {
     avatarSize: {
       type: String,
@@ -21,7 +23,7 @@ export default {
     },
   },
   computed: {
-    ...mapState(useAuthStore, ['displayName', 'avatarLetter', 'userEmail']),
+    ...mapState(useAuthStore, ['displayName', 'userEmail']),
   },
 };
 </script>

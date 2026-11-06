@@ -325,7 +325,7 @@ public class DefaultInstructorApplicationService
     }
 
     private ApiException validation(String field) {
-        return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+        return new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
             ApiErrorCode.VALIDATION_FAILED, "Request validation failed", List.of(field));
     }
 

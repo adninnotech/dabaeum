@@ -1,6 +1,7 @@
 package com.adn.dabaeum.course.infrastructure.mybatis;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 public record InstitutionInstructorViewRow(
@@ -11,6 +12,8 @@ public record InstitutionInstructorViewRow(
     String status,
     Instant joinedAt,
     Long courseCount,
-    String memo
+    String memo,
+    Instant lastLoginAt,
+    LocalDate birthDate
 ) {
 }

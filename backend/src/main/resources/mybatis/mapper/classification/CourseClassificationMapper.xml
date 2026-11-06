@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.classification.infrastructure.mybatis.CourseClassificationMapper">
+
+    <!-- 원시 타입 인자는 _int·_boolean 이어야 레코드 생성자와 맞는다. -->
+    <resultMap id="rowResultMap"
+               type="com.adn.dabaeum.classification.infrastructure.mybatis.CourseClassificationRow">
+        <constructor>
+            <idArg column="code" javaType="java.lang.String"/>
+            <arg column="level" javaType="_int"/>
+            <arg column="parent_code" javaType="java.lang.String"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="sort_order" javaType="_int"/>
+            <arg column="enabled" javaType="_boolean"/>
+        </constructor>
+    </resultMap>
+
+    <select id="selectAll" resultMap="rowResultMap">
+        SELECT code, level, parent_code, name, sort_order, enabled
+          FROM tb_course_classifications
+         ORDER BY level, sort_order, code
+    </select>
+
+    <update id="updateEnabled">
+        UPDATE tb_course_classifications
+           SET enabled = #{enabled}
+         WHERE code = #{code}
+    </update>
+
+</mapper>

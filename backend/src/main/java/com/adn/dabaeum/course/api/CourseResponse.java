@@ -5,6 +5,7 @@ import com.adn.dabaeum.course.domain.CourseStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 public record CourseResponse(
@@ -13,13 +14,14 @@ public record CourseResponse(
     String courseCode,
     String title,
     String description,
-    String category,
+    String classificationCode,
+    List<String> classificationPath,
     CourseEducationType educationType,
     LocalDate startDate,
     LocalDate endDate,
     LocalDate recruitStartDate,
     LocalDate recruitEndDate,
-    int capacity,
+    Integer capacity,
     String location,
     String onlineUrl,
     boolean creditBankEligible,
@@ -27,6 +29,10 @@ public record CourseResponse(
     CourseStatus status,
     Instant createdAt,
     Instant updatedAt,
-    UUID thumbnailFileId
+    UUID thumbnailFileId,
+    CourseDetailPayload detail,
+    long enrolledCount,
+    String institutionName,
+    String mainInstructorName
 ) {
 }

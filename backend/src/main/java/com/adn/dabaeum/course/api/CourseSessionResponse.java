@@ -6,7 +6,7 @@ import java.util.UUID;
 
 public record CourseSessionResponse(
     UUID id, UUID courseId, int sessionNo, Instant startsAt, Instant endsAt,
-    String location, Instant attendanceOpensAt, Instant attendanceClosesAt,
+    String location, String topic, Instant attendanceOpensAt, Instant attendanceClosesAt,
     CourseSessionStatus status, Instant createdAt, Instant updatedAt
 ) {
 }

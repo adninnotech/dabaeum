@@ -1,5 +1,7 @@
 package com.adn.dabaeum.interest.api;
 
+import com.adn.dabaeum.enrollment.api.CourseCardFields;
+import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -8,9 +10,7 @@ public record InterestResponse(
     UUID courseId,
     Instant createdAt,
     String courseTitle,
-    String institutionName,
-    String category,
-    String educationType,
-    String courseStatus
+    String courseStatus,
+    @JsonUnwrapped CourseCardFields card
 ) {
 }

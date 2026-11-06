@@ -8,7 +8,8 @@ public interface CourseInterestApplicationService {
 
     CourseInterest add(AuthenticatedUserContext actor, UUID courseId);
 
-    CourseInterestPage listMine(AuthenticatedUserContext actor, int page, int size);
+    CourseInterestPage listMine(
+        AuthenticatedUserContext actor, String keyword, int page, int size);
 
     void remove(AuthenticatedUserContext actor, UUID interestId);
 }

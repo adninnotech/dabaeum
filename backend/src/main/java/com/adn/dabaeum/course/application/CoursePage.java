@@ -1,10 +1,10 @@
 package com.adn.dabaeum.course.application;
 
-import com.adn.dabaeum.course.domain.Course;
+import com.adn.dabaeum.course.domain.CourseView;
 import java.util.List;
 
 public record CoursePage(
-    List<Course> data,
+    List<CourseView> data,
     int page,
     int size,
     long totalElements,

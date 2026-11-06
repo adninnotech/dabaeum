@@ -19,7 +19,7 @@
 }
 
 .role-shell__page {
-  background: #f4f6fb;
+  background: var(--db-bg-page);
   padding-left: 24px;
   padding-right: 16px;
 }
@@ -28,7 +28,7 @@
   border-radius: 10px;
   margin: 2px 8px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--db-text-title);
 }
 
 .role-shell__item--active {
@@ -37,7 +37,7 @@
 }
 
 .role-shell-drawer {
-  background: #ffffff !important;
+  background: var(--db-bg-white) !important;
 }
 
 .role-shell-drawer .fit {

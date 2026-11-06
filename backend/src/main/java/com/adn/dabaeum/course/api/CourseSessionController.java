@@ -5,12 +5,15 @@ import com.adn.dabaeum.common.security.CurrentUserProvider;
 import com.adn.dabaeum.common.web.RequestIdFilter;
 import com.adn.dabaeum.course.application.CourseSessionApplicationService;
 import com.adn.dabaeum.course.application.CourseSessionPage;
+import com.adn.dabaeum.course.application.CreateCourseSessionBulkCommand;
 import com.adn.dabaeum.course.domain.CourseSession;
 import com.adn.dabaeum.correction.api.CorrectionReasonRequest;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.net.URI;
+import java.util.List;
 import java.util.UUID;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -40,7 +43,7 @@ public class CourseSessionController {
     public CourseSessionPageResponse list(@PathVariable UUID courseId,
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "20") int size,
-        @RequestParam(defaultValue = "createdAt,desc") String sort,
+        @RequestParam(defaultValue = "sessionNo,asc") String sort,
         HttpServletRequest request) {
         CourseSessionPage result = service.list(mapper.toListQuery(courseId, page, size, sort));
         return mapper.toPageResponse(result, requestId(request));
@@ -53,6 +56,26 @@ public class CourseSessionController {
             currentUserProvider.requireContext());
         return ResponseEntity.created(URI.create("/api/v1/sessions/" + created.id()))
             .body(mapper.toApiResponse(created, requestId(servletRequest)));
+    }
+
+    @PostMapping("/courses/{courseId}/sessions/bulk")
+    public ResponseEntity<ApiResponse<List<CourseSessionResponse>>> createBulk(
+        @PathVariable UUID courseId,
+        @Valid @RequestBody CourseSessionBulkCreateRequest request,
+        HttpServletRequest servletRequest) {
+        CreateCourseSessionBulkCommand command = mapper.toBulkCommand(courseId, request);
+        List<CourseSession> created = service.createBulk(
+            courseId, command, currentUserProvider.requireContext());
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(mapper.toBulkApiResponse(created, requestId(servletRequest)));
+    }
+
+    @PutMapping("/courses/{courseId}/sessions/order")
+    public ApiResponse<List<CourseSessionResponse>> reorder(@PathVariable UUID courseId,
+        @Valid @RequestBody CourseSessionReorderRequest request, HttpServletRequest servletRequest) {
+        List<CourseSession> reordered = service.reorder(courseId, request.sessionIds(),
+            currentUserProvider.requireContext());
+        return mapper.toBulkApiResponse(reordered, requestId(servletRequest));
     }
 
     @GetMapping("/sessions/{sessionId}")

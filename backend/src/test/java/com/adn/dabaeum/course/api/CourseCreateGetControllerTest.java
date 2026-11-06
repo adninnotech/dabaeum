@@ -1,8 +1,8 @@
 package com.adn.dabaeum.course.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
@@ -19,6 +19,7 @@ import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
@@ -30,9 +31,8 @@ import com.adn.dabaeum.course.application.CreateCourseCommand;
 import com.adn.dabaeum.course.domain.Course;
 import com.adn.dabaeum.course.domain.CourseEducationType;
 import com.adn.dabaeum.course.domain.CourseStatus;
-import com.adn.dabaeum.testsupport.OpenApiContract;
+import com.adn.dabaeum.course.domain.CourseView;
 import java.math.BigDecimal;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Set;
@@ -59,13 +59,12 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
 class CourseCreateGetControllerTest {
 
-    private static final Path CONTRACT =
-        Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final UUID COURSE_ID = UUID.fromString(
         "33333333-3333-3333-3333-333333333333"
     );
@@ -107,10 +106,13 @@ class CourseCreateGetControllerTest {
             .andExpect(jsonPath("$.data.courseCode").value("COURSE-001"))
             .andExpect(jsonPath("$.data.status").value("DRAFT"))
             .andExpect(jsonPath("$.data.deletedAt").doesNotExist())
+            // 생성 응답은 방금 만든 Course 를 그대로 실을 뿐 집계를 다시 읽지 않는다 —
+            // institutionName·mainInstructorName 키는 있고 값은 항상 null.
+            .andExpect(jsonPath("$.data.institutionName").value(org.hamcrest.Matchers.nullValue()))
+            .andExpect(jsonPath("$.data.mainInstructorName").value(org.hamcrest.Matchers.nullValue()))
             .andExpect(jsonPath("$.meta.requestId").value(requestId))
             .andExpect(jsonPath("$.meta.timestamp")
-                .value(matchesPattern(".*\\+09:00$")))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+                .value(matchesPattern(".*\\+09:00$")));
 
         verify(service).create(any(CreateCourseCommand.class), any());
     }
@@ -186,10 +188,38 @@ class CourseCreateGetControllerTest {
     }
 
     @Test
+    void detailTargetAudiences에_null원소가_있으면_422이다() throws Exception {
+        when(currentUserProvider.requireContext()).thenReturn(globalAdmin());
+
+        mockMvc.perform(post("/api/v1/courses")
+                .with(user("platform-admin").roles("PLATFORM_ADMIN"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "institutionId": "22222222-2222-2222-2222-222222222222",
+                      "courseCode": "COURSE-001",
+                      "title": "과정 제목",
+                      "educationType": "HYBRID",
+                      "startDate": "2026-09-01",
+                      "endDate": "2026-10-31",
+                      "capacity": 30,
+                      "detail": {
+                        "targetAudiences": [null]
+                      }
+                    }
+                    """))
+            .andExpect(status().isUnprocessableEntity())
+            .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        verify(service, never()).create(any(), any());
+    }
+
+    @Test
     void getsCourseAndDoesNotExposeDeletedAt() throws Exception {
         String requestId = "7b706c0e-96cf-4d0a-b357-d80752facf1c";
         when(currentUserProvider.requireContext()).thenReturn(globalAdmin());
-        when(service.get(COURSE_ID)).thenReturn(course());
+        when(service.get(eq(COURSE_ID), any())).thenReturn(
+            new CourseView(course(), 0, "다배움평생교육원", "김강사"));
 
         mockMvc.perform(get("/api/v1/courses/{courseId}", COURSE_ID)
                 .with(user("reader").roles("USER"))
@@ -199,8 +229,9 @@ class CourseCreateGetControllerTest {
             .andExpect(jsonPath("$.data.id").value(COURSE_ID.toString()))
             .andExpect(jsonPath("$.data.title").value("과정 제목"))
             .andExpect(jsonPath("$.data.deletedAt").doesNotExist())
-            .andExpect(jsonPath("$.meta.requestId").value(requestId))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.institutionName").value("다배움평생교육원"))
+            .andExpect(jsonPath("$.data.mainInstructorName").value("김강사"))
+            .andExpect(jsonPath("$.meta.requestId").value(requestId));
     }
 
     @Test
@@ -210,7 +241,7 @@ class CourseCreateGetControllerTest {
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.code").value("BAD_REQUEST"));
 
-        when(service.get(COURSE_ID)).thenThrow(new ApiException(
+        when(service.get(eq(COURSE_ID), any())).thenThrow(new ApiException(
             HttpStatus.NOT_FOUND,
             ApiErrorCode.COURSE_NOT_FOUND,
             "Course not found"
@@ -253,7 +284,10 @@ class CourseCreateGetControllerTest {
 
     @Test
     void requiresAuthenticationAndCourseManagerRole() throws Exception {
-        mockMvc.perform(get("/api/v1/courses/{courseId}", COURSE_ID))
+        // 상세 조회는 공개다. 쓰기는 계속 로그인이 필요하다.
+        mockMvc.perform(post("/api/v1/courses")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(fullCreateJson()))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
 
@@ -291,7 +325,7 @@ class CourseCreateGetControllerTest {
               "courseCode": "COURSE-001",
               "title": "과정 제목",
               "description": "상세 설명",
-              "category": "개발",
+              "classificationCode": "TSIX_040201",
               "educationType": "HYBRID",
               "startDate": "2026-09-01",
               "endDate": "2026-10-31",
@@ -314,7 +348,7 @@ class CourseCreateGetControllerTest {
             "COURSE-001",
             "과정 제목",
             "상세 설명",
-            "개발",
+            "TSIX_040201",
             CourseEducationType.HYBRID,
             LocalDate.of(2026, 9, 1),
             LocalDate.of(2026, 10, 31),

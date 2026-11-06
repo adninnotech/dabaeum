@@ -4,6 +4,7 @@ import com.adn.dabaeum.course.domain.CourseEducationType;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonSetter;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -21,33 +22,29 @@ public final class CourseCreateRequest {
     @NotNull
     private UUID institutionId;
 
-    @NotBlank
     @Size(max = 50)
     private String courseCode;
 
     @NotBlank
-    @Size(max = 200)
+    @Size(max = 60)
     private String title;
 
     private String description;
 
-    @Size(max = 100)
-    private String category;
+    @Size(max = 11)
+    private String classificationCode;
 
     @NotNull
     private CourseEducationType educationType;
 
-    @NotNull
     private LocalDate startDate;
 
-    @NotNull
     private LocalDate endDate;
 
     private LocalDate recruitStartDate;
 
     private LocalDate recruitEndDate;
 
-    @NotNull
     @Min(1)
     private Integer capacity;
 
@@ -64,6 +61,9 @@ public final class CourseCreateRequest {
     private BigDecimal creditValue;
 
     private UUID thumbnailFileId;
+
+    @Valid
+    private CourseDetailPayload detail;
 
     private boolean creditBankEligiblePresent;
 
@@ -86,8 +86,8 @@ public final class CourseCreateRequest {
         return description;
     }
 
-    public String category() {
-        return category;
+    public String classificationCode() {
+        return classificationCode;
     }
 
     public CourseEducationType educationType() {
@@ -134,6 +134,10 @@ public final class CourseCreateRequest {
         return thumbnailFileId;
     }
 
+    public CourseDetailPayload detail() {
+        return detail;
+    }
+
     @JsonSetter("institutionId")
     public void setInstitutionId(UUID institutionId) {
         this.institutionId = institutionId;
@@ -154,9 +158,9 @@ public final class CourseCreateRequest {
         this.description = description;
     }
 
-    @JsonSetter("category")
-    public void setCategory(String category) {
-        this.category = category;
+    @JsonSetter("classificationCode")
+    public void setCategory(String classificationCode) {
+        this.classificationCode = classificationCode;
     }
 
     @JsonSetter("educationType")
@@ -213,6 +217,11 @@ public final class CourseCreateRequest {
     @JsonSetter("thumbnailFileId")
     public void setThumbnailFileId(UUID thumbnailFileId) {
         this.thumbnailFileId = thumbnailFileId;
+    }
+
+    @JsonSetter("detail")
+    public void setDetail(CourseDetailPayload detail) {
+        this.detail = detail;
     }
 
     @JsonIgnore

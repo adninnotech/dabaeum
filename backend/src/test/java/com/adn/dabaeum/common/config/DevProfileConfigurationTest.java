@@ -7,7 +7,6 @@ import com.adn.dabaeum.attendance.infrastructure.crypto.EphemeralAttendanceQrKey
 import com.adn.dabaeum.attendance.infrastructure.mybatis.AttendanceAdjustmentMyBatisRepository;
 import com.adn.dabaeum.attendance.infrastructure.mybatis.AttendanceMyBatisRepository;
 import com.adn.dabaeum.attendance.infrastructure.mybatis.AttendanceQrTokenMyBatisRepository;
-import com.adn.dabaeum.common.api.OpenApiContractController;
 import com.adn.dabaeum.common.infrastructure.database.LocalDataSourceConfiguration;
 import com.adn.dabaeum.common.infrastructure.ssh.SshTunnelConfiguration;
 import com.adn.dabaeum.completion.application.RandomCompletionIdGenerator;
@@ -35,8 +34,7 @@ class DevProfileConfigurationTest {
         AttendanceAdjustmentMyBatisRepository.class,
         AttendanceMyBatisRepository.class,
         AttendanceQrTokenMyBatisRepository.class,
-        OpenApiContractController.class,
-        DevBearerSecurityConfiguration.class,
+        LocalDevSecuritySupportConfiguration.class,
         RandomCompletionIdGenerator.class,
         CompletionMyBatisRepository.class,
         CompletionOutboxMyBatisRepository.class,
@@ -69,6 +67,14 @@ class DevProfileConfigurationTest {
             .doesNotContain("dev");
     }
 
+    // 고정 Bearer 토큰은 로그인 없이 PLATFORM_ADMIN 을 준다. 인터넷에 열린 dev 에서는 켜지 않는다.
+    @Test
+    void devProfileMustNotActivateTheFixedBearerToken() {
+        assertThat(profileValues(DevBearerSecurityConfiguration.class))
+            .containsExactly("local")
+            .doesNotContain("dev");
+    }
+
     @Test
     void devConfigurationMustUseDirectDatabaseAndExposeSwagger() throws Exception {
         String dev = java.nio.file.Files.readString(
@@ -80,6 +86,16 @@ class DevProfileConfigurationTest {
             .contains("api-docs:")
             .contains("swagger-ui:")
             .contains("url: /openapi/dabaeum-api-v1.yaml");
+    }
+
+    @Test
+    void devTrustsNginxForwardedClientAddress() throws Exception {
+        // 접속기록(설계서 §10.2)의 접속지. dev 는 호스트 nginx 뒤라 remoteAddr 가 127.0.0.1 이다.
+        // nginx 가 X-Forwarded-For 를 넘기므로 native 전략으로 실제 클라이언트 주소를 읽는다.
+        String dev = java.nio.file.Files.readString(
+            java.nio.file.Path.of("src/main/resources/application-dev.yml"));
+
+        assertThat(dev).contains("forward-headers-strategy: native");
     }
 
     private static String[] profileValues(Class<?> type) {

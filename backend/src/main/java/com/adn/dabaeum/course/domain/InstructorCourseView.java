@@ -5,7 +5,9 @@ import java.util.Objects;
 public record InstructorCourseView(
     Course course,
     CourseInstructorRole instructorRole,
-    long enrolledCount
+    long enrolledCount,
+    String institutionName,
+    String mainInstructorName
 ) {
 
     public InstructorCourseView {

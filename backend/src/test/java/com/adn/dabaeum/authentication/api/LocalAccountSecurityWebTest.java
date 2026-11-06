@@ -10,6 +10,7 @@ import com.adn.dabaeum.authentication.application.AuthenticationPort;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.LocalAccountAuthenticationFilter;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
@@ -45,6 +46,7 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class,
     LocalAccountSecurityWebTest.FilterConfiguration.class

@@ -12,13 +12,13 @@ public record Course(
     String courseCode,
     String title,
     String description,
-    String category,
+    String classificationCode,
     CourseEducationType educationType,
     LocalDate startDate,
     LocalDate endDate,
     LocalDate recruitStartDate,
     LocalDate recruitEndDate,
-    int capacity,
+    Integer capacity,
     String location,
     String onlineUrl,
     boolean creditBankEligible,
@@ -27,7 +27,8 @@ public record Course(
     Instant createdAt,
     Instant updatedAt,
     Instant deletedAt,
-    UUID thumbnailFileId
+    UUID thumbnailFileId,
+    CourseDetail detail
 ) {
 
     public Course {
@@ -36,11 +37,14 @@ public record Course(
         requireText(courseCode, "courseCode", 50);
         requireText(title, "title", 200);
         requireLength(description, "description", Integer.MAX_VALUE);
-        requireLength(category, "category", 100);
+        requireLength(classificationCode, "classificationCode", 11);
         Objects.requireNonNull(educationType, "educationType");
-        Objects.requireNonNull(startDate, "startDate");
-        Objects.requireNonNull(endDate, "endDate");
-        if (startDate.isAfter(endDate)) {
+        if (status != CourseStatus.DRAFT && status != CourseStatus.CANCELLED
+            && (startDate == null || endDate == null || capacity == null)) {
+            throw new IllegalArgumentException(
+                "startDate, endDate and capacity are required unless status is DRAFT or CANCELLED");
+        }
+        if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
             throw new IllegalArgumentException("startDate must not be after endDate");
         }
         if (recruitStartDate != null
@@ -50,7 +54,7 @@ public record Course(
                 "recruitStartDate must not be after recruitEndDate"
             );
         }
-        if (capacity < 1) {
+        if (capacity != null && capacity < 1) {
             throw new IllegalArgumentException("capacity must be at least 1");
         }
         requireLength(location, "location", 500);
@@ -65,6 +69,7 @@ public record Course(
         Objects.requireNonNull(status, "status");
         Objects.requireNonNull(createdAt, "createdAt");
         Objects.requireNonNull(updatedAt, "updatedAt");
+        detail = Objects.requireNonNullElseGet(detail, CourseDetail::empty);
     }
 
     /** 썸네일이 없는 과정. */
@@ -74,13 +79,13 @@ public record Course(
         String courseCode,
         String title,
         String description,
-        String category,
+        String classificationCode,
         CourseEducationType educationType,
         LocalDate startDate,
         LocalDate endDate,
         LocalDate recruitStartDate,
         LocalDate recruitEndDate,
-        int capacity,
+        Integer capacity,
         String location,
         String onlineUrl,
         boolean creditBankEligible,
@@ -90,10 +95,18 @@ public record Course(
         Instant updatedAt,
         Instant deletedAt
     ) {
-        this(id, institutionId, courseCode, title, description, category, educationType,
+        this(id, institutionId, courseCode, title, description, classificationCode, educationType,
             startDate, endDate, recruitStartDate, recruitEndDate, capacity, location,
             onlineUrl, creditBankEligible, creditValue, status, createdAt, updatedAt,
-            deletedAt, null);
+            deletedAt, null, null);
+    }
+
+    /** detail 만 교체한 새 Course. 21개 인자 재조립을 막는다. */
+    public Course withDetail(CourseDetail newDetail) {
+        return new Course(id, institutionId, courseCode, title, description, classificationCode,
+            educationType, startDate, endDate, recruitStartDate, recruitEndDate,
+            capacity, location, onlineUrl, creditBankEligible, creditValue, status,
+            createdAt, updatedAt, deletedAt, thumbnailFileId, newDetail);
     }
 
     private static void requireText(String value, String field, int maxLength) {

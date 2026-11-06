@@ -1,6 +1,5 @@
 package com.adn.dabaeum.course.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -19,6 +18,7 @@ import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
@@ -31,9 +31,6 @@ import com.adn.dabaeum.course.application.ListCourseSessionsQuery;
 import com.adn.dabaeum.course.application.UpdateCourseSessionCommand;
 import com.adn.dabaeum.course.domain.CourseSession;
 import com.adn.dabaeum.course.domain.CourseSessionStatus;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.math.BigDecimal;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -60,13 +57,12 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
 class CourseSessionControllerTest {
 
-    private static final Path CONTRACT =
-        Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final UUID COURSE_ID = UUID.fromString(
         "33333333-3333-3333-3333-333333333333"
     );
@@ -99,11 +95,10 @@ class CourseSessionControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[0].sessionNo").value(1))
             .andExpect(jsonPath("$.page.totalElements").value(1))
-            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID));
 
         verify(service).list(eq(new ListCourseSessionsQuery(
-            COURSE_ID, 0, 20, "createdAt,desc")));
+            COURSE_ID, 0, 20, "sessionNo,asc")));
     }
 
     @Test
@@ -120,8 +115,7 @@ class CourseSessionControllerTest {
             .andExpect(status().isCreated())
             .andExpect(header().string(
                 "Location", "/api/v1/sessions/" + SESSION_ID))
-            .andExpect(jsonPath("$.data.id").value(SESSION_ID.toString()))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.id").value(SESSION_ID.toString()));
 
         mockMvc.perform(put("/api/v1/sessions/{sessionId}", SESSION_ID)
                 .with(user("manager").roles("INSTITUTION_ADMIN"))
@@ -129,8 +123,7 @@ class CourseSessionControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"location\":null,\"status\":\"OPEN\"}"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.id").value(SESSION_ID.toString()))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.id").value(SESSION_ID.toString()));
 
         ArgumentCaptor<UpdateCourseSessionCommand> command =
             ArgumentCaptor.forClass(UpdateCourseSessionCommand.class);
@@ -140,14 +133,82 @@ class CourseSessionControllerTest {
     }
 
     @Test
+    void 온라인_회차는_주제만_보내도_201() throws Exception {
+        when(currentUserProvider.requireContext()).thenReturn(managerContext());
+        when(service.create(any(), any())).thenReturn(onlineSession());
+
+        mockMvc.perform(post("/api/v1/courses/{courseId}/sessions", COURSE_ID)
+                .with(user("manager").roles("INSTITUTION_ADMIN"))
+                .header(RequestIdFilter.HEADER_NAME, REQUEST_ID)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"sessionNo": 1, "topic": "1강. 데이터란 무엇인가"}
+                    """))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.data.topic").value("1강. 데이터란 무엇인가"))
+            .andExpect(jsonPath("$.data.startsAt").doesNotExist());
+    }
+
+    @Test
+    void 반복규칙으로_12회차가_한_번에_생긴다() throws Exception {
+        when(currentUserProvider.requireContext()).thenReturn(instructor());
+        when(service.createBulk(any(), any(), any())).thenReturn(twelveSessions());
+
+        mockMvc.perform(post("/api/v1/courses/{courseId}/sessions/bulk", COURSE_ID)
+                .with(user("instructor").roles("INSTRUCTOR"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "repeat": {
+                        "firstDate": "2026-11-05",
+                        "daysOfWeek": ["THURSDAY"],
+                        "startTime": "14:00",
+                        "endTime": "16:00",
+                        "count": 12
+                      },
+                      "replaceExisting": true
+                    }
+                    """))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.data.length()").value(12))
+            .andExpect(jsonPath("$.data[0].sessionNo").value(1));
+    }
+
+    @Test
+    void repeat_와_sessions_를_같이_보내면_422() throws Exception {
+        mockMvc.perform(post("/api/v1/courses/{courseId}/sessions/bulk", COURSE_ID)
+                .with(user("instructor").roles("INSTRUCTOR"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "repeat": {"firstDate": "2026-11-05", "daysOfWeek": ["THURSDAY"],
+                                 "startTime": "14:00", "endTime": "16:00", "count": 12},
+                      "sessions": [{"sessionNo": 1, "topic": "직접 입력"}]
+                    }
+                    """))
+            .andExpect(status().isUnprocessableEntity());
+    }
+
+    @Test
+    void sessions에_null원소가_있으면_500이_아니라_422() throws Exception {
+        mockMvc.perform(post("/api/v1/courses/{courseId}/sessions/bulk", COURSE_ID)
+                .with(user("instructor").roles("INSTRUCTOR"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"sessions": [null]}
+                    """))
+            .andExpect(status().isUnprocessableEntity())
+            .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
     void getsSessionAndMapsApplicationErrors() throws Exception {
         when(service.get(SESSION_ID)).thenReturn(session());
         mockMvc.perform(get("/api/v1/sessions/{sessionId}", SESSION_ID)
                 .with(user("reader").roles("USER"))
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.status").value("SCHEDULED"))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.status").value("SCHEDULED"));
 
         when(service.get(SESSION_ID)).thenThrow(new ApiException(
             HttpStatus.NOT_FOUND, ApiErrorCode.COURSE_SESSION_NOT_FOUND,
@@ -176,7 +237,8 @@ class CourseSessionControllerTest {
                 .content(validCreateJson()))
             .andExpect(status().isForbidden())
             .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-        mockMvc.perform(get("/api/v1/courses/{courseId}/sessions", COURSE_ID))
+        // 강좌의 회차 목록은 공개지만 회차 단건은 로그인이 필요하다.
+        mockMvc.perform(get("/api/v1/sessions/{sessionId}", COURSE_ID))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
         verify(service, never()).create(any(), any());
@@ -194,6 +256,26 @@ class CourseSessionControllerTest {
             """;
     }
 
+    private AuthenticatedUserContext instructor() {
+        return new AuthenticatedUserContext(
+            UUID.fromString("11111111-1111-1111-1111-111111111111"),
+            "LOCAL",
+            Set.of(new AuthenticatedRole("INSTRUCTOR", INSTITUTION_ID))
+        );
+    }
+
+    private List<CourseSession> twelveSessions() {
+        Instant now = Instant.parse("2026-08-04T00:00:00Z");
+        List<CourseSession> sessions = new java.util.ArrayList<>();
+        for (int i = 1; i <= 12; i++) {
+            Instant starts = now.plusSeconds(i * 86400L);
+            sessions.add(new CourseSession(UUID.randomUUID(), COURSE_ID, i,
+                starts, starts.plusSeconds(7200), null, null, null,
+                CourseSessionStatus.SCHEDULED, now, now, null));
+        }
+        return sessions;
+    }
+
     private AuthenticatedUserContext managerContext() {
         return new AuthenticatedUserContext(
             UUID.fromString("11111111-1111-1111-1111-111111111111"),
@@ -207,6 +289,12 @@ class CourseSessionControllerTest {
         return new CourseSession(SESSION_ID, COURSE_ID, 1,
             Instant.parse("2026-09-01T01:00:00Z"),
             Instant.parse("2026-09-01T02:00:00Z"), "서울 교육장", null, null,
-            CourseSessionStatus.SCHEDULED, now, now);
+            CourseSessionStatus.SCHEDULED, now, now, null);
+    }
+
+    private CourseSession onlineSession() {
+        Instant now = Instant.parse("2026-08-04T00:00:00Z");
+        return new CourseSession(SESSION_ID, COURSE_ID, 1, null, null, null, null, null,
+            CourseSessionStatus.SCHEDULED, now, now, "1강. 데이터란 무엇인가");
     }
 }

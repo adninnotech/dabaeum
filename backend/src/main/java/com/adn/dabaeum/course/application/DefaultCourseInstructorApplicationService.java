@@ -57,9 +57,10 @@ public class DefaultCourseInstructorApplicationService
     @Override
     @Transactional(readOnly = true)
     public List<CourseInstructorView> list(UUID courseId) {
-        requireCourse(courseId);
+        Course course = requireCourse(courseId);
+        boolean profileVisible = course.detail().instructorProfileVisible();
         return repository.findByCourseId(courseId).stream()
-            .map(this::toView)
+            .map(instructor -> toView(instructor, profileVisible))
             .toList();
     }
 
@@ -190,17 +191,30 @@ public class DefaultCourseInstructorApplicationService
         return toView(instructor, user);
     }
 
+    /** 배정 목록 조회 전용. instructorProfileVisible=false 면 프로필 필드를 null 로 가린다. */
+    private CourseInstructorView toView(CourseInstructor instructor, boolean profileVisible) {
+        CourseInstructorView view = toView(instructor);
+        return profileVisible
+            ? view
+            : new CourseInstructorView(
+                view.id(), view.courseId(), view.userId(),
+                view.instructorName(), view.instructorEmail(), view.role(),
+                view.assignedAt(), view.createdAt(), null, null, null
+            );
+    }
+
     private CourseInstructorView toView(CourseInstructor instructor, User user) {
         return new CourseInstructorView(
             instructor.id(), instructor.courseId(), instructor.userId(),
             user.name(), user.email(), instructor.role(),
-            instructor.assignedAt(), instructor.createdAt()
+            instructor.assignedAt(), instructor.createdAt(),
+            user.introduction(), user.career(), user.profileImageId()
         );
     }
 
     private ApiException validation(String field) {
         return new ApiException(
-            HttpStatus.UNPROCESSABLE_ENTITY,
+            HttpStatus.UNPROCESSABLE_CONTENT,
             ApiErrorCode.VALIDATION_FAILED,
             "Request validation failed",
             List.of(field)

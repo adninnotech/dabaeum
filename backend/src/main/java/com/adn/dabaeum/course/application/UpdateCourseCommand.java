@@ -1,5 +1,6 @@
 package com.adn.dabaeum.course.application;
 
+import com.adn.dabaeum.course.domain.CourseDetail;
 import com.adn.dabaeum.course.domain.CourseEducationType;
 import com.adn.dabaeum.course.domain.CourseStatus;
 import java.math.BigDecimal;
@@ -11,7 +12,7 @@ public record UpdateCourseCommand(
     CourseUpdateField<String> courseCode,
     CourseUpdateField<String> title,
     CourseUpdateField<String> description,
-    CourseUpdateField<String> category,
+    CourseUpdateField<String> classificationCode,
     CourseUpdateField<CourseEducationType> educationType,
     CourseUpdateField<LocalDate> startDate,
     CourseUpdateField<LocalDate> endDate,
@@ -23,7 +24,8 @@ public record UpdateCourseCommand(
     CourseUpdateField<Boolean> creditBankEligible,
     CourseUpdateField<BigDecimal> creditValue,
     CourseUpdateField<CourseStatus> status,
-    CourseUpdateField<UUID> thumbnailFileId
+    CourseUpdateField<UUID> thumbnailFileId,
+    CourseUpdateField<CourseDetail> detail
 ) {
 
     /** 썸네일을 다루지 않는 수정 명령. */
@@ -32,7 +34,7 @@ public record UpdateCourseCommand(
         CourseUpdateField<String> courseCode,
         CourseUpdateField<String> title,
         CourseUpdateField<String> description,
-        CourseUpdateField<String> category,
+        CourseUpdateField<String> classificationCode,
         CourseUpdateField<CourseEducationType> educationType,
         CourseUpdateField<LocalDate> startDate,
         CourseUpdateField<LocalDate> endDate,
@@ -45,16 +47,17 @@ public record UpdateCourseCommand(
         CourseUpdateField<BigDecimal> creditValue,
         CourseUpdateField<CourseStatus> status
     ) {
-        this(courseId, courseCode, title, description, category, educationType,
+        this(courseId, courseCode, title, description, classificationCode, educationType,
             startDate, endDate, recruitStartDate, recruitEndDate, capacity, location,
-            onlineUrl, creditBankEligible, creditValue, status, CourseUpdateField.absent());
+            onlineUrl, creditBankEligible, creditValue, status, CourseUpdateField.absent(),
+            CourseUpdateField.absent());
     }
 
     public int presentFieldCount() {
         return count(courseCode)
             + count(title)
             + count(description)
-            + count(category)
+            + count(classificationCode)
             + count(educationType)
             + count(startDate)
             + count(endDate)
@@ -66,7 +69,8 @@ public record UpdateCourseCommand(
             + count(creditBankEligible)
             + count(creditValue)
             + count(status)
-            + count(thumbnailFileId);
+            + count(thumbnailFileId)
+            + count(detail);
     }
 
     private int count(CourseUpdateField<?> field) {

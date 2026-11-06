@@ -15,11 +15,14 @@ import com.adn.dabaeum.blockchain.domain.CredentialRegistryReissue;
 import com.adn.dabaeum.blockchain.domain.CredentialRegistryState;
 import com.adn.dabaeum.blockchain.domain.CredentialRegistryUpdate;
 import com.adn.dabaeum.blockchain.domain.RegistryStatus;
+import com.adn.dabaeum.blockchain.domain.RegistryTarget;
 import com.adn.dabaeum.credential.application.CredentialHashService;
 import com.adn.dabaeum.credential.domain.Credential;
 import com.adn.dabaeum.credential.domain.CredentialDocument;
 import com.adn.dabaeum.credential.domain.CredentialProofService;
 import com.adn.dabaeum.credential.domain.CredentialRepository;
+import com.adn.dabaeum.credential.domain.CredentialSigningException;
+import com.adn.dabaeum.credential.domain.CredentialSigningException.Disposition;
 import com.adn.dabaeum.credential.domain.CredentialStatus;
 import com.adn.dabaeum.credential.domain.SignedCredentialEnvelope;
 import com.adn.dabaeum.fabric.domain.BlockchainTransaction;
@@ -27,10 +30,14 @@ import com.adn.dabaeum.fabric.domain.BlockchainTransactionRepository;
 import com.adn.dabaeum.fabric.domain.BlockchainTransactionStatus;
 import com.adn.dabaeum.fabric.domain.BlockchainTransactionType;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -318,6 +325,344 @@ class CredentialFabricWorkerTest {
             .isEqualTo(BlockchainTransactionStatus.CONFIRMED);
     }
 
+    @Test
+    void transitSignerReplacesFileKeySigningAndIssuesWithTheStoredEnvelope() {
+        Fixture fixture = new Fixture(new RecordingRegistry());
+        StoredEnvelopeSigner signer = new StoredEnvelopeSigner(fixture.credentials);
+
+        fixture.worker(signer, new ScriptedFinalizeCheck()).processBatch(10, NOW);
+
+        assertThat(fixture.proof.signCalls).isZero();
+        assertThat(signer.calls).isEqualTo(1);
+        assertThat(fixture.credentials.credential.status()).isEqualTo(CredentialStatus.ISSUED);
+        assertThat(fixture.credentials.credential.issuerIdentifier()).isEqualTo("urn:dabaeum:institution:transit");
+        assertThat(fixture.registry.createCommands().get(0).vcHash())
+            .isEqualTo(fixture.credentials.credential.vcHash());
+        assertThat(fixture.transactions.transaction.status()).isEqualTo(BlockchainTransactionStatus.CONFIRMED);
+    }
+
+    @Test
+    void retryableSigningFailureKeepsIssuingAndBacksOffTheTransaction() {
+        Fixture fixture = new Fixture(new RecordingRegistry());
+        StoredEnvelopeSigner signer = new StoredEnvelopeSigner(fixture.credentials);
+        signer.failure = new CredentialSigningException(CredentialSigningException.UNAVAILABLE, Disposition.RETRY);
+
+        fixture.worker(signer, new ScriptedFinalizeCheck()).processBatch(10, NOW);
+
+        assertThat(fixture.credentials.credential.status()).isEqualTo(CredentialStatus.ISSUING);
+        assertThat(fixture.transactions.transaction.status()).isEqualTo(BlockchainTransactionStatus.PENDING);
+        assertThat(fixture.transactions.transaction.retryCount()).isEqualTo(1);
+        assertThat(fixture.transactions.transaction.nextRetryAt()).isEqualTo(NOW.plusSeconds(30));
+        assertThat(fixture.transactions.transaction.errorCode()).isEqualTo(CredentialSigningException.UNAVAILABLE);
+        assertThat(fixture.registry.createCommands()).isEmpty();
+    }
+
+    @Test
+    void exhaustedSigningRetriesFailTheCredentialToo() {
+        Credential credential = pendingCredential();
+        BlockchainTransaction lastAttempt = new BlockchainTransaction(UUID.randomUUID(), "CREDENTIAL",
+            credential.id(), "DABAEUM_FABRIC", BlockchainTransactionType.VC_ANCHOR, "key-" + credential.id(),
+            UUID.randomUUID(), "a".repeat(64), null, BlockchainTransactionStatus.PENDING, null, null,
+            NOW, null, 4, null, null, NOW, NOW, null);
+        Fixture fixture = new Fixture(credential, lastAttempt, new RecordingRegistry());
+        StoredEnvelopeSigner signer = new StoredEnvelopeSigner(fixture.credentials);
+        signer.failure = new CredentialSigningException(CredentialSigningException.UNAVAILABLE, Disposition.RETRY);
+
+        fixture.worker(signer, new ScriptedFinalizeCheck()).processBatch(10, NOW);
+
+        assertThat(fixture.transactions.transaction.status()).isEqualTo(BlockchainTransactionStatus.FAILED);
+        assertThat(fixture.credentials.credential.status()).isEqualTo(CredentialStatus.FAILED);
+        assertThat(fixture.credentials.credential.failureCode()).isEqualTo(CredentialSigningException.UNAVAILABLE);
+    }
+
+    @Test
+    void failingSigningNeverReachesTheLedgerAndFailsBothRecordsWithItsCode() {
+        Fixture fixture = new Fixture(new RecordingRegistry());
+        StoredEnvelopeSigner signer = new StoredEnvelopeSigner(fixture.credentials);
+        signer.failure = new CredentialSigningException(CredentialSigningException.KEY_INACTIVE, Disposition.FAIL);
+
+        fixture.worker(signer, new ScriptedFinalizeCheck()).processBatch(10, NOW);
+
+        assertThat(fixture.registry.createCommands()).isEmpty();
+        assertThat(fixture.credentials.credential.status()).isEqualTo(CredentialStatus.FAILED);
+        assertThat(fixture.credentials.credential.failureCode()).isEqualTo(CredentialSigningException.KEY_INACTIVE);
+        assertThat(fixture.transactions.transaction.errorCode()).isEqualTo(CredentialSigningException.KEY_INACTIVE);
+    }
+
+    @Test
+    void staleSigningAttemptWritesNothing() {
+        Fixture fixture = new Fixture(new RecordingRegistry());
+        StoredEnvelopeSigner signer = new StoredEnvelopeSigner(fixture.credentials);
+        signer.failure = new CredentialSigningException(CredentialSigningException.STALE, Disposition.STALE);
+
+        fixture.worker(signer, new ScriptedFinalizeCheck()).processBatch(10, NOW);
+
+        assertThat(fixture.credentials.credential.status()).isEqualTo(CredentialStatus.ISSUING);
+        assertThat(fixture.transactions.transaction.status()).isEqualTo(BlockchainTransactionStatus.PROCESSING);
+    }
+
+    @Test
+    void anchorForAnAlreadyFailedCredentialIsClosedWithoutSigning() {
+        Credential failed = failedCredential(SigningKeyFinalizeCheck.COMPROMISED_AT_FINALIZE);
+        Fixture fixture = new Fixture(failed, pendingTransaction(failed.id()), new RecordingRegistry());
+        StoredEnvelopeSigner signer = new StoredEnvelopeSigner(fixture.credentials);
+
+        fixture.worker(signer, new ScriptedFinalizeCheck()).processBatch(10, NOW);
+
+        assertThat(signer.calls).isZero();
+        assertThat(fixture.registry.createCommands()).isEmpty();
+        assertThat(fixture.transactions.transaction.status()).isEqualTo(BlockchainTransactionStatus.FAILED);
+        assertThat(fixture.transactions.transaction.errorCode()).isEqualTo("CREDENTIAL_STATE_CONFLICT");
+    }
+
+    @Test
+    void keyWithdrawnBeforeSubmissionFailsWithoutTouchingTheLedger() {
+        Fixture fixture = new Fixture(new RecordingRegistry());
+        StoredEnvelopeSigner signer = new StoredEnvelopeSigner(fixture.credentials);
+
+        fixture.worker(signer, new ScriptedFinalizeCheck(SigningKeyFinalizeCheck.Outcome.COMPROMISED))
+            .processBatch(10, NOW);
+
+        assertThat(fixture.registry.createCommands()).isEmpty();
+        assertThat(fixture.credentials.credential.status()).isEqualTo(CredentialStatus.FAILED);
+        assertThat(fixture.credentials.credential.failureCode()).isEqualTo(CredentialSigningException.KEY_COMPROMISED);
+        assertThat(fixture.transactions.transaction.status()).isEqualTo(BlockchainTransactionStatus.FAILED);
+        assertThat(fixture.transactions.inserted).isEmpty();
+    }
+
+    @Test
+    void keyWithdrawnOnARetryAfterAPossibleSubmissionFailsWithTheFinalizeCodeAndQueuesOneCompensation() {
+        CredentialHashService hashService = new CredentialHashService(new ObjectMapper());
+        SignedCredentialEnvelope envelope =
+            new SignedCredentialEnvelope("application/vc+jwt", "header.payload.signature");
+        String payload = hashService.serialize(envelope);
+        String vcHash = hashService.sha256(envelope);
+        Credential issuing = new Credential(UUID.randomUUID(), UUID.randomUUID(), null, "CERT-001", 1,
+            "urn:dabaeum:institution:issuer", "urn:dabaeum:user:subject",
+            "LIFELONG_EDUCATION_COMPLETION", CredentialStatus.ISSUING, NOW, null,
+            payload, vcHash, NOW, null, null, null, null, NOW, NOW);
+        Fixture fixture = new Fixture(issuing, pendingTransaction(issuing.id()), new RecordingRegistry());
+        StoredEnvelopeSigner signer = new StoredEnvelopeSigner(fixture.credentials);
+        UUID credentialId = issuing.id();
+
+        fixture.worker(signer, new ScriptedFinalizeCheck(SigningKeyFinalizeCheck.Outcome.COMPROMISED))
+            .processBatch(10, NOW);
+
+        assertThat(signer.calls).isZero();
+        assertThat(fixture.registry.createCommands()).isEmpty();
+        Credential updated = fixture.credentials.findById(credentialId).orElseThrow();
+        assertThat(updated.status()).isEqualTo(CredentialStatus.FAILED);
+        assertThat(updated.failureCode()).isEqualTo(SigningKeyFinalizeCheck.COMPROMISED_AT_FINALIZE);
+        assertThat(fixture.transactions.transaction.status()).isEqualTo(BlockchainTransactionStatus.FAILED);
+        assertThat(fixture.transactions.transaction.errorCode())
+            .isEqualTo(SigningKeyFinalizeCheck.COMPROMISED_AT_FINALIZE);
+        assertThat(fixture.transactions.inserted).singleElement().satisfies(revoke -> {
+            assertThat(revoke.transactionType()).isEqualTo(BlockchainTransactionType.VC_REVOKE);
+            assertThat(revoke.status()).isEqualTo(BlockchainTransactionStatus.PENDING);
+            assertThat(revoke.idempotencyKey())
+                .isEqualTo(CompensatingRevoke.IDEMPOTENCY_PREFIX + credentialId);
+            assertThat(revoke.operationReason()).isEqualTo(SigningKeyFinalizeCheck.COMPROMISED_AT_FINALIZE);
+        });
+    }
+
+    @Test
+    void finalizeCheckFailureBeforeSubmissionFailsTheRecordsInsteadOfEscapingTheBatch() {
+        Fixture fixture = new Fixture(new RecordingRegistry());
+        StoredEnvelopeSigner signer = new StoredEnvelopeSigner(fixture.credentials);
+        ScriptedFinalizeCheck check = new ScriptedFinalizeCheck();
+        check.failure = new IllegalStateException("finalize check unavailable");
+
+        fixture.worker(signer, check).processBatch(10, NOW);
+
+        assertThat(fixture.credentials.credential.status()).isEqualTo(CredentialStatus.FAILED);
+        assertThat(fixture.credentials.credential.failureCode())
+            .isEqualTo("CREDENTIAL_PROOF_GENERATION_FAILED");
+        assertThat(fixture.transactions.transaction.status()).isEqualTo(BlockchainTransactionStatus.FAILED);
+        assertThat(fixture.transactions.transaction.errorCode())
+            .isEqualTo("CREDENTIAL_PROOF_GENERATION_FAILED");
+    }
+
+    @Test
+    void finalizeCheckFailureAfterAPossibleSubmissionRetriesInsteadOfFailingTheRecords() {
+        CredentialHashService hashService = new CredentialHashService(new ObjectMapper());
+        SignedCredentialEnvelope envelope =
+            new SignedCredentialEnvelope("application/vc+jwt", "header.payload.signature");
+        String payload = hashService.serialize(envelope);
+        String vcHash = hashService.sha256(envelope);
+        Credential issuing = new Credential(UUID.randomUUID(), UUID.randomUUID(), null, "CERT-001", 1,
+            "urn:dabaeum:institution:issuer", "urn:dabaeum:user:subject",
+            "LIFELONG_EDUCATION_COMPLETION", CredentialStatus.ISSUING, NOW, null,
+            payload, vcHash, NOW, null, null, null, null, NOW, NOW);
+        Fixture fixture = new Fixture(issuing, pendingTransaction(issuing.id()), new RecordingRegistry());
+        StoredEnvelopeSigner signer = new StoredEnvelopeSigner(fixture.credentials);
+        ScriptedFinalizeCheck check = new ScriptedFinalizeCheck();
+        check.failure = new IllegalStateException("finalize check unavailable");
+        UUID credentialId = issuing.id();
+
+        fixture.worker(signer, check).processBatch(10, NOW);
+
+        assertThat(signer.calls).isZero();
+        assertThat(fixture.registry.createCommands()).isEmpty();
+        assertThat(fixture.credentials.findById(credentialId).orElseThrow().status())
+            .isEqualTo(CredentialStatus.ISSUING);
+        assertThat(fixture.transactions.transaction.status()).isEqualTo(BlockchainTransactionStatus.PENDING);
+        assertThat(fixture.transactions.transaction.retryCount()).isEqualTo(1);
+        assertThat(fixture.transactions.inserted).isEmpty();
+    }
+
+    @Test
+    void keyCompromisedAtFinalizeFailsTheCredentialConfirmsTheAnchorAndQueuesOneCompensation() {
+        Fixture fixture = new Fixture(new RecordingRegistry());
+        StoredEnvelopeSigner signer = new StoredEnvelopeSigner(fixture.credentials);
+        UUID credentialId = fixture.credentials.credential.id();
+
+        fixture.worker(signer, new ScriptedFinalizeCheck(
+            SigningKeyFinalizeCheck.Outcome.ALLOW, SigningKeyFinalizeCheck.Outcome.COMPROMISED))
+            .processBatch(10, NOW);
+
+        assertThat(fixture.registry.createCommands()).hasSize(1);
+        assertThat(fixture.credentials.credential.status()).isEqualTo(CredentialStatus.FAILED);
+        assertThat(fixture.credentials.credential.failureCode())
+            .isEqualTo(SigningKeyFinalizeCheck.COMPROMISED_AT_FINALIZE);
+        assertThat(fixture.transactions.transaction.status()).isEqualTo(BlockchainTransactionStatus.CONFIRMED);
+        assertThat(fixture.transactions.inserted).singleElement().satisfies(revoke -> {
+            assertThat(revoke.transactionType()).isEqualTo(BlockchainTransactionType.VC_REVOKE);
+            assertThat(revoke.status()).isEqualTo(BlockchainTransactionStatus.PENDING);
+            assertThat(revoke.idempotencyKey()).isEqualTo("compensate-revoke-" + credentialId);
+            assertThat(revoke.operationReason()).isEqualTo(SigningKeyFinalizeCheck.COMPROMISED_AT_FINALIZE);
+        });
+    }
+
+    @Test
+    void reissueRejectedAtFinalizeFailsOnlyTheReplacement() {
+        Credential previous = issuedCredential();
+        Credential replacement = new Credential(UUID.randomUUID(), previous.credentialGroupId(), previous.id(),
+            "CERT-002", 2, null, null, "LIFELONG_EDUCATION_COMPLETION", CredentialStatus.PENDING,
+            null, null, null, null, null, null, null, null, null, NOW, NOW);
+        Fixture fixture = new Fixture(previous, replacement,
+            pendingTransaction(replacement.id(), BlockchainTransactionType.VC_REISSUE, "reissue requested"),
+            new LifecycleRegistry());
+        StoredEnvelopeSigner signer = new StoredEnvelopeSigner(fixture.credentials);
+
+        fixture.worker(signer, new ScriptedFinalizeCheck(
+            SigningKeyFinalizeCheck.Outcome.ALLOW, SigningKeyFinalizeCheck.Outcome.COMPROMISED))
+            .processBatch(10, NOW);
+
+        assertThat(fixture.credentials.findById(previous.id()).orElseThrow().status())
+            .isEqualTo(CredentialStatus.ISSUED);
+        assertThat(fixture.credentials.findById(replacement.id()).orElseThrow().status())
+            .isEqualTo(CredentialStatus.FAILED);
+        assertThat(fixture.transactions.inserted).singleElement()
+            .satisfies(revoke -> assertThat(revoke.referenceId()).isEqualTo(replacement.id()));
+    }
+
+    @Test
+    void compensatingRevokeTurnsTheLedgerToRevokedWithTheLedgerHashAndKeepsTheCredentialFailed() {
+        Credential failed = failedCredential(SigningKeyFinalizeCheck.COMPROMISED_AT_FINALIZE);
+        LifecycleRegistry registry = new LifecycleRegistry();
+        Fixture fixture = new Fixture(failed, pendingTransaction(failed.id(), BlockchainTransactionType.VC_REVOKE,
+            SigningKeyFinalizeCheck.COMPROMISED_AT_FINALIZE), registry);
+
+        fixture.worker(new StoredEnvelopeSigner(fixture.credentials), new ScriptedFinalizeCheck())
+            .processBatch(10, NOW);
+
+        assertThat(registry.updateCommands()).singleElement().satisfies(command -> {
+            assertThat(command.status()).isEqualTo(RegistryStatus.REVOKED);
+            assertThat(command.vcHash()).isEqualTo("a".repeat(64));
+        });
+        assertThat(fixture.credentials.findById(failed.id()).orElseThrow().status())
+            .isEqualTo(CredentialStatus.FAILED);
+        assertThat(fixture.transactions.transaction.status()).isEqualTo(BlockchainTransactionStatus.CONFIRMED);
+    }
+
+    @Test
+    void compensatingRevokeDoesNotResubmitWhenTheLedgerIsAlreadyRevoked() {
+        Credential failed = failedCredential(SigningKeyFinalizeCheck.COMPROMISED_AT_FINALIZE);
+        LedgerCommittedLegacyRegistry registry = new LedgerCommittedLegacyRegistry(failed, null, true);
+        Fixture fixture = new Fixture(failed, pendingTransaction(failed.id(), BlockchainTransactionType.VC_REVOKE,
+            SigningKeyFinalizeCheck.COMPROMISED_AT_FINALIZE), registry);
+
+        fixture.worker(new StoredEnvelopeSigner(fixture.credentials), new ScriptedFinalizeCheck())
+            .processBatch(10, NOW);
+
+        assertThat(registry.updateCalls).isZero();
+        assertThat(fixture.transactions.transaction.status()).isEqualTo(BlockchainTransactionStatus.CONFIRMED);
+    }
+
+    @Test
+    void compensatingRevokeRetriesInsteadOfFailingWhenTheUpdateReceiptIsUnconfirmed() {
+        Credential failed = failedCredential(SigningKeyFinalizeCheck.COMPROMISED_AT_FINALIZE);
+        UnconfirmedRevokeRegistry registry = new UnconfirmedRevokeRegistry();
+        Fixture fixture = new Fixture(failed, pendingTransaction(failed.id(), BlockchainTransactionType.VC_REVOKE,
+            SigningKeyFinalizeCheck.COMPROMISED_AT_FINALIZE), registry);
+
+        fixture.worker(new StoredEnvelopeSigner(fixture.credentials), new ScriptedFinalizeCheck())
+            .processBatch(10, NOW);
+
+        assertThat(fixture.transactions.transaction.status()).isEqualTo(BlockchainTransactionStatus.PENDING);
+        assertThat(fixture.transactions.transaction.retryCount()).isEqualTo(1);
+        assertThat(fixture.transactions.transaction.errorCode()).isEqualTo("BLOCKCHAIN_COMMIT_INVALID");
+        Credential current = fixture.credentials.findById(failed.id()).orElseThrow();
+        assertThat(current.status()).isEqualTo(CredentialStatus.FAILED);
+        assertThat(current.failureCode()).isEqualTo(SigningKeyFinalizeCheck.COMPROMISED_AT_FINALIZE);
+        assertThat(fixture.transactions.inserted).isEmpty();
+    }
+
+    private static Credential failedCredential(String code) {
+        return new Credential(UUID.randomUUID(), UUID.randomUUID(), null, "CERT-001", 1, null, null,
+            "LIFELONG_EDUCATION_COMPLETION", CredentialStatus.FAILED, null, null, null, null, null, null,
+            null, null, null, code, "failed", NOW, NOW);
+    }
+
+    /** 서명기가 봉투를 저장한 ISSUING 행을 흉내 낸다. 해시는 워커가 넘긴 함수로 만든다. */
+    private static final class StoredEnvelopeSigner implements CredentialIssuanceSigner {
+        private final InMemoryCredentialRepository credentials;
+        private CredentialSigningException failure;
+        private int calls;
+
+        private StoredEnvelopeSigner(InMemoryCredentialRepository credentials) {
+            this.credentials = credentials;
+        }
+
+        @Override
+        public Signed sign(UUID credentialId, Supplier<CredentialFabricIssuanceContext> context,
+                           Function<SignedCredentialEnvelope, String> vcHash, Instant now) {
+            calls++;
+            if (failure != null) {
+                throw failure;
+            }
+            Credential issuing = credentials.findById(credentialId).orElseThrow();
+            SignedCredentialEnvelope envelope =
+                new SignedCredentialEnvelope("application/vc+jwt", "transit.payload.signature");
+            Credential stored = new Credential(issuing.id(), issuing.credentialGroupId(),
+                issuing.previousCredentialId(), issuing.credentialNo(), issuing.versionNo(),
+                "urn:dabaeum:institution:transit", "urn:dabaeum:user:transit", issuing.credentialType(),
+                CredentialStatus.ISSUING, now, issuing.validUntil(),
+                new CredentialHashService(new ObjectMapper()).serialize(envelope), vcHash.apply(envelope),
+                issuing.chainKey(), issuing.vcHashVersion(), now, null, null, null, null,
+                issuing.createdAt(), now);
+            credentials.update(stored);
+            return new Signed(stored, envelope);
+        }
+    }
+
+    private static final class ScriptedFinalizeCheck implements SigningKeyFinalizeCheck {
+        private final Deque<Outcome> outcomes;
+        private RuntimeException failure;
+
+        private ScriptedFinalizeCheck(Outcome... outcomes) {
+            this.outcomes = new ArrayDeque<>(List.of(outcomes));
+        }
+
+        @Override
+        public Outcome check(UUID credentialId) {
+            if (failure != null) {
+                throw failure;
+            }
+            return outcomes.isEmpty() ? Outcome.ALLOW : outcomes.poll();
+        }
+    }
+
     private static final class Fixture {
         private final InMemoryCredentialRepository credentials = new InMemoryCredentialRepository();
         private final InMemoryTransactionRepository transactions = new InMemoryTransactionRepository();
@@ -359,6 +704,15 @@ class CredentialFabricWorkerTest {
                     "urn:dabaeum:institution:" + UUID.randomUUID(),
                     "urn:dabaeum:user:" + UUID.randomUUID(), issuedAt),
                 proof, new CredentialHashService(new ObjectMapper()), workerRegistry, transactionManager);
+        }
+        private CredentialFabricWorker worker(CredentialIssuanceSigner signer, SigningKeyFinalizeCheck check) {
+            return new DefaultCredentialFabricWorker(transactions, credentials,
+                (credentialId, issuedAt) -> new CredentialFabricIssuanceContext(
+                    new CredentialDocument("{\"id\":\"urn:uuid:" + credentialId + "\"}"),
+                    "urn:dabaeum:institution:" + UUID.randomUUID(),
+                    "urn:dabaeum:user:" + UUID.randomUUID(), issuedAt),
+                proof, new CredentialHashService(new ObjectMapper()), workerRegistry,
+                new RecordingTransactionManager(), RegistryTarget.FABRIC_POC, signer, check);
         }
     }
 
@@ -462,6 +816,8 @@ class CredentialFabricWorkerTest {
     private static final class LedgerCommittedLegacyRegistry extends RecordingRegistry {
         private static final String REPLACEMENT_HASH =
             "08f8f312a0e580f60047f484af39f32c76ea9b2da3c5796c7eae8b950c7039a3";
+        /** FAILED 수료증 행에는 해시가 없지만 원장에는 앵커 때의 해시가 남아 있다. */
+        private static final String LEDGER_HASH = "a".repeat(64);
         private final Credential previous;
         private final Credential replacement;
         private final boolean revokeOnly;
@@ -482,7 +838,8 @@ class CredentialFabricWorkerTest {
             boolean old = previous.credentialNo().equals(reference.legacyCredentialNo());
             return new CredentialRegistryState(
                 reference.chainKey(), 1, old ? RegistryStatus.REVOKED : RegistryStatus.ACTIVE,
-                old ? previous.vcHash() : REPLACEMENT_HASH, NOW, BlockchainProvider.FABRIC_POC);
+                old ? (previous.vcHash() == null ? LEDGER_HASH : previous.vcHash()) : REPLACEMENT_HASH,
+                NOW, BlockchainProvider.FABRIC_POC);
         }
 
         @Override public BlockchainReceipt updateCredentialState(CredentialRegistryUpdate command) {
@@ -577,6 +934,20 @@ class CredentialFabricWorkerTest {
                 BlockchainProvider.FABRIC_POC, "tx-invalid", null, null, null, false, "INVALID");
         }
     }
+    /** 보정 대상 원장은 ACTIVE 지만 R 갱신 응답이 확정되지 않은 상황을 재현한다. */
+    private static final class UnconfirmedRevokeRegistry extends RecordingRegistry {
+        @Override public CredentialRegistryState getCredentialState(
+            CredentialRegistryReference reference
+        ) {
+            return new CredentialRegistryState(
+                reference.chainKey(), 1, RegistryStatus.ACTIVE, "a".repeat(64), NOW,
+                BlockchainProvider.FABRIC_POC);
+        }
+        @Override public BlockchainReceipt updateCredentialState(CredentialRegistryUpdate command) {
+            return new BlockchainReceipt(
+                BlockchainProvider.FABRIC_POC, "tx-invalid", null, null, null, false, "INVALID");
+        }
+    }
 
     private static BlockchainReceipt confirmed(String transactionId) {
         return new BlockchainReceipt(
@@ -600,6 +971,7 @@ class CredentialFabricWorkerTest {
     }
     private static final class InMemoryTransactionRepository implements BlockchainTransactionRepository {
         BlockchainTransaction transaction;
+        final List<BlockchainTransaction> inserted = new ArrayList<>();
         @Override public List<BlockchainTransaction> claimDue(
             List<String> networks, int limit, Instant now) {
             if (!networks.contains(transaction.network())
@@ -613,8 +985,11 @@ class CredentialFabricWorkerTest {
         @Override public List<BlockchainTransaction> claimStale(
             List<String> networks, int limit, Instant now, Instant staleBefore) { return List.of(); }
         @Override public Optional<BlockchainTransaction> findById(UUID id) { return Optional.of(transaction); }
-        @Override public Optional<BlockchainTransaction> findByIdempotencyKey(String n, String k) { return Optional.of(transaction); }
-        @Override public void insert(BlockchainTransaction value) { transaction = value; }
+        @Override public Optional<BlockchainTransaction> findByIdempotencyKey(String n, String k) {
+            return inserted.stream().filter(value -> value.network().equals(n)
+                && value.idempotencyKey().equals(k)).findFirst();
+        }
+        @Override public void insert(BlockchainTransaction value) { inserted.add(value); }
         @Override public void update(BlockchainTransaction value) { transaction = value; }
     }
 }

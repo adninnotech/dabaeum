@@ -1,0 +1,8 @@
+# 강좌 추천 모델 배치 — Python 3.11+ (모두 3.11 을 지원하는 버전으로 고정한다)
+numpy==2.3.5
+pandas==2.3.3
+scipy==1.16.3
+scikit-learn==1.7.2
+xgboost==3.1.2
+psycopg[binary]==3.2.13
+pytest==8.4.2

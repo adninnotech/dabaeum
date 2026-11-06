@@ -15,6 +15,8 @@ public interface EnrollmentMapper {
 
     EnrollmentRow selectByIdForUpdate(@Param("id") UUID id);
 
+    List<EnrollmentRow> selectByIds(@Param("ids") List<UUID> ids);
+
     /** UUID 는 MyBatis 기본 TypeHandler 가 없어 text 로 받는다. 변환은 리포지토리가 한다. */
     List<String> selectInstitutionIdsByUserId(@Param("userId") UUID userId);
 
@@ -23,11 +25,18 @@ public interface EnrollmentMapper {
         @Param("userId") UUID userId
     );
 
-    List<EnrollmentRow> selectPage(@Param("criteria") EnrollmentPageCriteria criteria);
+    List<EnrollmentRow> selectActiveByCourseId(@Param("courseId") UUID courseId);
+
+    List<EnrollmentListItemRow> selectListWithProfile(
+        @Param("criteria") EnrollmentPageCriteria criteria);
 
     long countByCourseId(@Param("courseId") UUID courseId);
 
     long countApprovedByCourseId(@Param("courseId") UUID courseId);
+
+    boolean existsAttendance(@Param("enrollmentId") UUID enrollmentId);
+
+    boolean existsCompletionDecision(@Param("enrollmentId") UUID enrollmentId);
 
     int updateState(
         @Param("row") EnrollmentRow row,

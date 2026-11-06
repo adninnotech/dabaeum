@@ -25,8 +25,75 @@
             <arg column="created_at" javaType="java.time.Instant"/>
             <arg column="updated_at" javaType="java.time.Instant"/>
             <arg column="deleted_at" javaType="java.time.Instant"/>
+            <arg column="homepage_url" javaType="java.lang.String"/>
+            <arg column="region" javaType="java.lang.String"/>
+            <arg
+                column="logo_file_id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="introduction" javaType="java.lang.String"/>
         </constructor>
     </resultMap>
+
+    <!--
+        목록(selectActivePage) 전용 행. UserListRow 와 같은 방식 — InstitutionRow 와 컬럼이
+        같고 집계 4종(instructor_count·course_count·learner_count·admin_count)만 더 얹는다.
+        상세·단건 조회(selectById 등)는 이 서브쿼리를 계산하지 않는다.
+    -->
+    <resultMap
+        id="institutionListRowResultMap"
+        type="com.adn.dabaeum.institution.infrastructure.mybatis.InstitutionListRow">
+
+        <constructor>
+            <idArg
+                column="id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="institution_code" javaType="java.lang.String"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="business_number" javaType="java.lang.String"/>
+            <arg column="representative_name" javaType="java.lang.String"/>
+            <arg column="address" javaType="java.lang.String"/>
+            <arg column="contact_phone" javaType="java.lang.String"/>
+            <arg column="contact_email" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+            <arg column="deleted_at" javaType="java.time.Instant"/>
+            <arg column="homepage_url" javaType="java.lang.String"/>
+            <arg column="region" javaType="java.lang.String"/>
+            <arg
+                column="logo_file_id"
+                javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="instructor_count" javaType="java.lang.Long"/>
+            <arg column="course_count" javaType="java.lang.Long"/>
+            <arg column="learner_count" javaType="java.lang.Long"/>
+            <arg column="admin_count" javaType="java.lang.Long"/>
+            <arg column="primary_admin_name" javaType="java.lang.String"/>
+            <arg column="introduction" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <!-- selectById·selectByIds·selectActiveByCode·selectActiveById·selectActivePage 가 공유. -->
+    <sql id="columns">
+        id,
+        institution_code,
+        name,
+        business_number,
+        representative_name,
+        address,
+        contact_phone,
+        contact_email,
+        status,
+        created_at,
+        updated_at,
+        deleted_at,
+        homepage_url,
+        region,
+        logo_file_id,
+        introduction
+    </sql>
 
     <insert id="insert">
         INSERT INTO tb_institutions (
@@ -41,7 +108,11 @@
             status,
             created_at,
             updated_at,
-            deleted_at
+            deleted_at,
+            homepage_url,
+            region,
+            logo_file_id,
+            introduction
         ) VALUES (
             #{id},
             #{institutionCode},
@@ -54,7 +125,11 @@
             #{status},
             #{createdAt},
             #{updatedAt},
-            #{deletedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE}
+            #{deletedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+            #{homepageUrl, jdbcType=VARCHAR},
+            #{region, jdbcType=VARCHAR},
+            #{logoFileId, jdbcType=OTHER},
+            #{introduction, jdbcType=VARCHAR}
         )
     </insert>
 
@@ -62,39 +137,32 @@
         id="selectById"
         flushCache="true"
         resultMap="institutionRowResultMap">
-        SELECT
-            id,
-            institution_code,
-            name,
-            business_number,
-            representative_name,
-            address,
-            contact_phone,
-            contact_email,
-            status,
-            created_at,
-            updated_at,
-            deleted_at
+        SELECT <include refid="columns"/>
         FROM tb_institutions
         WHERE id = #{id}
     </select>
 
     <select
+        id="selectByIds"
+        resultMap="institutionRowResultMap">
+        SELECT <include refid="columns"/>
+        FROM tb_institutions
+        WHERE id IN
+        <!--
+            foreach 항목은 @Param Map 이 아니라 실제 값의 타입(java.util.UUID)으로 해석되고,
+            MyBatis 기본 registry 에는 UUID 핸들러가 없다. jdbcType 만으로는 부족하고
+            typeHandler 를 명시해야 한다. CredentialQueryMapper 의 selectByIds 와 같은 처리다.
+        -->
+        <foreach item="id" collection="ids" open="(" separator="," close=")">
+            #{id, javaType=java.util.UUID,
+              typeHandler=org.apache.ibatis.type.ObjectTypeHandler}
+        </foreach>
+    </select>
+
+    <select
         id="selectActiveByCode"
         resultMap="institutionRowResultMap">
-        SELECT
-            id,
-            institution_code,
-            name,
-            business_number,
-            representative_name,
-            address,
-            contact_phone,
-            contact_email,
-            status,
-            created_at,
-            updated_at,
-            deleted_at
+        SELECT <include refid="columns"/>
         FROM tb_institutions
         WHERE institution_code = #{institutionCode}
           AND deleted_at IS NULL
@@ -103,42 +171,65 @@
     <select
         id="selectActiveById"
         resultMap="institutionRowResultMap">
-        SELECT
-            id,
-            institution_code,
-            name,
-            business_number,
-            representative_name,
-            address,
-            contact_phone,
-            contact_email,
-            status,
-            created_at,
-            updated_at,
-            deleted_at
+        SELECT <include refid="columns"/>
         FROM tb_institutions
         WHERE id = #{id}
           AND deleted_at IS NULL
     </select>
 
+    <!--
+        instructorCount·courseCount·learnerCount: 관리자 기관 목록 화면의 집계 3종.
+        instructorCount 는 CourseQueryMapper.countInstitutionInstructors 의 기본 조건
+        (tb_user_roles.role = 'INSTRUCTOR', institution_id 일치)을 그대로 따르되
+        status·keyword 필터는 뺐다 — 그건 강사 목록 화면의 검색 조건이지 집계의 정의가
+        아니다. courseCount 도 CourseQueryMapper.countInstitutionCourses 와 같은 이유로
+        status 필터 없이 삭제 제외만 맞춘다. learnerCount 는 같은 학습자가 이 기관의
+        여러 과정을 들어도 1 로 세야 하므로 COUNT(DISTINCT user_id) 를 쓴다.
+        adminCount 는 상세의 administrators(UserRoleMapper.selectInstitutionAdministrators)
+        와 같은 조건이다 — 목록에서 administrators[] 를 행마다 채우면 N+1 이라 건수만 싣는다.
+        primaryAdminName 은 그 목록의 첫 번째(같은 ORDER BY)라 상세 administrators[0] 과 같다.
+        화면의 "김다혜 외 3명" 을 프론트가 이 이름과 adminCount - 1 로 만든다.
+    -->
     <select
         id="selectActivePage"
-        resultMap="institutionRowResultMap">
-        SELECT
-            id,
-            institution_code,
-            name,
-            business_number,
-            representative_name,
-            address,
-            contact_phone,
-            contact_email,
-            status,
-            created_at,
-            updated_at,
-            deleted_at
+        resultMap="institutionListRowResultMap">
+        SELECT <include refid="columns"/>,
+               (SELECT COUNT(*) FROM tb_user_roles r
+                 WHERE r.institution_id = tb_institutions.id
+                   AND r.role = 'INSTRUCTOR') AS instructor_count,
+               (SELECT COUNT(*) FROM tb_courses c
+                 WHERE c.institution_id = tb_institutions.id
+                   AND c.deleted_at IS NULL) AS course_count,
+               (SELECT COUNT(DISTINCT en.user_id) FROM tb_enrollments en
+                  JOIN tb_courses c ON c.id = en.course_id
+                 WHERE c.institution_id = tb_institutions.id
+                   AND en.status = 'APPROVED') AS learner_count,
+               (SELECT COUNT(*) FROM tb_user_roles r
+                  JOIN tb_users u ON u.id = r.user_id
+                 WHERE r.institution_id = tb_institutions.id
+                   AND r.role = 'INSTITUTION_ADMIN') AS admin_count,
+               (SELECT u.name FROM tb_user_roles r
+                  JOIN tb_users u ON u.id = r.user_id
+                 WHERE r.institution_id = tb_institutions.id
+                   AND r.role = 'INSTITUTION_ADMIN'
+                 ORDER BY r.created_at ASC, r.id ASC
+                 LIMIT 1) AS primary_admin_name
         FROM tb_institutions
         WHERE deleted_at IS NULL
+        <if test="criteria.keyword != null">
+            AND (
+                LOWER(name) LIKE '%' || #{criteria.keyword} || '%' ESCAPE '\'
+                OR LOWER(representative_name) LIKE '%' || #{criteria.keyword} || '%' ESCAPE '\'
+                OR REPLACE(contact_phone, '-', '')
+                    LIKE '%' || REPLACE(#{criteria.keyword}, '-', '') || '%' ESCAPE '\'
+            )
+        </if>
+        <if test="criteria.status != null">
+            AND status = #{criteria.status}
+        </if>
+        <if test="criteria.region != null">
+            AND region = #{criteria.region}
+        </if>
         ORDER BY
         <choose>
             <when test="criteria.sort.name() == 'UPDATED_AT'">updated_at</when>
@@ -154,10 +245,25 @@
         LIMIT #{criteria.limit} OFFSET #{criteria.offset}
     </select>
 
-    <select id="countActive" resultType="long">
+    <!-- q 검색·status 필터가 있는 목록의 총 개수. selectActivePage 와 조건이 반드시 같아야 한다. -->
+    <select id="countActiveFiltered" resultType="long">
         SELECT COUNT(*)
         FROM tb_institutions
         WHERE deleted_at IS NULL
+        <if test="keyword != null">
+            AND (
+                LOWER(name) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+                OR LOWER(representative_name) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+                OR REPLACE(contact_phone, '-', '')
+                    LIKE '%' || REPLACE(#{keyword}, '-', '') || '%' ESCAPE '\'
+            )
+        </if>
+        <if test="status != null">
+            AND status = #{status}
+        </if>
+        <if test="region != null">
+            AND region = #{region}
+        </if>
     </select>
 
     <update id="updateActive">
@@ -170,7 +276,11 @@
                contact_phone = #{contactPhone},
                contact_email = #{contactEmail},
                status = #{status},
-               updated_at = #{updatedAt}
+               updated_at = #{updatedAt},
+               homepage_url = #{homepageUrl, jdbcType=VARCHAR},
+               region = #{region, jdbcType=VARCHAR},
+               logo_file_id = #{logoFileId, jdbcType=OTHER},
+               introduction = #{introduction, jdbcType=VARCHAR}
          WHERE id = #{id}
            AND deleted_at IS NULL
     </update>

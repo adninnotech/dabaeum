@@ -13,9 +13,11 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.sshd.client.SshClient;
+import org.apache.sshd.client.config.hosts.HostConfigEntry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -81,6 +83,42 @@ class ApacheMinaSshPortForwardingClientTest {
             } finally {
                 client.close();
             }
+        }
+    }
+
+    @Test
+    void ignoresUserSshConfigIdentitiesAndAuthenticatesWithPasswordOnly() throws Exception {
+        server = EmbeddedSshServerSupport.start(tempDirectory);
+        Path knownHosts = server.writeKnownHosts(tempDirectory.resolve("known_hosts"));
+        // ~/.ssh/config 에 이 호스트용 IdentityFile 이 있고, 그 키를 클라이언트가 읽지 못하는 상황
+        // (예: macOS 의 ed25519 키 — sshd-core 는 추가 라이브러리 없이 ed25519 를 읽지 못한다)
+        Path unreadableKey = tempDirectory.resolve("unreadable_key");
+        Files.writeString(unreadableKey, """
+            -----BEGIN OPENSSH PRIVATE KEY-----
+            bm90LWEta2V5
+            -----END OPENSSH PRIVATE KEY-----
+            """);
+        ApacheMinaSshPortForwardingClient client = new ApacheMinaSshPortForwardingClient(() -> {
+            SshClient sshClient = SshClient.setUpDefaultClient();
+            sshClient.setHostConfigEntryResolver(
+                (host, port, localAddress, username, proxyJump, context) -> {
+                    HostConfigEntry entry = new HostConfigEntry(host, host, port, username);
+                    entry.addIdentity(unreadableKey.toString());
+                    return entry;
+                });
+            return sshClient;
+        });
+        try {
+            client.open(server.properties(
+                knownHosts,
+                EmbeddedSshServerSupport.PASSWORD,
+                EmbeddedSshServerSupport.availableLoopbackPort(),
+                EmbeddedSshServerSupport.availableLoopbackPort()
+            ));
+
+            assertThat(client.isOpen()).isTrue();
+        } finally {
+            client.close();
         }
     }
 

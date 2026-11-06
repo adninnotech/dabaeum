@@ -23,6 +23,14 @@
             <arg column="withdrawn_count" javaType="java.lang.Long"/>
             <arg column="instructor_application_pending" javaType="java.lang.Long"/>
             <arg column="institution_application_pending" javaType="java.lang.Long"/>
+            <arg column="instructor_active_count" javaType="java.lang.Long"/>
+            <arg column="instructor_inactive_count" javaType="java.lang.Long"/>
+            <arg column="instructor_withdrawn_count" javaType="java.lang.Long"/>
+            <arg column="recent_signup_count" javaType="java.lang.Long"/>
+            <arg column="institution_active_count" javaType="java.lang.Long"/>
+            <arg column="institution_inactive_count" javaType="java.lang.Long"/>
+            <arg column="completion_count" javaType="java.lang.Long"/>
+            <arg column="badge_count" javaType="java.lang.Long"/>
         </constructor>
     </resultMap>
 
@@ -52,6 +60,20 @@
             <arg column="instructor_withdrawn" javaType="java.lang.Long"/>
             <arg column="course_count" javaType="java.lang.Long"/>
             <arg column="enrollment_count" javaType="java.lang.Long"/>
+            <arg column="course_recruiting" javaType="java.lang.Long"/>
+            <arg column="course_in_progress" javaType="java.lang.Long"/>
+            <arg column="course_completed" javaType="java.lang.Long"/>
+            <arg column="approved_enrollment_count" javaType="java.lang.Long"/>
+            <arg column="completion_count" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap
+        id="categoryCountRowResultMap"
+        type="com.adn.dabaeum.dashboard.infrastructure.mybatis.CategoryCountRow">
+        <constructor>
+            <arg column="category" javaType="java.lang.String"/>
+            <arg column="course_count" javaType="java.lang.Long"/>
         </constructor>
     </resultMap>
 
@@ -83,7 +105,34 @@
             (SELECT COUNT(*) FROM tb_instructor_applications
               WHERE status = 'PENDING') AS instructor_application_pending,
             (SELECT COUNT(*) FROM tb_institution_applications
-              WHERE status = 'PENDING') AS institution_application_pending
+              WHERE status = 'PENDING') AS institution_application_pending,
+            (SELECT COUNT(DISTINCT r.user_id) FROM tb_user_roles r
+              JOIN tb_users u ON u.id = r.user_id
+             WHERE r.role = 'INSTRUCTOR'
+               AND u.status = 'ACTIVE') AS instructor_active_count,
+            (SELECT COUNT(DISTINCT r.user_id) FROM tb_user_roles r
+              JOIN tb_users u ON u.id = r.user_id
+             WHERE r.role = 'INSTRUCTOR'
+               AND u.status IN ('DORMANT', 'SUSPENDED')) AS instructor_inactive_count,
+            (SELECT COUNT(DISTINCT r.user_id) FROM tb_user_roles r
+              JOIN tb_users u ON u.id = r.user_id
+             WHERE r.role = 'INSTRUCTOR'
+               AND u.status = 'WITHDRAWN') AS instructor_withdrawn_count,
+            <!-- 바인딩만 두면 Postgres 가 ? 를 interval 로 추론해 타입 오류가 난다. 캐스트가 필요하다. -->
+            (SELECT COUNT(*) FROM tb_users
+              WHERE created_at
+                    >= CAST(#{now} AS timestamptz) - INTERVAL '30 days') AS recent_signup_count,
+            (SELECT COUNT(*) FROM tb_institutions
+              WHERE deleted_at IS NULL
+                AND status = 'ACTIVE') AS institution_active_count,
+            (SELECT COUNT(*) FROM tb_institutions
+              WHERE deleted_at IS NULL
+                AND status != 'ACTIVE') AS institution_inactive_count,
+            <!-- 수료·배지는 지금 상태로 센다. 확정 취소·폐기되면 빠진다(enrollment_count 처럼 누적). -->
+            (SELECT COUNT(*) FROM tb_completions
+              WHERE status = 'COMPLETED') AS completion_count,
+            (SELECT COUNT(*) FROM tb_learning_badges
+              WHERE status = 'ISSUED') AS badge_count
     </select>
 
     <select id="selectRecentMembers" resultMap="recentMemberRowResultMap">
@@ -125,7 +174,43 @@
                 AND c.deleted_at IS NULL) AS course_count,
             (SELECT COUNT(*) FROM tb_enrollments e
               JOIN tb_courses c ON c.id = e.course_id
-             WHERE c.institution_id = #{institutionId}) AS enrollment_count
+             WHERE c.institution_id = #{institutionId}) AS enrollment_count,
+            (SELECT COUNT(*) FROM tb_courses c
+              WHERE c.institution_id = #{institutionId}
+                AND c.deleted_at IS NULL
+                AND c.status = 'RECRUITING') AS course_recruiting,
+            (SELECT COUNT(*) FROM tb_courses c
+              WHERE c.institution_id = #{institutionId}
+                AND c.deleted_at IS NULL
+                AND c.status = 'IN_PROGRESS') AS course_in_progress,
+            (SELECT COUNT(*) FROM tb_courses c
+              WHERE c.institution_id = #{institutionId}
+                AND c.deleted_at IS NULL
+                AND c.status = 'COMPLETED') AS course_completed,
+            <!-- 승인 이력이 아니라 지금 APPROVED 인 수강만 센다. 철회·취소되면 빠진다. -->
+            (SELECT COUNT(*) FROM tb_enrollments e
+              JOIN tb_courses c ON c.id = e.course_id
+             WHERE c.institution_id = #{institutionId}
+               AND e.status = 'APPROVED') AS approved_enrollment_count,
+            (SELECT COUNT(*) FROM tb_completions cp
+              JOIN tb_enrollments e ON e.id = cp.enrollment_id
+              JOIN tb_courses c ON c.id = e.course_id
+             WHERE c.institution_id = #{institutionId}
+               AND cp.status = 'COMPLETED') AS completion_count
+    </select>
+
+    <!-- 카테고리별 강좌 수. 미분류(category NULL)는 '미분류' 로 묶는다. -->
+    <select id="selectInstitutionCategoryCounts" resultMap="categoryCountRowResultMap">
+        <!-- 표준 분류 1단계 이름으로 묶는다. 코드 앞 네 자리(TSIX_AA)가 1단계다. 분류 없는 강좌는 미분류. -->
+        SELECT COALESCE(r.name, '미분류') AS category,
+               COUNT(*) AS course_count
+          FROM tb_courses c
+          LEFT JOIN tb_course_classifications r
+            ON r.code = SUBSTRING(c.classification_code FROM 1 FOR 7) || '0000'
+         WHERE c.institution_id = #{institutionId}
+           AND c.deleted_at IS NULL
+         GROUP BY COALESCE(r.name, '미분류')
+         ORDER BY COUNT(*) DESC, COALESCE(r.name, '미분류') ASC
     </select>
 
 </mapper>

@@ -1,3 +1,11 @@
+server:
+  # 호스트 nginx 뒤에서 돈다. nginx 가 넘기는 X-Forwarded-For 로 실제 클라이언트 주소를 읽는다(관리자 접속기록의 접속지).
+  # Tomcat 은 내부망 주소(127.0.0.1 등)에서 온 헤더만 믿는다.
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      internal-proxies: '127\.0\.0\.1|::1'
+
 spring:
   datasource:
     url: ${DABAEUM_DB_URL:jdbc:postgresql://127.0.0.1:15432/dabaeum_dev}
@@ -17,14 +25,27 @@ spring:
 
 dabaeum:
   http-logging:
-    # 개발에서는 요청·응답 본문을 마스킹 없이 그대로 남긴다. 운영 프로필에는 이 필터 자체가 없다.
-    mask-sensitive: false
+    # 인터넷에 노출된 dev 서버는 본문과 쿼리값을 기록하지 않는다.
+    body-enabled: false
+    mask-sensitive: true
   fabric:
     worker:
       enabled: true
+  kms:
+    recovery:
+      enabled: true
+  # 비밀은 서버 env 파일(dev-secrets.env.example 참고)에서만 받는다. 기본값이 없어 빠지면 기동이 실패한다.
   security:
-    dev:
-      bearer-token: ${DABAEUM_DEV_BEARER_TOKEN}
+    local-account:
+      jwt:
+        key-id: ${DABAEUM_JWT_KEY_ID}
+        signing-key: ${DABAEUM_JWT_SIGNING_KEY}
+    dadaegu:
+      site-id: ${DABAEUM_DADAEGU_SITE_ID}
+      private-key: ${DABAEUM_DADAEGU_PRIVATE_KEY}
+  nft:
+    # ledger=daeguchain 일 때만 쓴다. 키 파일 ~/dabaeum/daeguchain-wallet.env 에서 읽는다.
+    wallet-private-key: ${DABAEUM_NFT_OWNER_PRIVATE_KEY:}
 
 springdoc:
   api-docs:

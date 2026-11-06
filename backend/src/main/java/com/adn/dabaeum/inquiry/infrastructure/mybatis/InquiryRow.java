@@ -14,6 +14,7 @@ public record InquiryRow(
     UUID answeredBy,
     Instant answeredAt,
     Instant createdAt,
-    Instant updatedAt
+    Instant updatedAt,
+    String type
 ) {
 }

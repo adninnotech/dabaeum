@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.popularity.infrastructure.mybatis.PopularityMapper">
+
+    <resultMap id="scoreResultMap" type="com.adn.dabaeum.popularity.domain.PopularCourseScore">
+        <constructor>
+            <idArg column="course_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="enrollment_count" javaType="_int"/>
+            <arg column="view_count" javaType="_int"/>
+            <arg column="score" javaType="java.math.BigDecimal"/>
+        </constructor>
+    </resultMap>
+
+    <!-- 만 나이 10세 단위: 10(10대 이하)…70(70대 이상). 생년월일이 없으면 NULL — 연령대 세그먼트에서 빠진다. -->
+    <sql id="ageBand">
+        CASE WHEN u.birth_date IS NULL THEN NULL
+             ELSE LEAST(GREATEST((EXTRACT(YEAR FROM age(${on}, u.birth_date))::int / 10) * 10, 10), 70)::text
+        END
+    </sql>
+
+    <delete id="deleteWindow">
+        DELETE FROM tb_course_popularity WHERE window_days = #{windowDays}
+    </delete>
+
+    <!--
+      설계서 §8.2. 대상 강좌: 삭제되지 않았고 DRAFT·CANCELLED 가 아닌 것. 신청: REJECTED·CANCELLED·WITHDRAWN 제외.
+      세그먼트는 ALL 과 AGE_BAND 두 가지다. 비로그인 조회는 ALL 에만 들어간다.
+    -->
+    <insert id="insertWindow">
+        WITH enr AS (
+            SELECT e.course_id,
+                   <include refid="ageBand"><property name="on" value="(e.applied_at AT TIME ZONE 'Asia/Seoul')::date"/></include> AS band
+              FROM tb_enrollments e
+              JOIN tb_courses c ON c.id = e.course_id
+              JOIN tb_users u ON u.id = e.user_id
+             WHERE e.applied_at &gt;= #{since}
+               AND e.status NOT IN ('REJECTED', 'CANCELLED', 'WITHDRAWN')
+               AND c.deleted_at IS NULL
+               AND c.status NOT IN ('DRAFT', 'CANCELLED')
+        ), vw AS (
+            SELECT v.course_id, v.user_id,
+                   <include refid="ageBand"><property name="on" value="v.view_date"/></include> AS band
+              FROM tb_course_views v
+              JOIN tb_courses c ON c.id = v.course_id
+              LEFT JOIN tb_users u ON u.id = v.user_id
+             WHERE v.view_date &gt;= #{sinceDate}
+               AND c.deleted_at IS NULL
+               AND c.status NOT IN ('DRAFT', 'CANCELLED')
+        ), events AS (
+            SELECT course_id, 'ALL' AS seg, '*' AS seg_key, 1 AS e, 0 AS v FROM enr
+            UNION ALL SELECT course_id, 'AGE_BAND', band, 1, 0 FROM enr WHERE band IS NOT NULL
+            UNION ALL SELECT course_id, 'ALL', '*', 0, 1 FROM vw
+            UNION ALL SELECT course_id, 'AGE_BAND', band, 0, 1 FROM vw WHERE band IS NOT NULL
+        )
+        INSERT INTO tb_course_popularity (
+            course_id, segment_type, segment_key, window_days, enrollment_count, view_count, score, computed_at
+        )
+        SELECT course_id, seg, seg_key, #{windowDays}, SUM(e), SUM(v),
+               SUM(e) * #{enrollmentWeight} + SUM(v) * #{viewWeight}, #{now}
+          FROM events
+         GROUP BY course_id, seg, seg_key
+    </insert>
+
+    <select id="selectTop" resultMap="scoreResultMap">
+        SELECT course_id, enrollment_count, view_count, score
+          FROM tb_course_popularity
+         WHERE segment_type = #{segmentType}
+           AND segment_key = #{segmentKey}
+           AND window_days = #{windowDays}
+         ORDER BY score DESC, enrollment_count DESC, course_id
+         LIMIT #{limit}
+    </select>
+
+</mapper>

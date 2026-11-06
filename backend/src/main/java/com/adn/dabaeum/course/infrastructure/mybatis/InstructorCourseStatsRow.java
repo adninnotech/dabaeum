@@ -4,6 +4,8 @@ public record InstructorCourseStatsRow(
     Long total,
     Long recruiting,
     Long inProgress,
-    Long completed
+    Long completed,
+    Long studentCount,
+    Long inquiryCount
 ) {
 }

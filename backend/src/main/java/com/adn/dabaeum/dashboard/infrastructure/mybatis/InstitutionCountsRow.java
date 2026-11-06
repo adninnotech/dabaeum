@@ -6,6 +6,11 @@ public record InstitutionCountsRow(
     Long instructorInactive,
     Long instructorWithdrawn,
     Long courseCount,
-    Long enrollmentCount
+    Long enrollmentCount,
+    Long courseRecruiting,
+    Long courseInProgress,
+    Long courseCompleted,
+    Long approvedEnrollmentCount,
+    Long completionCount
 ) {
 }

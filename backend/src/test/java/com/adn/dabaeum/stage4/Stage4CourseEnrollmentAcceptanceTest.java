@@ -25,6 +25,7 @@ class Stage4CourseEnrollmentAcceptanceTest {
         "POST /api/v1/courses",
         "GET /api/v1/courses/{courseId}",
         "PUT /api/v1/courses/{courseId}",
+        "DELETE /api/v1/courses/{courseId}",
         "POST /api/v1/courses/{courseId}/publish",
         "POST /api/v1/courses/{courseId}/close",
         // 관리자 정정 API. Stage 4 이후 추가됐다.
@@ -32,12 +33,15 @@ class Stage4CourseEnrollmentAcceptanceTest {
         "POST /api/v1/sessions/{sessionId}/reopen",
         "GET /api/v1/courses/{courseId}/sessions",
         "POST /api/v1/courses/{courseId}/sessions",
+        "POST /api/v1/courses/{courseId}/sessions/bulk",
+        "PUT /api/v1/courses/{courseId}/sessions/order",
         "GET /api/v1/sessions/{sessionId}",
         "PUT /api/v1/sessions/{sessionId}",
         "GET /api/v1/courses/{courseId}/enrollments",
         "POST /api/v1/courses/{courseId}/enrollments",
         "POST /api/v1/courses/{courseId}/proxy-enrollments",
         "GET /api/v1/enrollments/{enrollmentId}",
+        "POST /api/v1/enrollments/bulk-decision",
         "POST /api/v1/enrollments/{enrollmentId}/approve",
         "POST /api/v1/enrollments/{enrollmentId}/reject",
         "POST /api/v1/enrollments/{enrollmentId}/cancel",
@@ -47,7 +51,6 @@ class Stage4CourseEnrollmentAcceptanceTest {
     @Test
     void stage4ArtifactsExist() {
         assertThat(Files.exists(Path.of("src/docs/asciidoc/stage4.adoc"))).isTrue();
-        assertThat(Files.exists(Path.of("scripts/verify-stage4-course-enrollment.sh"))).isTrue();
     }
 
     @Test

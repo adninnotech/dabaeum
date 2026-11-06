@@ -1,236 +1,232 @@
 <template>
-  <q-page padding>
-    <div class="app-page-header q-mb-lg">
-      <div class="app-page-header__title text-h5 text-weight-bold">가입 승인 관리</div>
-      <div class="app-page-header__subtitle text-grey-7">
-        기관 강사 신청은 OpenAPI로 연동합니다. 기관 자체 가입 신청 path는 없습니다.
-      </div>
-    </div>
-    <q-tabs v-model="tab" align="left" active-color="primary">
-      <q-tab name="instructor" label="강사 신청" />
-      <q-tab name="institution" label="기관 신청" />
+  <q-page class="approvals-page">
+    <AppPageHeader title="가입 승인 관리" subtitle="강사 신청과 기관 등록 신청을 승인하거나 거절합니다." show-refresh @refresh="reload" />
+    <!-- 다른 탭에 대기 중인 신청이 있는지 눌러 봐야 알았다 — 대기 건수를 탭에 -->
+    <q-tabs :model-value="tab" align="left" active-color="primary" no-caps @update:model-value="onTab">
+      <q-tab v-for="item in TAB_ITEMS" :key="item.name" :name="item.name">
+        <span class="approvals-tab">
+          {{ item.label }}
+          <span v-if="pendingCounts[item.name]" class="approvals-tab__count">
+            <span class="approvals-tab__sr">대기</span>{{ pendingCounts[item.name] }}{{ pendingCapped[item.name] ? '+' : '' }}<span class="approvals-tab__sr">건</span>
+          </span>
+        </span>
+      </q-tab>
     </q-tabs>
-    <q-separator />
-    <q-tab-panels v-model="tab">
-      <q-tab-panel name="instructor">
-        <div class="app-page-header row items-center justify-between q-mb-lg">
-          <q-select
-            v-model="statusFilter"
-            outlined
-            dense
-            emit-value
-            map-options
-            style="min-width: 180px"
-            :options="statusOptions"
-            label="상태"
-            @update:model-value="loadApplications"
-          />
-          <q-btn outline color="primary" icon="refresh" label="새로고침" :loading="loading" @click="loadApplications" />
-        </div>
-        <AppErrorBanner :message="errorMessage" />
-        <q-table flat bordered :rows="rows" :columns="columns" row-key="id" :loading="loading">
-          <template #body-cell-status="props">
-            <q-td :props="props">
-              <StatusBadge :status="props.value" />
-            </q-td>
-          </template>
-          <template #body-cell-action="props">
-            <q-td :props="props">
-              <q-btn
-                flat
-                dense
-                color="primary"
-                label="상세"
-                @click="openDetail(props.row)"
-              />
-              <q-btn
-                flat
-                dense
-                color="positive"
-                label="승인"
-                :disable="props.row.status !== 'PENDING'"
-                @click="approve(props.row)"
-              />
-              <q-btn
-                flat
-                dense
-                color="negative"
-                label="거절"
-                :disable="props.row.status !== 'PENDING'"
-                @click="openReject(props.row)"
-              />
-            </q-td>
-          </template>
-        </q-table>
-      </q-tab-panel>
-      <q-tab-panel name="institution">
-        <q-banner class="bg-amber-1 q-mb-md">기관 등록 신청 API가 OpenAPI에 없습니다. POST /institutions만 있습니다.</q-banner>
-      </q-tab-panel>
-    </q-tab-panels>
+    <q-separator class="q-mb-md" />
 
-    <q-dialog v-model="rejectOpen">
-      <q-card style="min-width: 400px">
-        <q-card-section class="text-h6">거절 사유</q-card-section>
-        <q-card-section>
-          <q-input v-model="rejectReason" outlined type="textarea" autogrow label="rejectionReason *" />
-        </q-card-section>
-        <q-card-actions align="right">
-          <q-btn flat label="취소" v-close-popup />
-          <q-btn color="negative" unelevated :loading="saving" label="거절" @click="reject" />
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
-
-    <q-dialog v-model="detailOpen">
-      <q-card style="min-width: 440px; max-width: 560px">
-        <q-card-section class="text-h6">신청 상세</q-card-section>
-        <q-card-section>
-          <q-inner-loading :showing="detailLoading" />
-          <q-list v-if="detail">
-            <q-item><q-item-section><q-item-label caption>기관</q-item-label><q-item-label>{{ detail.institutionName || detail.institutionId }}</q-item-label></q-item-section></q-item>
-            <q-item><q-item-section><q-item-label caption>상태</q-item-label><q-item-label>{{ statusLabel(detail.status) }}</q-item-label></q-item-section></q-item>
-            <q-item><q-item-section><q-item-label caption>신청자</q-item-label><q-item-label>{{ detail.applicantName }} · {{ detail.applicantEmail || '-' }}</q-item-label></q-item-section></q-item>
-            <q-item><q-item-section><q-item-label caption>지원 사유</q-item-label><q-item-label>{{ detail.applicationMessage || '-' }}</q-item-label></q-item-section></q-item>
-            <q-item><q-item-section><q-item-label caption>거절 사유</q-item-label><q-item-label>{{ detail.rejectionReason || '-' }}</q-item-label></q-item-section></q-item>
-            <q-item><q-item-section><q-item-label caption>신청일</q-item-label><q-item-label>{{ $formatDateTimeKst(detail.appliedAt) }}</q-item-label></q-item-section></q-item>
-          </q-list>
-        </q-card-section>
-        <q-card-actions align="right"><q-btn flat label="닫기" v-close-popup /></q-card-actions>
-      </q-card>
-    </q-dialog>
+    <!-- 강사 신청은 기관 콘솔 강사 관리와 같은 패널 — 승인 확인·공용 거절 사유 창·상세에서 바로 처리 -->
+    <InstructorApplicationsPanel
+      v-if="tab === 'instructor'"
+      ref="panel"
+      show-institution
+      :fetch-applications="fetchInstructorApplications"
+      :status="statusFilter"
+      @update:status="onStatusFilter"
+      @loaded="onInstructorLoaded"
+      @changed="loadPendingCounts"
+    />
+    <InstitutionJoinApplicationsPanel
+      v-else
+      ref="panel"
+      :status="statusFilter"
+      @update:status="onStatusFilter"
+      @changed="loadPendingCounts"
+    />
   </q-page>
 </template>
 
 <script>
-import { qFormatDateTimeKst } from '@/utils/datetime';
-import AppErrorBanner from '@/components/AppErrorBanner.vue';
-import StatusBadge from '@/components/StatusBadge.vue';
-import { listInstitutions } from '@/services/institution-api';
-import {
-  approveInstructorApplication,
-  getInstructorApplication,
-  listInstitutionInstructorApplications,
-  rejectInstructorApplication,
-} from '@/services/instructor-api';
+import AppPageHeader from '@/components/AppPageHeader.vue';
+import InstitutionJoinApplicationsPanel from '@/components/admin/InstitutionJoinApplicationsPanel.vue';
+import InstructorApplicationsPanel from '@/components/institution/InstructorApplicationsPanel.vue';
+import { listInstitutionJoinApplications, listInstitutions } from '@/services/institution-api';
+import { listInstitutionInstructorApplications } from '@/services/instructor-api';
 
-import { statusLabel } from '@/utils/status';
+const INSTITUTION_PAGE_SIZE = 100;
+const APPLICATION_PAGE_SIZE = 50;
+// ?tab= 으로 받을 수 있는 탭. 그 밖의 값은 기본(강사 신청) 탭으로 연다
+const TAB_ITEMS = [
+  { name: 'instructor', label: '강사 신청' },
+  { name: 'institution', label: '기관 신청' },
+];
+const TABS = TAB_ITEMS.map((item) => item.name);
+const DEFAULT_TAB = 'instructor';
+const APPLICATION_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'];
+/* 주소의 ?status=ALL 은 '전체'(필터 없음). 없으면 기본 '대기' — 기관 콘솔 강사 관리와 같은 규칙 */
+const ALL_STATUS = 'ALL';
+
+function normalizeTab(value) {
+  return TABS.includes(value) ? value : DEFAULT_TAB;
+}
+
+function statusFromQuery(value) {
+  if (value === ALL_STATUS) return null;
+  return APPLICATION_STATUSES.includes(value) ? value : 'PENDING';
+}
 
 export default {
-  components: { AppErrorBanner, StatusBadge },
   name: 'AdminApprovalsPage',
+  components: { AppPageHeader, InstitutionJoinApplicationsPanel, InstructorApplicationsPanel },
   data() {
     return {
-      tab: 'instructor',
-      loading: false,
-      saving: false,
-      errorMessage: '',
-      rows: [],
-      statusFilter: 'PENDING',
-      statusOptions: [
-        { label: '대기', value: 'PENDING' },
-        { label: '승인', value: 'APPROVED' },
-        { label: '거절', value: 'REJECTED' },
-        { label: '전체', value: null },
-      ],
-      rejectOpen: false,
-      rejectReason: '',
-      rejectTarget: null,
-      detailOpen: false,
-      detailLoading: false,
-      detail: null,
-      columns: [
-        { name: 'applicantName', label: '신청자', field: 'applicantName', align: 'left' },
-        { name: 'applicantEmail', label: '이메일', field: 'applicantEmail', align: 'left' },
-        { name: 'institutionName', label: '기관', field: 'institutionName', align: 'left' },
-        { name: 'status', label: '상태', field: 'status', align: 'center' },
-        { name: 'appliedAt', label: '신청일', field: 'appliedAt', align: 'left', format: qFormatDateTimeKst },
-        { name: 'action', label: '관리', field: 'action', align: 'right' },
-      ],
+      // 대시보드 '처리할 일' 링크가 ?tab= 으로 해당 신청 탭을 바로 연다
+      tab: normalizeTab(this.$route.query.tab),
+      // 다른 화면으로 떠나는 순간에도 $route 감시가 돌므로, 이 화면 주소일 때만 쿼리를 읽고 쓴다
+      ownPath: this.$route.path,
+      // 탭마다 따로 두지 않는다 — 탭을 바꾸면 '대기'로 돌아간다
+      statusFilter: statusFromQuery(this.$route.query.status),
+      TAB_ITEMS,
+      pendingCounts: { instructor: null, institution: null },
+      // 강사 신청은 기관마다 최근 50건까지만 모은다 — 넘치면 '+'
+      pendingCapped: { instructor: false, institution: false },
     };
   },
-  mounted() {
-    this.loadApplications();
+  watch: {
+    // 같은 화면에 머문 채 다른 링크로 들어오면(컴포넌트 재사용) 탭·필터만 바꾼다
+    '$route.query': {
+      handler(query) {
+        if (this.$route.path !== this.ownPath) return;
+        const nextTab = normalizeTab(query.tab);
+        if (nextTab !== this.tab) this.tab = nextTab;
+        const nextStatus = statusFromQuery(query.status);
+        if (nextStatus !== this.statusFilter) this.statusFilter = nextStatus;
+      },
+    },
+  },
+  created() {
+    this.loadPendingCounts();
   },
   methods: {
-    statusLabel,
-    async loadApplications() {
-      this.loading = true;
-      this.errorMessage = '';
+    reload() {
+      this.$refs.panel?.load();
+      this.loadPendingCounts();
+    },
+    // 탭·필터를 주소에 남겨 새로고침·뒤로 가기에도 같은 목록을 본다(기록은 쌓지 않는다)
+    syncQuery() {
+      if (this.$route.path !== this.ownPath) return;
+      const status = this.statusFilter === 'PENDING' ? undefined : this.statusFilter || ALL_STATUS;
+      this.$router.replace({ query: { ...this.$route.query, tab: this.tab, status } });
+    },
+    onTab(name) {
+      this.tab = normalizeTab(name);
+      this.statusFilter = 'PENDING';
+      this.syncQuery();
+    },
+    onStatusFilter(value) {
+      this.statusFilter = value;
+      this.syncQuery();
+    },
+    onInstructorLoaded({ status, count, capped }) {
+      if (status !== 'PENDING') return;
+      this.pendingCounts = { ...this.pendingCounts, instructor: count };
+      this.pendingCapped = { ...this.pendingCapped, instructor: !!capped };
+    },
+    /**
+     * 탭 대기 건수 — 기관 신청은 1건만 받아 전체 수를 읽는다. 강사 신청은 기관을 도는 무거운 호출이라
+     * 강사 탭이 '대기'로 열려 있으면 그 목록 수를 받고(onInstructorLoaded), 아니면 여기서 한 번 모은다.
+     * 실패하면 숫자만 안 보인다 — 목록 자체의 오류는 각 패널이 알린다
+     */
+    async loadPendingCounts() {
+      const tasks = [this.loadInstitutionPendingCount()];
+      if (!(this.tab === 'instructor' && this.statusFilter === 'PENDING')) tasks.push(this.loadInstructorPendingCount());
+      await Promise.all(tasks);
+    },
+    async loadInstitutionPendingCount() {
       try {
-        const instPage = await listInstitutions({ page: 0, size: 50 });
-        const institutions = instPage.data || [];
-        const chunks = await Promise.all(
-          institutions.map(async (institution) => {
-            try {
-              const page = await listInstitutionInstructorApplications(institution.id, {
-                page: 0,
-                size: 50,
-                status: this.statusFilter || undefined,
-              });
-              return (page.data || []).map((row) => ({
-                ...row,
-                institutionName: institution.name,
-              }));
-            } catch {
-              return [];
-            }
-          }),
-        );
-        this.rows = chunks.flat();
-      } catch (error) {
-        this.rows = [];
-        this.errorMessage = error.message || '신청 목록을 불러오지 못했습니다.';
-      } finally {
-        this.loading = false;
+        const page = await listInstitutionJoinApplications({ page: 0, size: 1, status: 'PENDING' });
+        this.pendingCounts = { ...this.pendingCounts, institution: page.page?.totalElements ?? (page.data || []).length };
+      } catch {
+        this.pendingCounts = { ...this.pendingCounts, institution: null };
       }
     },
-    async openDetail(row) {
-      if (!row?.id) return;
-      this.detailOpen = true;
-      this.detailLoading = true;
-      this.detail = null;
+    async loadInstructorPendingCount() {
       try {
-        const data = await getInstructorApplication(row.id);
-        this.detail = { ...data, institutionName: row.institutionName };
-      } catch (error) {
-        this.$q.notify({ type: 'negative', message: error.message || '상세를 불러오지 못했습니다.', position: 'top' });
-        this.detailOpen = false;
-      } finally {
-        this.detailLoading = false;
+        const { rows, cappedText } = await this.fetchInstructorApplications({ status: 'PENDING' });
+        this.pendingCounts = { ...this.pendingCounts, instructor: rows.length };
+        this.pendingCapped = { ...this.pendingCapped, instructor: !!cappedText };
+      } catch {
+        this.pendingCounts = { ...this.pendingCounts, instructor: null };
       }
     },
-    async approve(row) {
-      try {
-        await approveInstructorApplication(row.id);
-        this.$q.notify({ type: 'positive', message: '승인했습니다.', position: 'top' });
-        await this.loadApplications();
-      } catch (error) {
-        this.$q.notify({ type: 'negative', message: error.message, position: 'top' });
+    /**
+     * 강사 신청 — 기관별 API 뿐이라 기관을 돌며 모은다.
+     * 예전엔 한 기관이 실패하면 조용히 빈 목록이 돼 '신청 없음'처럼 보였다 — 몇 곳이 실패했는지 알린다
+     */
+    async fetchInstructorApplications({ status }) {
+      const instPage = await listInstitutions({ page: 0, size: INSTITUTION_PAGE_SIZE });
+      const institutions = instPage.data || [];
+      const failed = [];
+      const capped = [];
+      const chunks = await Promise.all(
+        institutions.map(async (institution) => {
+          try {
+            const page = await listInstitutionInstructorApplications(institution.id, {
+              page: 0,
+              size: APPLICATION_PAGE_SIZE,
+              status,
+            });
+            if ((page.page?.totalElements || 0) > APPLICATION_PAGE_SIZE) capped.push(institution.name);
+            return (page.data || []).map((row) => ({ ...row, institutionName: institution.name }));
+          } catch {
+            failed.push(institution.name);
+            return [];
+          }
+        }),
+      );
+      if (failed.length === institutions.length && institutions.length) {
+        throw new Error('강사 신청을 불러오지 못했습니다.');
       }
-    },
-    openReject(row) {
-      this.rejectTarget = row;
-      this.rejectReason = '';
-      this.rejectOpen = true;
-    },
-    async reject() {
-      if (!this.rejectTarget) return;
-      if (!this.rejectReason.trim()) {
-        this.$q.notify({ type: 'warning', message: '거절 사유를 입력해 주세요.', position: 'top' });
-        return;
-      }
-      this.saving = true;
-      try {
-        await rejectInstructorApplication(this.rejectTarget.id, this.rejectReason.trim());
-        this.rejectOpen = false;
-        this.$q.notify({ type: 'info', message: '거절했습니다.', position: 'top' });
-        await this.loadApplications();
-      } catch (error) {
-        this.$q.notify({ type: 'negative', message: error.message, position: 'top' });
-      } finally {
-        this.saving = false;
-      }
+      const notes = [];
+      if (failed.length) notes.push(`${failed.length}개 기관(${failed.slice(0, 3).join(', ')}${failed.length > 3 ? ' 등' : ''})의 신청을 불러오지 못했습니다.`);
+      if ((instPage.page?.totalElements || 0) > INSTITUTION_PAGE_SIZE) notes.push(`기관 ${INSTITUTION_PAGE_SIZE}곳까지만 확인했습니다.`);
+      if (capped.length) notes.push(`${capped.join(', ')}은 최근 ${APPLICATION_PAGE_SIZE}건만 보입니다.`);
+      return { rows: chunks.flat(), cappedText: notes.join(' ') };
     },
   },
 };
 </script>
+
+<style scoped>
+/* 다른 관리자 화면과 같은 여백 — 위가 좁고 폰 좌우가 8px 이었다 */
+.approvals-page {
+  padding: 48px 40px 32px;
+}
+
+.approvals-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+}
+
+.approvals-tab__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 11px;
+  background: var(--db-status-pink);
+  color: var(--db-bg-white);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 숫자만 보이고, 화면 읽기에는 '대기 3건'으로 */
+.approvals-tab__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 1023px) {
+  .approvals-page {
+    padding: 24px 16px;
+  }
+}
+</style>

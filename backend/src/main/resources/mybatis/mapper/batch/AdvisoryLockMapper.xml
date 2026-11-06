@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.common.infrastructure.mybatis.AdvisoryLockMapper">
+
+    <!-- 1차 캐시에 결과가 남으면 같은 트랜잭션의 두 번째 시도가 DB 를 묻지 않는다. -->
+    <select id="tryXactLock" resultType="boolean" flushCache="true" useCache="false">
+        SELECT pg_try_advisory_xact_lock(#{key})
+    </select>
+
+</mapper>

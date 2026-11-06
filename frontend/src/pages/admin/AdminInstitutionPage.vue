@@ -3,7 +3,7 @@
     <div class="app-page-header row items-center justify-between q-mb-lg">
       <div>
         <div class="app-page-header__title text-h5 text-weight-bold">기관 정보 관리</div>
-        <div class="app-page-header__subtitle text-grey-7">GET/PUT /institutions · 실제 API 연동</div>
+        <div class="app-page-header__subtitle text-grey-7">교육기관을 등록하고 정보를 고칩니다.</div>
       </div>
       <div class="row q-gutter-sm">
         <q-btn outline color="primary" icon="refresh" label="새로고침" :loading="loading" @click="loadInstitutions" />
@@ -26,7 +26,7 @@
           >
             <q-item-section>
               <q-item-label>{{ item.name }}</q-item-label>
-              <q-item-label caption>{{ item.institutionCode }} · {{ item.status }}</q-item-label>
+              <q-item-label caption>{{ item.institutionCode }} · {{ STATUS_LABEL[item.status] || item.status }}</q-item-label>
             </q-item-section>
           </q-item>
           <q-item v-if="!loading && !institutions.length">
@@ -39,16 +39,15 @@
         <q-card flat bordered>
           <q-card-section class="text-subtitle1 text-weight-bold">
             {{ createMode ? '기관 등록' : '기관 수정' }}
-            <span v-if="!createMode && selectedId" class="text-caption text-grey-7 q-ml-sm">{{ selectedId }}</span>
           </q-card-section>
           <q-card-section class="q-gutter-md">
-            <q-input v-model="form.institutionCode" outlined dense label="institutionCode *" :disable="!createMode && !!selectedId" />
-            <q-input v-model="form.name" outlined dense label="name *" />
-            <q-input v-model="form.businessNumber" outlined dense label="businessNumber" />
-            <q-input v-model="form.representativeName" outlined dense label="representativeName" />
-            <q-input v-model="form.address" outlined dense label="address" />
-            <q-input v-model="form.contactPhone" outlined dense label="contactPhone" />
-            <q-input v-model="form.contactEmail" outlined dense label="contactEmail" />
+            <q-input v-model="form.institutionCode" outlined dense label="기관 코드 *" :disable="!createMode && !!selectedId" />
+            <q-input v-model="form.name" outlined dense label="기관명 *" />
+            <q-input v-model="form.businessNumber" outlined dense label="사업자등록번호" />
+            <q-input v-model="form.representativeName" outlined dense label="대표자명" />
+            <q-input v-model="form.address" outlined dense label="주소" />
+            <q-input v-model="form.contactPhone" outlined dense label="대표 연락처" />
+            <q-input v-model="form.contactEmail" outlined dense label="대표 이메일" />
             <q-select
               :model-value="form.status"
               outlined
@@ -56,7 +55,7 @@
               emit-value
               map-options
               :options="statusOptions"
-              label="status"
+              label="상태"
               @update:model-value="setStatus"
             />
             <div class="row q-gutter-sm">
@@ -72,8 +71,9 @@
 </template>
 
 <script>
+import { STATUS_LABEL } from '@/utils/status';
+import { confirmDialog } from '@/utils/confirm-dialog';
 import AppErrorBanner from '@/components/AppErrorBanner.vue';
-import { DEFAULT_INSTITUTION_ID } from '@/config/api';
 import {
   createInstitution,
   getInstitution,
@@ -106,17 +106,20 @@ export default {
       loading: false,
       saving: false,
       errorMessage: '',
-      statusOptions: [
-        { label: 'ACTIVE', value: 'ACTIVE' },
-        { label: 'INACTIVE', value: 'INACTIVE' },
-        { label: 'SUSPENDED', value: 'SUSPENDED' },
-      ],
+      STATUS_LABEL,
+      previousSelectedId: null,
+      originalStatus: 'ACTIVE',
+      statusOptions: ['ACTIVE', 'INACTIVE', 'SUSPENDED'].map((value) => ({ label: STATUS_LABEL[value], value })),
     };
   },
   mounted() {
     this.loadInstitutions();
   },
   methods: {
+    /** 보던 기관이 목록에 남아 있으면 그대로, 아니면 첫 기관 — 개발용 기본 기관을 먼저 고르지 않는다 */
+    preferredInstitution() {
+      return this.institutions.find((item) => item.id === this.selectedId) || this.institutions[0];
+    },
     setStatus(value) {
       this.form.status = value;
     },
@@ -124,10 +127,10 @@ export default {
       this.loading = true;
       this.errorMessage = '';
       try {
-        const result = await listInstitutions({ page: 0, size: 50, sort: 'createdAt,desc' });
+        // sort: 측정 결과 기본 정렬이 이미 createdAt desc다(00-common §3) — 지운다
+        const result = await listInstitutions({ page: 0, size: 50 });
         this.institutions = Array.isArray(result.data) ? result.data : [];
-        const preferred =
-          this.institutions.find((i) => i.id === DEFAULT_INSTITUTION_ID) || this.institutions[0];
+        const preferred = this.preferredInstitution();
         if (preferred) {
           await this.selectInstitution(preferred.id);
         } else {
@@ -158,22 +161,38 @@ export default {
           contactEmail: data.contactEmail || '',
           status: data.status || 'ACTIVE',
         };
+        this.originalStatus = this.form.status;
       } catch (error) {
-        this.errorMessage = error.message || '기관 상세 조회 실패';
+        this.errorMessage = error.message || '기관 정보를 불러오지 못했습니다.';
       } finally {
         this.loading = false;
       }
     },
     openCreate() {
       this.createMode = true;
+      this.previousSelectedId = this.selectedId;
       this.selectedId = null;
       this.form = emptyForm();
     },
     cancelCreate() {
       this.createMode = false;
-      const preferred =
-        this.institutions.find((i) => i.id === DEFAULT_INSTITUTION_ID) || this.institutions[0];
+      // 새 기관 입력을 취소하면 보던 기관으로 돌아간다
+      this.selectedId = this.previousSelectedId;
+      const preferred = this.preferredInstitution();
       if (preferred) this.selectInstitution(preferred.id);
+    },
+    /** 기관을 정지·비활성으로 바꾸면 소속 강사·강의가 영향을 받는다 — 저장 한 번에 바뀌던 것을 묻는다 */
+    async confirmStatusChange() {
+      const next = this.form.status;
+      if (next === this.originalStatus || next === 'ACTIVE') return true;
+      const label = STATUS_LABEL[next] || next;
+      return confirmDialog(this.$q, {
+        title: `기관 ${label}`,
+        message: `'${this.form.name.trim()}' 기관을 '${label}' 상태로 바꿉니다. 소속 강사의 콘솔 이용과 강의 운영이 제한될 수 있습니다.`,
+        ok: '바꾸기',
+        color: 'negative',
+        cancel: '닫기',
+      });
     },
     async save() {
       if (!this.form.name || !String(this.form.name).trim()) {
@@ -184,6 +203,7 @@ export default {
         this.$q.notify({ type: 'warning', message: '기관 코드는 필수입니다.', position: 'top' });
         return;
       }
+      if (!this.createMode && !(await this.confirmStatusChange())) return;
       this.saving = true;
       try {
         if (this.createMode) {

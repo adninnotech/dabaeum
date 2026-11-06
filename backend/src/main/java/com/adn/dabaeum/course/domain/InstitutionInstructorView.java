@@ -1,6 +1,7 @@
 package com.adn.dabaeum.course.domain;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 public record InstitutionInstructorView(
@@ -11,6 +12,8 @@ public record InstitutionInstructorView(
     String status,
     Instant joinedAt,
     long courseCount,
-    String memo
+    String memo,
+    Instant lastLoginAt,
+    LocalDate birthDate
 ) {
 }

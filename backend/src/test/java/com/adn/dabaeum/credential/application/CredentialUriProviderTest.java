@@ -42,4 +42,22 @@ class CredentialUriProviderTest {
         assertThatThrownBy(() -> provider.statusUrl("CERT/../8"))
             .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void pastBaseIsUsedOnlyForAnIssuerThatStartsWithIt() {
+        CredentialUriProvider moved = new DefaultCredentialUriProvider(
+            new VcProperties("https://new.example.test", "v1", "development-1",
+                java.util.List.of("http://118.45.182.100:8080/")));
+        java.util.UUID institution = java.util.UUID.fromString("22222222-2222-2222-2222-222222222222");
+        String oldIssuer = "http://118.45.182.100:8080/api/v1/vc/issuers/" + institution;
+
+        assertThat(moved.issuerUrl(institution)).startsWith("https://new.example.test/");
+        assertThat(moved.forSignedUrl(oldIssuer).issuerUrl(institution)).isEqualTo(oldIssuer);
+        assertThat(moved.forSignedUrl("http://evil.example.test/api/v1/vc/issuers/" + institution))
+            .isSameAs(moved);
+        assertThat(moved.forSignedUrl(null)).isSameAs(moved);
+        assertThat(moved.forSignedUrl("http://118.45.182.100:8080/other")).isSameAs(moved);
+        assertThat(moved.forSignedUrl("http://118.45.182.100:8080/api/v1/vc/status/CERT-1").statusUrl("CERT-1"))
+            .isEqualTo("http://118.45.182.100:8080/api/v1/vc/status/CERT-1");
+    }
 }

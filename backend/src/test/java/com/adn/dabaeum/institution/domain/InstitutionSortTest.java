@@ -85,21 +85,30 @@ class InstitutionSortTest {
                 -1,
                 20,
                 InstitutionSort.CREATED_AT,
-                SortDirection.DESC
+                SortDirection.DESC,
+                null,
+                null,
+                null
             ));
         assertThatIllegalArgumentException()
             .isThrownBy(() -> new InstitutionPageCriteria(
                 0,
                 0,
                 InstitutionSort.CREATED_AT,
-                SortDirection.DESC
+                SortDirection.DESC,
+                null,
+                null,
+                null
             ));
         assertThatIllegalArgumentException()
             .isThrownBy(() -> new InstitutionPageCriteria(
                 0,
                 101,
                 InstitutionSort.CREATED_AT,
-                SortDirection.DESC
+                SortDirection.DESC,
+                null,
+                null,
+                null
             ));
     }
 }

@@ -1,5 +1,6 @@
 package com.adn.dabaeum.interest.infrastructure.mybatis;
 
+import com.adn.dabaeum.course.domain.CourseFeeType;
 import com.adn.dabaeum.interest.domain.CourseInterest;
 import com.adn.dabaeum.interest.domain.CourseInterestRepository;
 import com.adn.dabaeum.interest.domain.CourseInterestView;
@@ -38,19 +39,24 @@ public class CourseInterestMyBatisRepository implements CourseInterestRepository
     }
 
     @Override
-    public List<CourseInterestView> findByUserId(UUID userId, int limit, int offset) {
-        return mapper.selectByUserId(userId, limit, offset)
+    public List<CourseInterestView> findByUserId(
+        UUID userId, String keyword, int limit, int offset
+    ) {
+        return mapper.selectByUserId(userId, keyword, limit, offset)
             .stream()
             .map(row -> new CourseInterestView(
                 row.id(), row.courseId(), row.createdAt(), row.courseTitle(),
-                row.institutionName(), row.category(), row.educationType(),
-                row.courseStatus()))
+                row.institutionName(), row.classificationCode(), row.educationType(),
+                row.courseStatus(), row.instructorName(), row.sessionCount(),
+                row.tags(),
+                row.tuitionType() == null ? null : CourseFeeType.valueOf(row.tuitionType()),
+                row.tuitionAmount(), row.thumbnailFileId()))
             .toList();
     }
 
     @Override
-    public long countByUserId(UUID userId) {
-        return mapper.countByUserId(userId);
+    public long countByUserId(UUID userId, String keyword) {
+        return mapper.countByUserId(userId, keyword);
     }
 
     @Override

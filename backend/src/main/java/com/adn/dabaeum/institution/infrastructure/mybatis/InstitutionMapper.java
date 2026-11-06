@@ -1,6 +1,7 @@
 package com.adn.dabaeum.institution.infrastructure.mybatis;
 
 import com.adn.dabaeum.institution.domain.InstitutionPageCriteria;
+import com.adn.dabaeum.institution.domain.InstitutionStatus;
 import java.util.List;
 import java.util.UUID;
 import org.apache.ibatis.annotations.Mapper;
@@ -13,17 +14,23 @@ public interface InstitutionMapper {
 
     InstitutionRow selectById(@Param("id") UUID id);
 
+    List<InstitutionRow> selectByIds(@Param("ids") List<UUID> ids);
+
     InstitutionRow selectActiveById(@Param("id") UUID id);
 
     InstitutionRow selectActiveByCode(
         @Param("institutionCode") String institutionCode
     );
 
-    List<InstitutionRow> selectActivePage(
+    List<InstitutionListRow> selectActivePage(
         @Param("criteria") InstitutionPageCriteria criteria
     );
 
-    long countActive();
+    long countActiveFiltered(
+        @Param("keyword") String keyword,
+        @Param("status") InstitutionStatus status,
+        @Param("region") String region
+    );
 
     int updateActive(InstitutionRow row);
 }

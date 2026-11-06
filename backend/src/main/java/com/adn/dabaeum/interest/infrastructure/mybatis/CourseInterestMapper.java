@@ -19,11 +19,12 @@ public interface CourseInterestMapper {
 
     List<CourseInterestViewRow> selectByUserId(
         @Param("userId") UUID userId,
+        @Param("keyword") String keyword,
         @Param("limit") int limit,
         @Param("offset") int offset
     );
 
-    long countByUserId(@Param("userId") UUID userId);
+    long countByUserId(@Param("userId") UUID userId, @Param("keyword") String keyword);
 
     int deleteById(@Param("id") UUID id);
 }

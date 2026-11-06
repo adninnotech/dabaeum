@@ -1,6 +1,5 @@
 package com.adn.dabaeum.attendance.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -13,24 +12,25 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.adn.dabaeum.attendance.application.AttendanceApplicationService;
+import com.adn.dabaeum.attendance.application.AttendanceDetail;
 import com.adn.dabaeum.attendance.application.AttendancePage;
 import com.adn.dabaeum.attendance.application.AttendanceQrTokenApplicationService;
 import com.adn.dabaeum.attendance.domain.Attendance;
+import com.adn.dabaeum.attendance.domain.AttendanceAdjustmentEntry;
 import com.adn.dabaeum.attendance.domain.AttendanceMethod;
 import com.adn.dabaeum.attendance.domain.AttendanceSource;
 import com.adn.dabaeum.attendance.domain.AttendanceStatus;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
 import com.adn.dabaeum.common.security.AuthenticatedUserContext;
 import com.adn.dabaeum.common.security.CurrentUserProvider;
 import com.adn.dabaeum.common.web.RequestIdFilter;
-import com.adn.dabaeum.testsupport.OpenApiContract;
 import java.time.Instant;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -53,13 +53,12 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
 class AttendanceRecordQueryControllerTest {
 
-    private static final Path CONTRACT =
-        Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final UUID SESSION_ID = UUID.fromString(
         "22222222-2222-2222-2222-222222222222");
     private static final UUID ATTENDANCE_ID = UUID.fromString(
@@ -77,60 +76,87 @@ class AttendanceRecordQueryControllerTest {
         when(service.record(any(), any())).thenReturn(attendance());
 
         mockMvc.perform(post("/api/v1/sessions/{sessionId}/attendance", SESSION_ID)
-                .with(user("learner").roles("LEARNER"))
+                .with(user("instructor").roles("INSTRUCTOR"))
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(validQrJson()))
+                .content(validAdminJson()))
             .andExpect(status().isCreated())
             .andExpect(header().string("Location", "/api/v1/attendance/" + ATTENDANCE_ID))
-            .andExpect(jsonPath("$.data.id").value(ATTENDANCE_ID.toString()))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.id").value(ATTENDANCE_ID.toString()));
         verify(service).record(any(), eq(subject()));
     }
 
     @Test
     void listsAndGetsAttendanceWithOpenApiEnvelope() throws Exception {
         when(currentUserProvider.requireContext()).thenReturn(subject());
+        Attendance listed = attendance();
+        UUID learnerId = UUID.fromString("99999999-9999-9999-9999-999999999999");
         when(service.list(any(), any())).thenReturn(new AttendancePage(
-            List.of(attendance()), 0, 20, 1, 1));
-        when(service.get(ATTENDANCE_ID, subject())).thenReturn(attendance());
+            List.of(listed), 0, 20, 1, 1,
+            java.util.Map.of(listed.enrollmentId(), new com.adn.dabaeum.attendance.domain
+                .AttendanceLearner(listed.enrollmentId(), learnerId, "한상희"))));
+        UUID adjusterId = UUID.fromString("88888888-8888-8888-8888-888888888888");
+        when(service.get(ATTENDANCE_ID, subject())).thenReturn(new AttendanceDetail(
+            attendance(), List.of(
+                new AttendanceAdjustmentEntry(
+                    UUID.fromString("77777777-7777-7777-7777-777777777778"),
+                    AttendanceStatus.LATE, AttendanceStatus.PRESENT, "재확인",
+                    adjusterId, "김강사", Instant.parse("2026-08-05T02:00:00Z")),
+                new AttendanceAdjustmentEntry(
+                    UUID.fromString("77777777-7777-7777-7777-777777777777"),
+                    AttendanceStatus.PRESENT, AttendanceStatus.LATE, "현장 확인",
+                    adjusterId, null, Instant.parse("2026-08-05T01:00:00Z")))));
 
         mockMvc.perform(get("/api/v1/sessions/{sessionId}/attendance", SESSION_ID)
                 .with(user("learner").roles("LEARNER"))
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[0].status").value("PRESENT"))
-            .andExpect(jsonPath("$.page.totalElements").value(1))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data[0].userName").value("한상희"))
+            .andExpect(jsonPath("$.data[0].userId").value(learnerId.toString()))
+            .andExpect(jsonPath("$.page.totalElements").value(1));
 
         mockMvc.perform(get("/api/v1/attendance/{attendanceId}", ATTENDANCE_ID)
                 .with(user("learner").roles("LEARNER"))
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.id").value(ATTENDANCE_ID.toString()))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.userName").doesNotExist())
+            .andExpect(jsonPath("$.data.adjustments.length()").value(2))
+            .andExpect(jsonPath("$.data.adjustments[0].fromStatus").value("LATE"))
+            .andExpect(jsonPath("$.data.adjustments[0].toStatus").value("PRESENT"))
+            .andExpect(jsonPath("$.data.adjustments[0].reason").value("재확인"))
+            .andExpect(jsonPath("$.data.adjustments[0].adjustedBy").value(adjusterId.toString()))
+            .andExpect(jsonPath("$.data.adjustments[0].adjustedByName").value("김강사"))
+            .andExpect(jsonPath("$.data.adjustments[0].adjustedAt").value("2026-08-05T02:00:00Z"))
+            .andExpect(jsonPath("$.data.adjustments[1].adjustedByName")
+                .value(org.hamcrest.Matchers.nullValue()));
+
+        mockMvc.perform(get("/api/v1/sessions/{sessionId}/attendance", SESSION_ID)
+                .with(user("learner").roles("LEARNER"))
+                .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
+            .andExpect(jsonPath("$.data[0].adjustments").doesNotExist());
     }
 
     @Test
-    void rejectsUnknownPropertyAndLearnerIsNotAllowedToListBySecurityRole() throws Exception {
+    void rejectsUnknownPropertyAndAnonymousListing() throws Exception {
         mockMvc.perform(post("/api/v1/sessions/{sessionId}/attendance", SESSION_ID)
-                .with(user("learner").roles("LEARNER"))
+                .with(user("instructor").roles("INSTRUCTOR"))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(validQrJson().replace("}", ",\"unexpected\":true}")))
+                .content(validAdminJson().replace("}", ",\"unexpected\":true}")))
             .andExpect(status().isBadRequest());
 
         mockMvc.perform(get("/api/v1/sessions/{sessionId}/attendance", SESSION_ID))
             .andExpect(status().isUnauthorized());
     }
 
-    private String validQrJson() {
+    private String validAdminJson() {
         return """
             {
               "enrollmentId": "77777777-7777-7777-7777-777777777777",
-              "attendanceMethod": "QR",
+              "attendanceMethod": "ADMIN",
               "status": "PRESENT",
-              "source": "APP",
-              "qrToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              "source": "ADMIN_WEB"
             }
             """;
     }

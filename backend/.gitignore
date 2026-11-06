@@ -2,8 +2,10 @@
 # dabaeum
 #
 # 원칙
-#   커밋한다  소스 · 빌드 스크립트 · docs/api · gradle/wrapper/*.jar
-#   무시한다  빌드 산출물 · 작업용 임시 파일 · 파생 문서 · 인증정보
+#   커밋한다  AGENTS.md · docs/api · docs/decisions · docs/specs · docs/archive
+#             gradle/wrapper/*.jar
+#             → 에이전트가 다음 세션에서 맥락을 되찾는 근거이자 팀 규약
+#   무시한다  빌드 산출물 · 에이전트 스크래치 · 파생 문서 · 인증정보
 # ─────────────────────────────────────────────
 
 ### Gradle · 빌드 ###
@@ -25,9 +27,8 @@ HELP.md
 
 # ─────────────────────────────────────────────
 # 인증정보
-# "인증정보를 커밋하지 않는다" 규약의 강제 장치.
-# 비밀값은 저장소에 두지 않고 환경변수로만 주입한다.
-# Jasypt를 쓰는 경우 ENC(...) 값과 master password 모두 환경변수로 준다.
+# AGENTS.md "인증정보를 커밋하지 않는다"의 강제 장치.
+# 비밀값 파일(local-secrets.env, dev-secrets.env)은 커밋하지 않는다. 서식(*.env.example)만 올린다.
 # 이름이 아니라 확장자로 넓게 막는다 — 파일명은 언제든 달라진다.
 # ─────────────────────────────────────────────
 *.env
@@ -65,8 +66,9 @@ known_hosts
 
 
 # ─────────────────────────────────────────────
-# 작업용 임시 파일
-# 중간 산출물과 백업만 막는다.
+# 에이전트 작업 흔적
+# 정본(docs/api) · 설계(docs/specs) · ADR(docs/decisions) · 기록(docs/archive)은 커밋 대상이다.
+# 여기서 막는 것은 중간 산출물과 백업뿐이다.
 # ─────────────────────────────────────────────
 _backup/
 _to_delete/
@@ -80,9 +82,19 @@ output/
 *.bak
 *.rej
 
-# 개발 도구 로컬 상태 — *.local.* 이 붙으면 개인 설정이라는 관례를 따른다.
-*.local.toml
+# 에이전트 로컬 상태 — *.local.* 이 붙으면 개인 설정이라는 관례를 따른다.
+# .codex/config.toml은 MCP 서버 규약이므로 커밋한다.
+.codex/sessions/
+.codex/*.local.toml
+.claude/settings.json
+.claude/settings.local.json
 .ua/
+.claude/sessions/
+.superpowers/cache/
+# git worktree 격리 작업 공간 (superpowers:using-git-worktrees)
+.worktrees/
+.claude/worktrees/
+.aider*
 
 
 # ─────────────────────────────────────────────
@@ -129,3 +141,18 @@ fabric/**/vendor/
 __pycache__/
 *.pyc
 .venv/
+
+
+# 개인 배포 스크립트. 서버 주소·경로가 들어 있어 저장소에 올리지 않는다.
+scripts/deploy-dev.sh
+
+# 개인 자동 배포 hook(main push → dev 배포). .git/hooks/pre-push 가 이 파일을 가리킨다.
+scripts/pre-push-deploy.sh
+
+
+# ─────────────────────────────────────────────
+# 강좌 추천 모델 배치 산출물 (docs/specs/course-recommendation.md §12.7)
+# 모델 파일과 연관도 리포트는 서버 디스크에 두고 검수 때 꺼내 첨부한다.
+# ─────────────────────────────────────────────
+ml/models/
+ml/reports/

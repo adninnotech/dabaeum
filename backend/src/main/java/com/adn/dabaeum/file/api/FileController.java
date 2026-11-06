@@ -62,7 +62,7 @@ public class FileController {
     ) throws IOException {
         if (file == null || file.isEmpty()) {
             throw new ApiException(
-                HttpStatus.UNPROCESSABLE_ENTITY, ApiErrorCode.VALIDATION_FAILED,
+                HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.VALIDATION_FAILED,
                 "Request validation failed", List.of("file"));
         }
         StoredFile stored;
@@ -79,11 +79,14 @@ public class FileController {
 
     @GetMapping("/files/{fileId}/content")
     public ResponseEntity<InputStreamResource> content(@PathVariable UUID fileId) {
-        FileDownload download = service.download(fileId);
+        FileDownload download = service.download(fileId,
+            currentUserProvider.findContext().orElse(null));
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType(download.file().contentType()))
             .contentLength(download.file().size())
-            .cacheControl(CacheControl.maxAge(1, TimeUnit.DAYS).cachePublic())
+            .cacheControl(download.publicContent()
+                ? CacheControl.maxAge(1, TimeUnit.DAYS).cachePublic()
+                : CacheControl.noStore())
             .body(new InputStreamResource(download.content()));
     }
 

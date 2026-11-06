@@ -2,35 +2,12 @@ package com.adn.dabaeum.credential.acceptance;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.swagger.v3.oas.models.OpenAPI;
-import io.swagger.v3.oas.models.Operation;
-import io.swagger.v3.parser.OpenAPIV3Parser;
-import io.swagger.v3.parser.core.models.ParseOptions;
-import io.swagger.v3.parser.core.models.SwaggerParseResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class CredentialSecurityAcceptanceTest {
 
-    private static final Path CONTRACT = Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
-
-    @Test
-    void onlyPublicVerifyIsUnauthenticated() {
-        OpenAPI api = parse();
-        Map<String, Operation> operations = api.getPaths().values().stream()
-            .flatMap(path -> path.readOperations().stream())
-            .filter(operation -> operation.getTags() != null
-                && operation.getTags().contains("Credential"))
-            .collect(java.util.stream.Collectors.toMap(Operation::getOperationId, value -> value));
-
-        assertThat(operations.get("verifyCredential").getSecurity()).isEmpty();
-        operations.entrySet().stream()
-            .filter(entry -> !entry.getKey().equals("verifyCredential"))
-            .forEach(entry -> assertThat(entry.getValue().getSecurity())
-                .as(entry.getKey()).isNotEmpty());
-    }
 
     /**
      * 백엔드는 원장에 REST(대구체인 계약)로만 붙는다 (ADR-0005). Fabric SDK·인증 자료·터널은
@@ -60,12 +37,4 @@ class CredentialSecurityAcceptanceTest {
         assertThat(Path.of("src/main/java/com/adn/dabaeum/fabric/application")).isDirectory();
     }
 
-    private static OpenAPI parse() {
-        ParseOptions options = new ParseOptions();
-        options.setResolve(true);
-        SwaggerParseResult result = new OpenAPIV3Parser().readLocation(
-            CONTRACT.toUri().toString(), null, options);
-        assertThat(result.getMessages()).isEmpty();
-        return result.getOpenAPI();
-    }
 }

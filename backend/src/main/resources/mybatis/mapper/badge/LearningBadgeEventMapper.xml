@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.badge.infrastructure.mybatis.LearningBadgeEventMapper">
+
+    <resultMap id="event" type="com.adn.dabaeum.badge.domain.LearningBadgeEvent">
+        <constructor>
+            <arg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="badge_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="event_type" javaType="com.adn.dabaeum.badge.domain.LearningBadgeEvent$Type"/>
+            <arg column="from_level" javaType="java.lang.Integer"/>
+            <arg column="to_level" javaType="java.lang.Integer"/>
+            <arg column="reason" javaType="java.lang.String"/>
+            <arg column="actor_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="occurred_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO tb_learning_badge_events (id, badge_id, event_type, from_level, to_level, reason, actor_id, occurred_at)
+        VALUES (#{id}, #{badgeId}, #{type}, #{fromLevel, jdbcType=SMALLINT}, #{toLevel, jdbcType=SMALLINT}, #{reason},
+                #{actorId, jdbcType=OTHER}, #{occurredAt})
+    </insert>
+
+    <select id="selectByBadgeId" resultMap="event">
+        SELECT id, badge_id, event_type, from_level, to_level, reason, actor_id, occurred_at
+          FROM tb_learning_badge_events
+         WHERE badge_id = #{badgeId}
+         ORDER BY occurred_at DESC, created_at DESC
+    </select>
+
+</mapper>

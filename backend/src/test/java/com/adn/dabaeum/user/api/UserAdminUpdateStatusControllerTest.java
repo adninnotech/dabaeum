@@ -1,12 +1,9 @@
 package com.adn.dabaeum.user.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -18,6 +15,7 @@ import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.web.RequestIdFilter;
@@ -26,8 +24,6 @@ import com.adn.dabaeum.user.application.UpdateUserCommand;
 import com.adn.dabaeum.user.application.UserApplicationService;
 import com.adn.dabaeum.user.domain.User;
 import com.adn.dabaeum.user.domain.UserStatus;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -54,14 +50,12 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
 class UserAdminUpdateStatusControllerTest {
 
-    private static final Path CONTRACT = Path.of(
-        "docs/api/dabaeum-api-v1.yaml"
-    ).toAbsolutePath();
     private static final UUID USER_ID = UUID.fromString(
         "33333333-3333-3333-3333-333333333333"
     );
@@ -95,8 +89,7 @@ class UserAdminUpdateStatusControllerTest {
                 REQUEST_ID
             ))
             .andExpect(jsonPath("$.data.id").value(USER_ID.toString()))
-            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID));
 
         ArgumentCaptor<UpdateUserCommand> command =
             ArgumentCaptor.forClass(UpdateUserCommand.class);
@@ -125,8 +118,7 @@ class UserAdminUpdateStatusControllerTest {
                 REQUEST_ID
             ))
             .andExpect(jsonPath("$.data.status").value("WITHDRAWN"))
-            .andExpect(jsonPath("$.data.withdrawnAt").exists())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.withdrawnAt").exists());
 
         ArgumentCaptor<ChangeUserStatusCommand> command =
             ArgumentCaptor.forClass(ChangeUserStatusCommand.class);

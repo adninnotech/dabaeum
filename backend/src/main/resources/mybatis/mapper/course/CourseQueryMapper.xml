@@ -21,7 +21,7 @@
             <arg column="course_code" javaType="java.lang.String"/>
             <arg column="title" javaType="java.lang.String"/>
             <arg column="description" javaType="java.lang.String"/>
-            <arg column="category" javaType="java.lang.String"/>
+            <arg column="classification_code" javaType="java.lang.String"/>
             <arg column="education_type" javaType="java.lang.String"/>
             <arg column="start_date" javaType="java.time.LocalDate"/>
             <arg column="end_date" javaType="java.time.LocalDate"/>
@@ -38,8 +38,26 @@
             <arg column="deleted_at" javaType="java.time.Instant"/>
             <arg column="thumbnail_file_id" javaType="java.util.UUID"
                 typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="tags" javaType="java.lang.String"/>
+            <arg column="target_audiences" javaType="java.lang.String"/>
+            <arg column="instructor_profile_visible" javaType="java.lang.Boolean"/>
+            <arg column="tuition_type" javaType="java.lang.String"/>
+            <arg column="tuition_amount" javaType="java.math.BigDecimal"/>
+            <arg column="material_fee_type" javaType="java.lang.String"/>
+            <arg column="material_fee_amount" javaType="java.math.BigDecimal"/>
+            <arg column="completion_enabled" javaType="java.lang.Boolean"/>
+            <arg column="completion_criteria" javaType="java.lang.String"/>
+            <arg column="required_progress_rate" javaType="java.lang.Integer"/>
+            <arg column="issue_certificate" javaType="java.lang.Boolean"/>
+            <arg column="notes" javaType="java.lang.String"/>
+            <arg column="materials" javaType="java.lang.String"/>
+            <arg column="learning_objective" javaType="java.lang.String"/>
+            <arg column="selection_method" javaType="java.lang.String"/>
+            <arg column="waitlist_capacity" javaType="java.lang.Integer"/>
             <arg column="instructor_role" javaType="java.lang.String"/>
             <arg column="enrolled_count" javaType="java.lang.Long"/>
+            <arg column="institution_name" javaType="java.lang.String"/>
+            <arg column="main_instructor_name" javaType="java.lang.String"/>
         </constructor>
     </resultMap>
 
@@ -59,6 +77,8 @@
             <arg column="joined_at" javaType="java.time.Instant"/>
             <arg column="course_count" javaType="java.lang.Long"/>
             <arg column="memo" javaType="java.lang.String"/>
+            <arg column="last_login_at" javaType="java.time.Instant"/>
+            <arg column="birth_date" javaType="java.time.LocalDate"/>
         </constructor>
     </resultMap>
 
@@ -71,15 +91,21 @@
             <arg column="recruiting" javaType="java.lang.Long"/>
             <arg column="in_progress" javaType="java.lang.Long"/>
             <arg column="completed" javaType="java.lang.Long"/>
+            <arg column="student_count" javaType="java.lang.Long"/>
+            <arg column="inquiry_count" javaType="java.lang.Long"/>
         </constructor>
     </resultMap>
 
     <sql id="courseColumns">
-        c.id, c.institution_id, c.course_code, c.title, c.description, c.category,
+        c.id, c.institution_id, c.course_code, c.title, c.description, c.classification_code,
         c.education_type, c.start_date, c.end_date, c.recruit_start_date,
         c.recruit_end_date, c.capacity, c.location, c.online_url,
         c.credit_bank_eligible, c.credit_value, c.status, c.created_at,
-        c.updated_at, c.deleted_at, c.thumbnail_file_id
+        c.updated_at, c.deleted_at, c.thumbnail_file_id,
+        c.tags, c.target_audiences, c.instructor_profile_visible,
+        c.tuition_type, c.tuition_amount, c.material_fee_type, c.material_fee_amount,
+        c.completion_enabled, c.completion_criteria, c.required_progress_rate, c.issue_certificate,
+        c.notes, c.materials, c.learning_objective, c.selection_method, c.waitlist_capacity
     </sql>
 
     <sql id="courseOrderBy">
@@ -99,7 +125,14 @@
         SELECT <include refid="courseColumns"/>,
                ci.instructor_role AS instructor_role,
                (SELECT COUNT(*) FROM tb_enrollments e
-                 WHERE e.course_id = c.id AND e.status = 'APPROVED') AS enrolled_count
+                 WHERE e.course_id = c.id AND e.status = 'APPROVED') AS enrolled_count,
+               (SELECT i.name FROM tb_institutions i
+                 WHERE i.id = c.institution_id) AS institution_name,
+               (SELECT u.name FROM tb_course_instructors mci
+                  JOIN tb_users u ON u.id = mci.user_id
+                 WHERE mci.course_id = c.id
+                   AND mci.instructor_role = 'MAIN'
+                 ORDER BY mci.assigned_at ASC LIMIT 1) AS main_instructor_name
           FROM tb_course_instructors ci
           JOIN tb_courses c ON c.id = ci.course_id
          WHERE ci.user_id = #{instructorUserId}
@@ -126,7 +159,22 @@
         SELECT COUNT(*) AS total,
                COUNT(*) FILTER (WHERE c.status = 'RECRUITING') AS recruiting,
                COUNT(*) FILTER (WHERE c.status = 'IN_PROGRESS') AS in_progress,
-               COUNT(*) FILTER (WHERE c.status = 'COMPLETED') AS completed
+               COUNT(*) FILTER (WHERE c.status = 'COMPLETED') AS completed,
+               <!--
+                 두 값은 같은 화면의 수강 현황 탭(countInstructorEnrollmentProgress)과 문의 탭
+                 (InquiryMapper.countByInstructorUserId)의 조건을 그대로 옮겼다. 탭과 숫자가
+                 다르면 어느 쪽이 맞는지 판정할 수 없다. 그래서 위 상태별 건수와 달리
+                 삭제된 강좌를 거르지 않고, 수강생은 사람이 아니라 승인된 신청 건수다.
+               -->
+               (SELECT COUNT(*)
+                  FROM tb_enrollments e
+                  JOIN tb_course_instructors eci ON eci.course_id = e.course_id
+                 WHERE eci.user_id = #{instructorUserId}
+                   AND e.status = 'APPROVED') AS student_count,
+               (SELECT COUNT(*)
+                  FROM tb_inquiries i
+                  JOIN tb_course_instructors ici ON ici.course_id = i.course_id
+                 WHERE ici.user_id = #{instructorUserId}) AS inquiry_count
           FROM tb_course_instructors ci
           JOIN tb_courses c ON c.id = ci.course_id
          WHERE ci.user_id = #{instructorUserId}
@@ -135,8 +183,17 @@
 
     <select
         id="selectInstitutionCourses"
-        resultMap="com.adn.dabaeum.course.infrastructure.mybatis.CourseMapper.courseRowResultMap">
-        SELECT <include refid="courseColumns"/>
+        resultMap="com.adn.dabaeum.course.infrastructure.mybatis.CourseMapper.courseViewRowResultMap">
+        SELECT <include refid="courseColumns"/>,
+               (SELECT COUNT(*) FROM tb_enrollments en
+                 WHERE en.course_id = c.id AND en.status = 'APPROVED') AS enrolled_count,
+               (SELECT i.name FROM tb_institutions i
+                 WHERE i.id = c.institution_id) AS institution_name,
+               (SELECT u.name FROM tb_course_instructors ci
+                  JOIN tb_users u ON u.id = ci.user_id
+                 WHERE ci.course_id = c.id
+                   AND ci.instructor_role = 'MAIN'
+                 ORDER BY ci.assigned_at ASC LIMIT 1) AS main_instructor_name
           FROM tb_courses c
          WHERE c.institution_id = #{institutionId}
            AND c.deleted_at IS NULL
@@ -159,7 +216,7 @@
 
     <select id="selectInstitutionInstructors" resultMap="institutionInstructorViewRowResultMap">
         SELECT u.id AS user_id, u.name, u.email, u.phone, u.status,
-               r.created_at AS joined_at, r.memo,
+               r.created_at AS joined_at, r.memo, u.last_login_at, u.birth_date,
                (SELECT COUNT(*) FROM tb_course_instructors ci
                   JOIN tb_courses c ON c.id = ci.course_id
                  WHERE ci.user_id = u.id
@@ -171,6 +228,13 @@
            AND r.role = 'INSTRUCTOR'
         <if test="status != null">
            AND u.status = #{status}
+        </if>
+        <if test="keyword != null">
+           AND (
+                LOWER(u.name) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+                OR LOWER(u.email) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+                OR REPLACE(u.phone, '-', '') LIKE '%' || REPLACE(#{keyword}, '-', '') || '%' ESCAPE '\'
+           )
         </if>
         ORDER BY
         <choose>
@@ -192,6 +256,13 @@
            AND r.role = 'INSTRUCTOR'
         <if test="status != null">
            AND u.status = #{status}
+        </if>
+        <if test="keyword != null">
+           AND (
+                LOWER(u.name) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+                OR LOWER(u.email) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+                OR REPLACE(u.phone, '-', '') LIKE '%' || REPLACE(#{keyword}, '-', '') || '%' ESCAPE '\'
+           )
         </if>
     </select>
 

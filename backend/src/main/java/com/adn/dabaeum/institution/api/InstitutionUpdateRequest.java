@@ -4,8 +4,10 @@ import com.adn.dabaeum.institution.application.UpdateField;
 import com.adn.dabaeum.institution.domain.InstitutionStatus;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonSetter;
+import com.adn.dabaeum.user.domain.EmailAddress;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Size;
+import java.util.UUID;
 
 @JsonIgnoreProperties(ignoreUnknown = false)
 public class InstitutionUpdateRequest {
@@ -27,11 +29,22 @@ public class InstitutionUpdateRequest {
     @Size(max = 30)
     private String contactPhone;
 
-    @Email
+    @Email(regexp = EmailAddress.PATTERN)
     @Size(max = 320)
     private String contactEmail;
 
     private InstitutionStatus status;
+
+    @Size(max = 500)
+    private String homepageUrl;
+
+    @Size(max = 50)
+    private String region;
+
+    private UUID logoFileId;
+
+    @Size(max = 2000)
+    private String introduction;
 
     private boolean institutionCodePresent;
     private boolean namePresent;
@@ -41,6 +54,10 @@ public class InstitutionUpdateRequest {
     private boolean contactPhonePresent;
     private boolean contactEmailPresent;
     private boolean statusPresent;
+    private boolean homepageUrlPresent;
+    private boolean regionPresent;
+    private boolean logoFileIdPresent;
+    private boolean introductionPresent;
 
     public InstitutionUpdateRequest() {
     }
@@ -93,6 +110,36 @@ public class InstitutionUpdateRequest {
         status = value;
     }
 
+    @JsonSetter("homepageUrl")
+    public void setHomepageUrl(String value) {
+        homepageUrlPresent = true;
+        homepageUrl = value;
+    }
+
+    @JsonSetter("region")
+    public void setRegion(String value) {
+        regionPresent = true;
+        region = value;
+    }
+
+    @JsonSetter("logoFileId")
+    public void setLogoFileId(UUID value) {
+        logoFileIdPresent = true;
+        logoFileId = value;
+    }
+
+    @JsonSetter("introduction")
+    public void setIntroduction(String value) {
+        introductionPresent = true;
+        introduction = value;
+    }
+
+    public boolean hasOnlyInstitutionProfileFields() {
+        return !institutionCodePresent && !namePresent && !businessNumberPresent
+            && !representativeNamePresent && !addressPresent && !statusPresent
+            && !homepageUrlPresent && !regionPresent;
+    }
+
     public UpdateField<String> institutionCodeUpdate() {
         return field(institutionCodePresent, institutionCode);
     }
@@ -123,6 +170,22 @@ public class InstitutionUpdateRequest {
 
     public UpdateField<InstitutionStatus> statusUpdate() {
         return field(statusPresent, status);
+    }
+
+    public UpdateField<String> homepageUrlUpdate() {
+        return field(homepageUrlPresent, homepageUrl);
+    }
+
+    public UpdateField<String> regionUpdate() {
+        return field(regionPresent, region);
+    }
+
+    public UpdateField<UUID> logoFileIdUpdate() {
+        return field(logoFileIdPresent, logoFileId);
+    }
+
+    public UpdateField<String> introductionUpdate() {
+        return field(introductionPresent, introduction);
     }
 
     private <T> UpdateField<T> field(boolean present, T value) {

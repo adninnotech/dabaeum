@@ -1,6 +1,7 @@
 package com.adn.dabaeum.attendance.infrastructure.mybatis;
 
 import com.adn.dabaeum.attendance.domain.AttendanceAdjustment;
+import com.adn.dabaeum.attendance.domain.AttendanceAdjustmentEntry;
 import com.adn.dabaeum.attendance.domain.AttendanceAdjustmentRepository;
 import com.adn.dabaeum.attendance.domain.AttendanceStatus;
 import java.util.List;
@@ -36,6 +37,16 @@ public class AttendanceAdjustmentMyBatisRepository
                 AttendanceStatus.valueOf(row.beforeStatus()),
                 AttendanceStatus.valueOf(row.afterStatus()), row.reason(), row.adjustedBy(),
                 row.adjustedAt(), row.createdAt()))
+            .toList();
+    }
+
+    @Override
+    public List<AttendanceAdjustmentEntry> findEntriesByAttendanceId(UUID attendanceId) {
+        return mapper.selectEntriesByAttendanceId(attendanceId).stream()
+            .map(row -> new AttendanceAdjustmentEntry(
+                row.id(), AttendanceStatus.valueOf(row.beforeStatus()),
+                AttendanceStatus.valueOf(row.afterStatus()), row.reason(), row.adjustedBy(),
+                row.adjustedByName(), row.adjustedAt()))
             .toList();
     }
 }

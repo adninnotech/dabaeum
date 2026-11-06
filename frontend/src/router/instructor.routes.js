@@ -26,16 +26,33 @@ export const instructorRoutes = [
         component: () => import('@/pages/instructor/InstructorCourseCreatePage.vue'),
       },
       {
+        path: 'courses/:courseId/edit',
+        name: 'instructor-course-edit',
+        meta: { title: '강의 수정' },
+        component: () => import('@/pages/instructor/InstructorCourseCreatePage.vue'),
+      },
+      {
+        path: 'courses/:courseId',
+        name: 'instructor-course-detail',
+        meta: { title: '강의 상세', console: 'instructor' },
+        component: () => import('@/pages/course-detail/CourseDetailConsolePage.vue'),
+      },
+      // 기존 하위 페이지는 상세 탭으로 흡수 — 파일은 남겨 두고 라우트만 리다이렉트
+      {
         path: 'courses/:courseId/sessions',
-        name: 'instructor-sessions',
-        meta: { title: '회차 관리' },
-        component: () => import('@/pages/instructor/InstructorSessionsPage.vue'),
+        redirect: (to) => ({
+          name: 'instructor-course-detail',
+          params: to.params,
+          query: { tab: 'curriculum' },
+        }),
       },
       {
         path: 'courses/:courseId/enrollments',
-        name: 'instructor-enrollments',
-        meta: { title: '강좌 수강생' },
-        component: () => import('@/pages/instructor/InstructorEnrollmentsPage.vue'),
+        redirect: (to) => ({
+          name: 'instructor-course-detail',
+          params: to.params,
+          query: { tab: 'enrollments' },
+        }),
       },
       {
         path: 'enrollment-apps',
@@ -68,15 +85,27 @@ export const instructorRoutes = [
         component: () => import('@/pages/instructor/InstructorInquiriesPage.vue'),
       },
       {
+        path: 'reviews',
+        name: 'instructor-reviews',
+        meta: { title: '수강평 관리' },
+        component: () => import('@/pages/instructor/InstructorReviewsPage.vue'),
+      },
+      {
         path: 'notices',
         name: 'instructor-notices',
         meta: { title: '공지사항' },
         component: () => import('@/pages/instructor/InstructorNoticesPage.vue'),
       },
       {
+        path: 'mypage',
+        name: 'instructor-mypage',
+        meta: { title: '마이페이지' },
+        component: () => import('@/pages/instructor/InstructorMyPage.vue'),
+      },
+      {
         path: 'profile',
         name: 'instructor-profile',
-        meta: { title: '프로필 설정' },
+        meta: { title: '마이페이지' },
         component: () => import('@/pages/instructor/InstructorProfilePage.vue'),
       },
     ],

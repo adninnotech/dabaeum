@@ -21,6 +21,7 @@
             <arg column="published_at" javaType="java.time.Instant"/>
             <arg column="created_by" javaType="java.util.UUID"
                 typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="author_name" javaType="java.lang.String"/>
             <arg column="created_at" javaType="java.time.Instant"/>
             <arg column="updated_at" javaType="java.time.Instant"/>
         </constructor>
@@ -77,9 +78,11 @@
         </constructor>
     </resultMap>
 
+    <!-- author_name 은 tb_users 조인으로만 채워지는 조회 전용 컬럼이다. 작성자가 탈퇴해도
+         공지는 남아야 하므로 LEFT JOIN 을 쓴다: 조인이 안 맞으면 이름만 null 이 된다. -->
     <sql id="noticeColumns">
-        id, title, body, audience, status, published_at, created_by,
-        created_at, updated_at
+        n.id, n.title, n.body, n.audience, n.status, n.published_at, n.created_by,
+        u.name AS author_name, n.created_at, n.updated_at
     </sql>
 
     <insert id="insertNotice">
@@ -96,40 +99,67 @@
 
     <select id="selectNoticeById" resultMap="noticeRowResultMap">
         SELECT <include refid="noticeColumns"/>
-        FROM tb_notices
-        WHERE id = #{id}
+        FROM tb_notices n
+        LEFT JOIN tb_users u ON u.id = n.created_by
+        WHERE n.id = #{id}
     </select>
 
+    <!-- published_at 이 미래면 status 가 PUBLISHED 여도 예약 게시라서 아직 빠진다. -->
     <select id="selectPublishedNotices" resultMap="noticeRowResultMap">
         SELECT <include refid="noticeColumns"/>
-        FROM tb_notices
-        WHERE status = 'PUBLISHED'
+        FROM tb_notices n
+        LEFT JOIN tb_users u ON u.id = n.created_by
+        WHERE n.status = 'PUBLISHED'
+        AND (n.published_at IS NULL OR n.published_at &lt;= #{now})
         <if test="audience != null">
-          AND audience = #{audience}
+          AND n.audience = #{audience}
         </if>
-        ORDER BY published_at DESC, id ASC
+        ORDER BY n.published_at DESC, n.id ASC
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
     <select id="countPublishedNotices" resultType="long">
         SELECT COUNT(*)
-        FROM tb_notices
-        WHERE status = 'PUBLISHED'
+        FROM tb_notices n
+        WHERE n.status = 'PUBLISHED'
+        AND (n.published_at IS NULL OR n.published_at &lt;= #{now})
         <if test="audience != null">
-          AND audience = #{audience}
+          AND n.audience = #{audience}
         </if>
     </select>
 
-    <select id="selectAdminNotices" resultMap="noticeRowResultMap">
+    <!-- q(제목)·audience·status 필터가 있는 관리 목록. 관리자는 예약 게시도 다 본다. -->
+    <select id="selectAdminNoticesFiltered" resultMap="noticeRowResultMap">
         SELECT <include refid="noticeColumns"/>
-        FROM tb_notices
-        ORDER BY created_at DESC, id ASC
+        FROM tb_notices n
+        LEFT JOIN tb_users u ON u.id = n.created_by
+        WHERE 1 = 1
+        <if test="keyword != null">
+            AND LOWER(n.title) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+        </if>
+        <if test="audience != null">
+            AND n.audience = #{audience}
+        </if>
+        <if test="status != null">
+            AND n.status = #{status}
+        </if>
+        ORDER BY n.created_at DESC, n.id ASC
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
-    <select id="countAllNotices" resultType="long">
+    <select id="countAllNoticesFiltered" resultType="long">
         SELECT COUNT(*)
         FROM tb_notices
+        WHERE 1 = 1
+        <if test="keyword != null">
+            AND LOWER(title) LIKE '%' || #{keyword} || '%' ESCAPE '\'
+        </if>
+        <if test="audience != null">
+            AND audience = #{audience}
+        </if>
+        <if test="status != null">
+            AND status = #{status}
+        </if>
     </select>
 
     <update id="updateNotice">
@@ -160,6 +190,34 @@
         FROM tb_faqs
     </select>
 
+    <insert id="insertFaq">
+        INSERT INTO tb_faqs (
+            id, question, answer, sort_order, created_at, updated_at
+        ) VALUES (
+            #{id}, #{question}, #{answer}, #{sortOrder}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <select id="selectFaqById" resultMap="faqRowResultMap">
+        SELECT id, question, answer, sort_order, created_at, updated_at
+        FROM tb_faqs
+        WHERE id = #{id}
+    </select>
+
+    <update id="updateFaq">
+        UPDATE tb_faqs
+           SET question = #{question},
+               answer = #{answer},
+               sort_order = #{sortOrder},
+               updated_at = #{updatedAt}
+         WHERE id = #{id}
+    </update>
+
+    <delete id="deleteFaq">
+        DELETE FROM tb_faqs
+        WHERE id = #{id}
+    </delete>
+
     <select id="selectLatestTermsByType" resultMap="termsContentRowResultMap">
         SELECT id, type, title, body, version, created_at, updated_at
         FROM tb_terms_contents
@@ -167,6 +225,16 @@
         ORDER BY created_at DESC, id ASC
         LIMIT 1
     </select>
+
+    <!-- 약관은 버전 이력이다: 수정·삭제가 아니라 새 행을 쌓는다. (type, version) 유니크 제약이 있어
+         같은 type 에 같은 version 을 다시 넣으면 DataIntegrityViolationException 이 난다. -->
+    <insert id="insertTermsContent">
+        INSERT INTO tb_terms_contents (
+            id, type, title, body, version, created_at, updated_at
+        ) VALUES (
+            #{id}, #{type}, #{title}, #{body}, #{version}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
 
     <select id="selectCodesByGroup" resultMap="commonCodeRowResultMap">
         SELECT id, code_group, code, name, sort_order

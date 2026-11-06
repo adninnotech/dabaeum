@@ -8,7 +8,9 @@ import {
 } from 'vue-router';
 
 import { canAccess } from '@/access/permissions';
+import { homePathAfterLogin } from '@/access/roles';
 import { useAuthStore } from '@/stores/auth-store';
+import { loginRequiredRoute } from '@/utils/auth-redirect';
 
 import routes from './routes';
 
@@ -25,7 +27,7 @@ export default defineRouter((/* { store, ssrContext } */) => {
     history: createHistory(import.meta.env.QUASAR_VUE_ROUTER_BASE),
   });
 
-  Router.beforeEach(async (to, from, next) => {
+  Router.beforeEach(async (to, from) => {
     const auth = useAuthStore();
 
     // 저장된 세션이 있으면 역할 포함 프로필을 먼저 확보
@@ -54,16 +56,12 @@ export default defineRouter((/* { store, ssrContext } */) => {
     });
 
     if (decision.ok) {
-      next();
-      return;
+      return true;
     }
 
     if (decision.reason === 'unauthenticated') {
-      next({
-        path: '/login',
-        query: { redirect: to.fullPath },
-      });
-      return;
+      // 로그인 화면이 '로그인이 필요해요 · 처음이면 회원가입' 안내를 띄우게 need 표시를 붙인다
+      return loginRequiredRoute(to.fullPath);
     }
 
     const needRoles = (decision.rule?.roles || []).join(', ') || '권한';
@@ -72,7 +70,11 @@ export default defineRouter((/* { store, ssrContext } */) => {
       message: `접근 권한이 없습니다. 필요 역할: ${needRoles}`,
       position: 'top',
     });
-    next(from.name ? false : { path: '/' });
+    const fallback = homePathAfterLogin(auth.userRoles) || '/';
+    if (from.name && from.fullPath !== to.fullPath) {
+      return false;
+    }
+    return { path: fallback };
   });
 
   return Router;

@@ -1,5 +1,7 @@
 package com.adn.dabaeum.review.api;
 
+import com.adn.dabaeum.enrollment.api.CourseCardFields;
+import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -10,6 +12,7 @@ public record ReviewResponse(
     String content,
     Instant createdAt,
     String courseTitle,
-    String userName
+    String userName,
+    @JsonUnwrapped CourseCardFields card
 ) {
 }

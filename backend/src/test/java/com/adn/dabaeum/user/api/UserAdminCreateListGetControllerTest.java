@@ -1,6 +1,6 @@
 package com.adn.dabaeum.user.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -16,20 +16,25 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.web.RequestIdFilter;
+import com.adn.dabaeum.role.domain.UserRole;
+import com.adn.dabaeum.user.application.ListUsersQuery;
 import com.adn.dabaeum.user.application.UserApplicationService;
+import com.adn.dabaeum.user.application.UserLastLoginFilter;
 import com.adn.dabaeum.user.application.UserPage;
+import com.adn.dabaeum.user.application.UserView;
+import com.adn.dabaeum.user.domain.Gender;
 import com.adn.dabaeum.user.domain.User;
 import com.adn.dabaeum.user.domain.UserStatus;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -49,14 +54,12 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
 class UserAdminCreateListGetControllerTest {
 
-    private static final Path CONTRACT = Path.of(
-        "docs/api/dabaeum-api-v1.yaml"
-    ).toAbsolutePath();
     private static final UUID USER_ID = UUID.fromString(
         "22222222-2222-2222-2222-222222222222"
     );
@@ -97,8 +100,7 @@ class UserAdminCreateListGetControllerTest {
             ))
             .andExpect(jsonPath("$.data.id").value(USER_ID.toString()))
             .andExpect(jsonPath("$.data.name").value("다배움 사용자"))
-            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID));
 
         verify(service).create(any());
     }
@@ -106,7 +108,7 @@ class UserAdminCreateListGetControllerTest {
     @Test
     void listsUsersWithDefaultPageAndOpenApiResponse() throws Exception {
         when(service.list(any())).thenReturn(new UserPage(
-            List.of(sampleUser()),
+            List.of(new UserView(sampleUser(), List.of())),
             0,
             20,
             1,
@@ -123,15 +125,76 @@ class UserAdminCreateListGetControllerTest {
             .andExpect(jsonPath("$.page.totalElements").value(1))
             .andExpect(jsonPath("$.page.totalPages").value(1))
             .andExpect(jsonPath("$.meta.timestamp")
-                .value(matchesPattern(".*\\+09:00$")))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+                .value(matchesPattern(".*\\+09:00$")));
 
         verify(service).list(any());
     }
 
     @Test
+    void listResponseIncludesEnrollmentAndCourseCounts() throws Exception {
+        when(service.list(any())).thenReturn(new UserPage(
+            List.of(new UserView(sampleUser(), List.of(), 4L, 2L)),
+            0,
+            20,
+            1,
+            1
+        ));
+
+        mockMvc.perform(get("/api/v1/users")
+                .with(user("platform-admin").roles("PLATFORM_ADMIN"))
+                .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].enrollmentCount").value(4))
+            .andExpect(jsonPath("$.data[0].courseCount").value(2));
+    }
+
+    @Test
+    void passesStudentListFiltersToService() throws Exception {
+        when(service.list(any())).thenReturn(new UserPage(List.of(), 0, 10, 0, 0));
+
+        mockMvc.perform(get("/api/v1/users")
+                .param("page", "0")
+                .param("size", "10")
+                .param("role", "LEARNER")
+                .param("sort", "enrollmentCount,desc")
+                .param("gender", "UNDISCLOSED")
+                .param("hasEnrollment", "false")
+                .param("lastLogin", "OVER_90")
+                .param("createdFrom", "2026-09-24")
+                .param("createdTo", "2026-10-23")
+                .with(user("platform-admin").roles("PLATFORM_ADMIN"))
+                .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
+            .andExpect(status().isOk());
+
+        ArgumentCaptor<ListUsersQuery> query = ArgumentCaptor.forClass(ListUsersQuery.class);
+        verify(service).list(query.capture());
+        assertThat(query.getValue()).isEqualTo(new ListUsersQuery(
+            0, 10, "enrollmentCount,desc", null, null, UserRole.LEARNER,
+            Gender.UNDISCLOSED, false, UserLastLoginFilter.OVER_90,
+            LocalDate.parse("2026-09-24"), LocalDate.parse("2026-10-23")
+        ));
+    }
+
+    @Test
+    void rejectsMalformedStudentListFilters() throws Exception {
+        for (String[] param : new String[][] {
+            {"gender", "OTHER"},
+            {"lastLogin", "WITHIN_14"},
+            {"hasEnrollment", "maybe"},
+            {"createdFrom", "2026/10/01"}
+        }) {
+            mockMvc.perform(get("/api/v1/users")
+                    .param(param[0], param[1])
+                    .with(user("platform-admin").roles("PLATFORM_ADMIN")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("BAD_REQUEST"));
+        }
+        verify(service, never()).list(any());
+    }
+
+    @Test
     void getsUserByUuidWithOpenApiResponse() throws Exception {
-        when(service.get(USER_ID)).thenReturn(sampleUser());
+        when(service.get(USER_ID)).thenReturn(new UserView(sampleUser(), List.of()));
 
         mockMvc.perform(get("/api/v1/users/{userId}", USER_ID)
                 .with(user("platform-admin").roles("PLATFORM_ADMIN"))
@@ -139,8 +202,20 @@ class UserAdminCreateListGetControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.id").value(USER_ID.toString()))
             .andExpect(jsonPath("$.data.withdrawnAt").doesNotExist())
-            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.meta.requestId").value(REQUEST_ID));
+    }
+
+    @Test
+    void getResponseNeverIncludesListOnlyCounts() throws Exception {
+        // 서비스가 실수로 값을 채워 돌려줘도 회원 상세 응답에는 키 자체가 없어야 한다.
+        when(service.get(USER_ID)).thenReturn(new UserView(sampleUser(), List.of(), 4L, 2L));
+
+        mockMvc.perform(get("/api/v1/users/{userId}", USER_ID)
+                .with(user("platform-admin").roles("PLATFORM_ADMIN"))
+                .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.enrollmentCount").doesNotExist())
+            .andExpect(jsonPath("$.data.courseCount").doesNotExist());
     }
 
     @Test

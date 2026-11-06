@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest(properties = {
     "spring.flyway.enabled=false",
+    "dabaeum.batch.enabled=false",
     "spring.datasource.url=jdbc:postgresql://127.0.0.1:15432/dabaeum_dev",
     "spring.datasource.hikari.maximum-pool-size=3",
     "spring.datasource.hikari.minimum-idle=0",

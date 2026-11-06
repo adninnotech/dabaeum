@@ -1,5 +1,7 @@
 package com.adn.dabaeum.credential.api;
 
+import com.adn.dabaeum.accesslog.domain.AccessLogAction;
+import com.adn.dabaeum.accesslog.web.PersonalDataAccess;
 import com.adn.dabaeum.common.api.ApiErrorCode;
 import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.api.ApiResponse;
@@ -154,6 +156,7 @@ public class CredentialController {
     }
 
     @GetMapping("/users/{userId}/credentials")
+    @PersonalDataAccess(action = AccessLogAction.READ)
     public CredentialPageResponse listByUser(
         @PathVariable UUID userId,
         @RequestParam(defaultValue = "0") int page,

@@ -15,6 +15,18 @@ public record LearningBadgeRow(
     Instant issuedAt,
     Instant revokedAt,
     Instant createdAt,
-    Instant updatedAt
+    Instant updatedAt,
+    UUID definitionId,
+    String definitionCode,
+    UUID imageFileId,
+    String recipientName,
+    Integer tierLevel,
+    Instant expiresAt,
+    String ruleType,
+    String ruleParams,
+    String lastEventType,
+    String lastEventReason,
+    Instant lastEventAt,
+    UUID lastEventId
 ) {
 }

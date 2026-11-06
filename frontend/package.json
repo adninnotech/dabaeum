@@ -1,30 +1,36 @@
 {
   "name": "dabaeum-frontend",
   "version": "0.0.1",
-  "description": "다배움 평생학습 플랫폼 프론트엔드 (Vue3 + Quasar + PWA)",
-  "productName": "다배움",
+  "description": "대구 평생학습 강좌를 한곳에서 찾고 신청하세요. 출석·이수 관리부터 블록체인으로 위조 없는 수료증·학습배지까지 다배움에서 확인할 수 있습니다.",
+  "productName": "다배움 - 대구 평생학습 강좌 검색·수강 플랫폼",
   "author": "ADN",
   "type": "module",
   "private": true,
   "scripts": {
     "lint": "prettier --write \"**/*.{js,vue,css,scss,html,md,json}\" --ignore-path .gitignore && eslint --fix -c ./eslint.config.js \"./src*/**/*.{js,cjs,mjs,vue}\"",
     "lint:check": "prettier \"**/*.{js,vue,css,scss,html,md,json}\" --ignore-path .gitignore && eslint -c ./eslint.config.js \"./src*/**/*.{js,cjs,mjs,vue}\"",
+    "test:unit": "node --test tests/*.test.js",
     "dev": "quasar dev",
     "dev:pwa": "quasar dev -m pwa",
     "build": "quasar build",
     "build:pwa": "quasar build -m pwa",
     "postinstall": "quasar prepare --silent",
-    "seed:mock": "node scripts/seed-mock-to-api.mjs"
+    "seed:mock": "node scripts/seed-mock-to-api.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@quasar/extras": "^2.0.3",
+    "marked": "^18.1.0",
     "pinia": "^4.0.2",
+    "qrcode": "^1.5.4",
     "quasar": "^2.24.0",
     "vue": "^3.5.22",
     "vue-router": "^5.0.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
     "@quasar/app-vite": "^3.5.0",
     "@vue/eslint-config-prettier": "^10.2.0",
     "autoprefixer": "^10.4.27",

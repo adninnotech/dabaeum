@@ -1,6 +1,7 @@
 package com.adn.dabaeum.badge.infrastructure.mybatis;
 
 import com.adn.dabaeum.badge.domain.LearningBadge;
+import com.adn.dabaeum.badge.domain.LearningBadgeEvent;
 import com.adn.dabaeum.badge.domain.LearningBadgeRepository;
 import com.adn.dabaeum.badge.domain.LearningBadgeStatus;
 import java.util.List;
@@ -54,6 +55,21 @@ public class LearningBadgeMyBatisRepository implements LearningBadgeRepository {
     }
 
     @Override
+    public Optional<LearningBadge> findByUserIdAndDefinitionId(UUID userId, UUID definitionId) {
+        return Optional.ofNullable(mapper.selectByUserIdAndDefinitionId(userId, definitionId)).map(this::toDomain);
+    }
+
+    @Override
+    public List<LearningBadge> search(BadgeSearch criteria) {
+        return mapper.search(criteria).stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    public long count(BadgeSearch criteria) {
+        return mapper.count(criteria);
+    }
+
+    @Override
     public long countByUserId(UUID userId) {
         return mapper.countByUserId(userId);
     }
@@ -63,7 +79,8 @@ public class LearningBadgeMyBatisRepository implements LearningBadgeRepository {
             badge.id(), badge.userId(), badge.courseId(), badge.credentialId(),
             badge.badgeType(), badge.badgeName(), badge.status().name(),
             badge.nftTokenId(), badge.issuedAt(), badge.revokedAt(),
-            badge.createdAt(), badge.updatedAt());
+            badge.createdAt(), badge.updatedAt(), badge.definitionId(), badge.definitionCode(),
+            badge.imageFileId(), null, null, null, null, null, null, null, null, null);
     }
 
     private LearningBadge toDomain(LearningBadgeRow row) {
@@ -71,7 +88,12 @@ public class LearningBadgeMyBatisRepository implements LearningBadgeRepository {
             row.id(), row.userId(), row.courseId(), row.credentialId(),
             row.badgeType(), row.badgeName(), LearningBadgeStatus.valueOf(row.status()),
             row.nftTokenId(), row.issuedAt(), row.revokedAt(),
-            row.createdAt(), row.updatedAt());
+            row.createdAt(), row.updatedAt(), row.definitionId(), row.definitionCode(), row.imageFileId(),
+            new LearningBadge.Details(row.recipientName(), row.tierLevel(), row.expiresAt(),
+                row.ruleType() == null ? null : BadgeRuleCodec.fromJson(row.ruleType(), row.ruleParams()),
+                row.lastEventType() == null ? null : new LearningBadgeEvent(row.lastEventId(), row.id(),
+                    LearningBadgeEvent.Type.valueOf(row.lastEventType()), null, null, row.lastEventReason(), null,
+                    row.lastEventAt())));
     }
 
     private enum BadgeSort {

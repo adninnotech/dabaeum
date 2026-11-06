@@ -3,7 +3,13 @@
 
 import { defineConfig } from '#q-app';
 
-export default defineConfig((/* ctx */) => {
+export default defineConfig((ctx) => {
+  // 데모 로그인·관리자 대리 로그인·dev bearer 토큰을 번들에 넣을지.
+  // quasar dev 는 기본 켬(DABAEUM_DEMO_AUTH=false 로 끌 수 있음), 빌드는 DABAEUM_DEMO_AUTH=true 일 때만 켠다.
+  // 끄면 __DABAEUM_DEMO_AUTH__ 가 false 로 치환돼 토큰 문자열과 데모 분기가 빌드에서 빠진다 — 공개 배포는 반드시 끈다.
+  const demoAuthEnv = String(process.env.DABAEUM_DEMO_AUTH || '').trim().toLowerCase();
+  const demoAuth = ctx.dev ? demoAuthEnv !== 'false' : demoAuthEnv === 'true';
+
   return {
     // https://v2.quasar.dev/quasar-cli-vite/prefetch-feature
     // preFetch: true,
@@ -11,7 +17,7 @@ export default defineConfig((/* ctx */) => {
     // app boot file (/src/boot)
     // --> boot files are part of "main.js"
     // https://v2.quasar.dev/quasar-cli-vite/boot-files
-    boot: ['api', 'datetime'],
+    boot: ['api', 'datetime', 'table-labels', 'theme', 'usage'],
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#css
     css: ['app.scss'],
@@ -27,6 +33,7 @@ export default defineConfig((/* ctx */) => {
       // 'roboto-font-latin-ext', // this or either 'roboto-font', NEVER both!
 
       'material-icons',
+      'material-icons-outlined',
     ],
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#build
@@ -49,6 +56,7 @@ export default defineConfig((/* ctx */) => {
       define: {
         // boolean으로 명시 (Vite define / plugin-vue features와 일치)
         __VUE_OPTIONS_API__: true,
+        __DABAEUM_DEMO_AUTH__: demoAuth,
       },
       // defineEnv: {}
       // ignorePublicFolder: true,
@@ -102,7 +110,7 @@ export default defineConfig((/* ctx */) => {
       open: false,
       proxy: {
         '/api': {
-          target: process.env.DEV_API_PROXY_TARGET || 'http://127.0.0.1:8080',
+          target: process.env.API_PROXY_TARGET || 'http://localhost:8080',
           changeOrigin: true,
         },
       },
@@ -111,14 +119,18 @@ export default defineConfig((/* ctx */) => {
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#framework
     framework: {
       config: {
+        // 기기 설정(라이트·다크)을 따른다 — 사용자 메뉴에서 바꾸면 boot/theme.js 가 덮는다
+        dark: 'auto',
         brand: {
-          primary: '#1a479f',
+          primary: '#264093',
           secondary: '#2f78d6',
           accent: '#0f9d8a',
           dark: '#102a56',
-          positive: '#2e9b4f',
+          // 흰 글자 대비 4.5:1 이상 — #2e9b4f(3.6:1)·#2f78d6(4.4:1)는 '이수 확정' 같은 초록 단추·알림 글자가 흐렸다.
+          // tokens.scss 의 --db-status-green·accent 와 같은 값(다크는 tokens.scss 에서 밝힌다)
+          positive: '#237a54',
           negative: '#d32f2f',
-          info: '#2f78d6',
+          info: '#2a5fcc',
           warning: '#f0a202',
         },
       },

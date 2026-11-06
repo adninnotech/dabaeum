@@ -36,48 +36,59 @@ class AttendanceRecordLifecycleIntegrationTest extends RemotePostgresIntegration
     @Autowired AttendanceRepository attendanceRepository;
 
     @Test
-    void oneDisplayedTokenCanRecordTwoApprovedEnrollmentsButDuplicateIsConflict() {
+    void managerRecordsTwoApprovedEnrollmentsButDuplicateIsConflict() {
+        Fixture fixture = fixture();
+        AuthenticatedUserContext manager = manager(fixture.issuerId(), fixture.institutionId());
+
+        Attendance first = attendanceService.record(
+            adminCommand(fixture.sessionId(), fixture.firstEnrollmentId()), manager);
+        Attendance second = attendanceService.record(
+            adminCommand(fixture.sessionId(), fixture.secondEnrollmentId()), manager);
+
+        assertThat(attendanceRepository.findById(first.id())).contains(first);
+        assertThat(attendanceRepository.findById(second.id())).contains(second);
+        assertThatThrownBy(() -> attendanceService.record(
+            adminCommand(fixture.sessionId(), fixture.firstEnrollmentId()), manager))
+            .isInstanceOf(ApiException.class)
+            .extracting("code")
+            .isEqualTo(ApiErrorCode.ATTENDANCE_CONFLICT);
+    }
+
+    /** 일반 QR 은 닫혔다. 유효한 토큰을 가진 본인이어도 기록하지 않는다. */
+    @Test
+    void learnerQrRecordingIsRejectedEvenWithAValidToken() {
         Fixture fixture = fixture();
         Instant issuedAt = Instant.now().minusSeconds(1);
         Instant expiresAt = issuedAt.plusSeconds(600);
         UUID tokenId = UUID.randomUUID();
         byte[] nonceBytes = new byte[32];
         new SecureRandom().nextBytes(nonceBytes);
-        AttendanceQrTokenPayload payload = new AttendanceQrTokenPayload(
+        String token = tokenCodec.encode(new AttendanceQrTokenPayload(
             1, tokenId, fixture.sessionId(), issuedAt, expiresAt,
-            Base64.getUrlEncoder().withoutPadding().encodeToString(nonceBytes));
-        String token = tokenCodec.encode(payload);
+            Base64.getUrlEncoder().withoutPadding().encodeToString(nonceBytes)));
         tokenRepository.save(new AttendanceQrToken(
             tokenId, fixture.sessionId(), tokenCodec.sha256(token), fixture.issuerId(),
             issuedAt, expiresAt, null, issuedAt));
 
-        Attendance first = attendanceService.record(
-            command(fixture.sessionId(), fixture.firstEnrollmentId(), token),
-            context(fixture.firstUserId(), fixture.institutionId()));
-        Attendance second = attendanceService.record(
-            command(fixture.sessionId(), fixture.secondEnrollmentId(), token),
-            context(fixture.secondUserId(), fixture.institutionId()));
-
-        assertThat(attendanceRepository.findById(first.id())).contains(first);
-        assertThat(attendanceRepository.findById(second.id())).contains(second);
-        assertThatThrownBy(() -> attendanceService.record(
-            command(fixture.sessionId(), fixture.firstEnrollmentId(), token),
+        assertThatThrownBy(() -> attendanceService.record(new RecordAttendanceCommand(
+                fixture.sessionId(), fixture.firstEnrollmentId(), AttendanceMethod.QR,
+                AttendanceStatus.PRESENT, null, AttendanceSource.APP, token),
             context(fixture.firstUserId(), fixture.institutionId())))
             .isInstanceOf(ApiException.class)
             .extracting("code")
-            .isEqualTo(ApiErrorCode.ATTENDANCE_CONFLICT);
+            .isEqualTo(ApiErrorCode.ATTENDANCE_METHOD_NOT_SUPPORTED);
+        assertThat(attendanceRepository.findBySessionAndEnrollment(
+            fixture.sessionId(), fixture.firstEnrollmentId())).isEmpty();
     }
 
-    private RecordAttendanceCommand command(UUID sessionId, UUID enrollmentId, String token) {
-        return new RecordAttendanceCommand(
-            sessionId,
-            enrollmentId,
-            AttendanceMethod.QR,
-            AttendanceStatus.PRESENT,
-            null,
-            AttendanceSource.APP,
-            token
-        );
+    private RecordAttendanceCommand adminCommand(UUID sessionId, UUID enrollmentId) {
+        return new RecordAttendanceCommand(sessionId, enrollmentId, AttendanceMethod.ADMIN,
+            AttendanceStatus.PRESENT, null, AttendanceSource.ADMIN_WEB, null);
+    }
+
+    private AuthenticatedUserContext manager(UUID userId, UUID institutionId) {
+        return new AuthenticatedUserContext(userId, "LOCAL",
+            Set.of(new AuthenticatedRole("INSTITUTION_ADMIN", institutionId)));
     }
 
     private AuthenticatedUserContext context(UUID userId, UUID institutionId) {

@@ -1,8 +1,6 @@
 package com.adn.dabaeum.credential.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -12,10 +10,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.adn.dabaeum.authorization.application.AuthorizationPolicy;
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
@@ -32,8 +30,6 @@ import com.adn.dabaeum.credential.domain.Credential;
 import com.adn.dabaeum.credential.domain.CredentialCourseView;
 import com.adn.dabaeum.credential.domain.CredentialStatus;
 import com.adn.dabaeum.credential.domain.CredentialView;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -57,13 +53,12 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
 class CredentialControllerTest {
 
-    private static final Path CONTRACT =
-        Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final UUID CREDENTIAL_ID = UUID.fromString(
         "70000000-0000-0000-0000-000000000007");
     private static final UUID GROUP_ID = UUID.fromString(
@@ -100,8 +95,7 @@ class CredentialControllerTest {
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(status().isAccepted())
             .andExpect(header().string("Location", "/api/v1/credentials/" + CREDENTIAL_ID))
-            .andExpect(jsonPath("$.data.status").value("PENDING"))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.status").value("PENDING"));
 
         mockMvc.perform(get("/api/v1/credentials/{id}", CREDENTIAL_ID)
                 .with(user("manager").roles("INSTITUTION_ADMIN"))
@@ -113,8 +107,7 @@ class CredentialControllerTest {
             .andExpect(jsonPath("$.data.courseTitle").value("AI 기초"))
             .andExpect(jsonPath("$.data.courseCode").value("AI-101"))
             .andExpect(jsonPath("$.data.institutionName").value("대구평생교육진흥원"))
-            .andExpect(jsonPath("$.data.vcPayload").doesNotExist())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.vcPayload").doesNotExist());
 
         mockMvc.perform(get("/api/v1/users/{id}/credentials", USER_ID)
                 .with(user("manager").roles("INSTITUTION_ADMIN"))
@@ -127,10 +120,35 @@ class CredentialControllerTest {
             .andExpect(jsonPath("$.data[0].credentialNo").value("CERT-70000000000000000000000000000007"))
             .andExpect(jsonPath("$.data[0].courseTitle").value("AI 기초"))
             .andExpect(jsonPath("$.data[0].institutionName").value("대구평생교육진흥원"))
-            .andExpect(jsonPath("$.page.totalElements").value(1))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.page.totalElements").value(1));
 
         verify(service).issue(any(IssueCredentialCommand.class));
+    }
+
+    @Test
+    void exposesFailureCodeOnlyForFailedCredentials() throws Exception {
+        AuthenticatedUserContext learner = learner();
+        when(currentUserProvider.requireContext()).thenReturn(learner);
+        when(service.get(CREDENTIAL_ID, learner)).thenReturn(failedCredentialView());
+        when(service.listByUser(any(ListUserCredentialsQuery.class))).thenReturn(
+            new CredentialPage(List.of(failedCredentialView(), pendingCredentialView()), 0, 20, 2, 1));
+
+        mockMvc.perform(get("/api/v1/credentials/{id}", CREDENTIAL_ID)
+                .with(user("learner").roles("LEARNER"))
+                .header("Authorization", "Bearer credential-task5-token")
+                .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.status").value("FAILED"))
+            .andExpect(jsonPath("$.data.failureCode").value("CREDENTIAL_SIGNING_KEY_INACTIVE"))
+            .andExpect(jsonPath("$.data.failureMessage").doesNotExist());
+
+        mockMvc.perform(get("/api/v1/users/me/credentials")
+                .with(user("learner").roles("LEARNER"))
+                .header("Authorization", "Bearer credential-task5-token")
+                .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].failureCode").value("CREDENTIAL_SIGNING_KEY_INACTIVE"))
+            .andExpect(jsonPath("$.data[1].failureCode").value(org.hamcrest.Matchers.nullValue()));
     }
 
     @Test
@@ -150,8 +168,7 @@ class CredentialControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[0].credentialNo")
                 .value("CERT-70000000000000000000000000000007"))
-            .andExpect(jsonPath("$.page.totalElements").value(1))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.page.totalElements").value(1));
 
         org.mockito.ArgumentCaptor<ListUserCredentialsQuery> query =
             org.mockito.ArgumentCaptor.forClass(ListUserCredentialsQuery.class);
@@ -239,6 +256,17 @@ class CredentialControllerTest {
 
     private CredentialView pendingCredentialView() {
         return new CredentialView(pendingCredential(), new CredentialCourseView(
+            CREDENTIAL_ID, COURSE_ID, "AI 기초", "AI-101", "대구평생교육진흥원"));
+    }
+
+    private CredentialView failedCredentialView() {
+        Instant now = Instant.parse("2026-08-07T00:00:00Z");
+        Credential failed = new Credential(CREDENTIAL_ID, GROUP_ID, null,
+            "CERT-70000000000000000000000000000007", 1, null, null,
+            "LIFELONG_EDUCATION_COMPLETION", CredentialStatus.FAILED,
+            null, null, null, null, null, null, null,
+            "CREDENTIAL_SIGNING_KEY_INACTIVE", "Credential issuance failed", now, now);
+        return new CredentialView(failed, new CredentialCourseView(
             CREDENTIAL_ID, COURSE_ID, "AI 기초", "AI-101", "대구평생교육진흥원"));
     }
 

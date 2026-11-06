@@ -4,7 +4,6 @@ import com.adn.dabaeum.blockchain.domain.BlockchainHistoryEntry;
 import com.adn.dabaeum.blockchain.domain.BlockchainHistoryQuery;
 import com.adn.dabaeum.blockchain.domain.BlockchainRegistryPort;
 import com.adn.dabaeum.blockchain.domain.CredentialRegistryReference;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -25,15 +24,19 @@ final class LedgerTransactionIds {
     private LedgerTransactionIds() {
     }
 
-    /** 원장 이력의 가장 최근 항목이 가진 트랜잭션 ID. 이력이 없거나 조회에 실패하면 empty. */
+    /**
+     * 원장 이력의 가장 최근 항목이 가진 트랜잭션 ID. 이력이 없거나 조회에 실패하면 empty.
+     *
+     * <p>순서는 Port 가 돌려주는 원장 순서(오래된 것부터)를 따르고 항목의 시각은 보지 않는다.
+     * 실제 대구체인은 뒤 블록의 timestamp 가 앞 블록보다 이를 수 있다 (2026-09-11 테스트베드 실측).
+     */
     static Optional<String> latest(BlockchainRegistryPort registry, CredentialRegistryReference reference) {
         try {
             List<BlockchainHistoryEntry> history = registry.getCredentialHistory(
                 reference, new BlockchainHistoryQuery(50, 0, false));
-            return history.stream()
-                .max(Comparator.comparing(BlockchainHistoryEntry::timestamp))
-                .map(BlockchainHistoryEntry::transactionId)
-                .filter(id -> !id.isBlank());
+            return history.isEmpty()
+                ? Optional.empty()
+                : Optional.of(history.getLast().transactionId()).filter(id -> !id.isBlank());
         } catch (RuntimeException exception) {
             return Optional.empty();
         }

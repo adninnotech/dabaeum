@@ -13,4 +13,8 @@ public interface AttendanceAdjustmentMapper {
     List<AttendanceAdjustmentRow> selectByAttendanceId(
         @Param("attendanceId") UUID attendanceId
     );
+
+    List<AttendanceAdjustmentEntryRow> selectEntriesByAttendanceId(
+        @Param("attendanceId") UUID attendanceId
+    );
 }

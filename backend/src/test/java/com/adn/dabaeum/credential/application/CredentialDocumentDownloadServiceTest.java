@@ -9,10 +9,14 @@ import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.security.AuthenticatedUserContext;
 import com.adn.dabaeum.credential.domain.Credential;
 import com.adn.dabaeum.credential.domain.CredentialDocument;
-import com.adn.dabaeum.credential.domain.CredentialProofService;
+import com.adn.dabaeum.credential.domain.CredentialSignatureVerifier;
+import com.adn.dabaeum.credential.domain.CredentialSignatureVerifier.VerifiedDocument;
+import com.adn.dabaeum.credential.domain.CredentialSignatureVerifier.VerificationFailure;
 import com.adn.dabaeum.credential.domain.CredentialStatus;
 import com.adn.dabaeum.credential.domain.CredentialView;
 import com.adn.dabaeum.credential.domain.SignedCredentialEnvelope;
+import com.adn.dabaeum.credential.domain.VerificationKey;
+import java.security.KeyPairGenerator;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -27,12 +31,12 @@ class CredentialDocumentDownloadServiceTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final CredentialApplicationService credentials = mock(CredentialApplicationService.class);
-    private final CredentialProofService proof = mock(CredentialProofService.class);
+    private final CredentialSignatureVerifier verifier = mock(CredentialSignatureVerifier.class);
     private final AuthenticatedUserContext actor = mock(AuthenticatedUserContext.class);
     private final CredentialHashService hashes = new CredentialHashService(objectMapper);
     private final CredentialDocumentDownloadService service =
         new DefaultCredentialDocumentDownloadService(
-            credentials, proof, hashes, objectMapper);
+            credentials, verifier, hashes, objectMapper);
 
     @Test
     void downloadsVerifiedCompactJwsForEveryHistoricalIssuedState() throws Exception {
@@ -42,9 +46,9 @@ class CredentialDocumentDownloadServiceTest {
         }) {
             Credential credential = credential(status, null);
             when(credentials.get(CREDENTIAL_ID, actor)).thenReturn(new CredentialView(credential, null));
-            when(proof.verify(new SignedCredentialEnvelope(
+            when(verifier.verifyCredential(new SignedCredentialEnvelope(
                 "application/vc+jwt", "header.payload.signature")))
-                .thenReturn(new CredentialDocument("{\"verified\":true}"));
+                .thenReturn(verified());
 
             CredentialDocumentDownloadService.Download result =
                 service.download(CREDENTIAL_ID, actor);
@@ -70,7 +74,7 @@ class CredentialDocumentDownloadServiceTest {
             "CURRENTKEY000001", "COMPACT_JWS_SHA256_V1", NOW,
             null, null, null, null, NOW, NOW);
         when(credentials.get(CREDENTIAL_ID, actor)).thenReturn(new CredentialView(current, null));
-        when(proof.verify(envelope)).thenReturn(new CredentialDocument("{\"verified\":true}"));
+        when(verifier.verifyCredential(envelope)).thenReturn(verified());
 
         CredentialDocumentDownloadService.Download result = service.download(CREDENTIAL_ID, actor);
 
@@ -112,6 +116,27 @@ class CredentialDocumentDownloadServiceTest {
         when(credentials.get(CREDENTIAL_ID, actor)).thenThrow(forbidden);
 
         assertThatThrownBy(() -> service.download(CREDENTIAL_ID, actor)).isSameAs(forbidden);
+    }
+
+    @Test
+    void unavailableVerificationKeyIsAServerErrorNotAnInvalidProof() throws Exception {
+        SignedCredentialEnvelope envelope = new SignedCredentialEnvelope(
+            "application/vc+jwt", "header.payload.signature");
+        Credential credential = credential(CredentialStatus.ISSUED, null);
+        when(credentials.get(CREDENTIAL_ID, actor)).thenReturn(new CredentialView(credential, null));
+        when(verifier.verifyCredential(envelope)).thenThrow(new VerificationFailure(
+            com.adn.dabaeum.credential.domain.CredentialVerificationKeyResolver.KeyResolutionException.UNAVAILABLE));
+
+        assertThatThrownBy(() -> service.download(CREDENTIAL_ID, actor))
+            .isInstanceOfSatisfying(ApiException.class, exception -> {
+                assertThat(exception.status()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+                assertThat(exception.code()).isEqualTo(com.adn.dabaeum.common.api.ApiErrorCode.INTERNAL_SERVER_ERROR);
+            });
+    }
+
+    private static VerifiedDocument verified() throws Exception {
+        return new VerifiedDocument(new CredentialDocument("{\"verified\":true}"), UUID.randomUUID(),
+            VerificationKey.legacyFile(KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic()));
     }
 
     private Credential credential(CredentialStatus status, String forcedHash) {

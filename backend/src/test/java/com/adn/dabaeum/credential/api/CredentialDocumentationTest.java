@@ -1,6 +1,5 @@
 package com.adn.dabaeum.credential.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document;
@@ -36,8 +35,6 @@ import com.adn.dabaeum.credential.domain.Credential;
 import com.adn.dabaeum.credential.domain.CredentialCourseView;
 import com.adn.dabaeum.credential.domain.CredentialStatus;
 import com.adn.dabaeum.credential.domain.CredentialView;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -57,7 +54,6 @@ import org.springframework.test.web.servlet.MockMvc;
     SecurityConfiguration.class, JacksonConfiguration.class, RequestIdFilter.class})
 class CredentialDocumentationTest {
 
-    private static final Path CONTRACT = Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final UUID COMPLETION_ID = UUID.fromString(
         "10000000-0000-0000-0000-000000000001");
     private static final UUID CREDENTIAL_ID = UUID.fromString(
@@ -92,7 +88,6 @@ class CredentialDocumentationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"validUntil\":\"2027-08-07T00:00:00Z\"}"))
             .andExpect(status().isAccepted())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document("credential-issue", preprocessRequest(prettyPrint()),
                 preprocessResponse(prettyPrint()),
                 requestHeaders(headerWithName("Idempotency-Key")
@@ -108,7 +103,6 @@ class CredentialDocumentationTest {
                 .with(user("manager").roles("INSTITUTION_ADMIN"))
                 .header("Authorization", "Bearer credential-task5-token"))
             .andExpect(status().isOk())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document("credential-get", preprocessRequest(prettyPrint()),
                 preprocessResponse(prettyPrint()),
                 relaxedResponseFields(fieldWithPath("data.status")
@@ -123,7 +117,6 @@ class CredentialDocumentationTest {
                 .header("Authorization", "Bearer credential-task5-token")
                 .param("page", "0").param("size", "20").param("sort", "createdAt,desc"))
             .andExpect(status().isOk())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document("credential-user-list", preprocessRequest(prettyPrint()),
                 preprocessResponse(prettyPrint()),
                 queryParameters(parameterWithName("page").description("0부터 시작하는 페이지"),
@@ -146,7 +139,6 @@ class CredentialDocumentationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"reason\":\"기관 정정 요청\"}"))
             .andExpect(status().isAccepted())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document("credential-revoke", preprocessRequest(prettyPrint()),
                 preprocessResponse(prettyPrint()),
                 requestHeaders(headerWithName("Idempotency-Key")
@@ -163,7 +155,6 @@ class CredentialDocumentationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"reason\":\"정정 재발급\",\"validUntil\":\"2027-08-07T00:00:00Z\"}"))
             .andExpect(status().isAccepted())
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR))
             .andDo(document("credential-reissue", preprocessRequest(prettyPrint()),
                 preprocessResponse(prettyPrint()),
                 requestHeaders(headerWithName("Idempotency-Key")

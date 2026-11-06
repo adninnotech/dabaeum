@@ -44,7 +44,8 @@ public class CourseInstructorController {
         @PathVariable UUID courseId,
         HttpServletRequest servletRequest
     ) {
-        return mapper.toListResponse(service.list(courseId), requestId(servletRequest));
+        return mapper.toListResponse(service.list(courseId), requestId(servletRequest),
+            currentUserProvider.findContext().isPresent());
     }
 
     @PostMapping

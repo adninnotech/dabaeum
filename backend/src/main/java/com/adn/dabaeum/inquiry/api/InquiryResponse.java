@@ -1,6 +1,7 @@
 package com.adn.dabaeum.inquiry.api;
 
 import com.adn.dabaeum.inquiry.domain.InquiryStatus;
+import com.adn.dabaeum.inquiry.domain.InquiryType;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -13,6 +14,7 @@ public record InquiryResponse(
     InquiryStatus status,
     String answer,
     Instant answeredAt,
-    Instant createdAt
+    Instant createdAt,
+    InquiryType inquiryType
 ) {
 }

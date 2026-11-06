@@ -8,7 +8,8 @@ public record SessionResponse(
     UUID userId,
     String provider,
     List<SessionRole> roles,
-    Instant expiresAt
+    Instant expiresAt,
+    boolean passwordExpired
 ) {
 
     public SessionResponse {

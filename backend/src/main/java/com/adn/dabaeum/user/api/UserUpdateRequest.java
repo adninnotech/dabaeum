@@ -1,8 +1,10 @@
 package com.adn.dabaeum.user.api;
 
 import com.adn.dabaeum.user.application.UserUpdateField;
+import com.adn.dabaeum.user.domain.Gender;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonSetter;
+import com.adn.dabaeum.user.domain.EmailAddress;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
@@ -14,7 +16,7 @@ public class UserUpdateRequest {
     @Size(max = 100)
     private String name;
 
-    @Email
+    @Email(regexp = EmailAddress.PATTERN)
     @Size(max = 320)
     private String email;
 
@@ -31,6 +33,8 @@ public class UserUpdateRequest {
 
     private UUID profileImageId;
 
+    private Gender gender;
+
     private boolean namePresent;
     private boolean emailPresent;
     private boolean phonePresent;
@@ -38,6 +42,7 @@ public class UserUpdateRequest {
     private boolean careerPresent;
     private boolean introductionPresent;
     private boolean profileImageIdPresent;
+    private boolean genderPresent;
 
     public UserUpdateRequest() {
     }
@@ -110,6 +115,16 @@ public class UserUpdateRequest {
 
     public UserUpdateField<UUID> profileImageIdUpdate() {
         return field(profileImageIdPresent, profileImageId);
+    }
+
+    @JsonSetter("gender")
+    public void setGender(Gender value) {
+        genderPresent = true;
+        gender = value;
+    }
+
+    public UserUpdateField<Gender> genderUpdate() {
+        return field(genderPresent, gender);
     }
 
     private <T> UserUpdateField<T> field(boolean present, T value) {

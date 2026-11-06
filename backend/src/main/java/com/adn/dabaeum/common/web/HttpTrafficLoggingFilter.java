@@ -37,7 +37,7 @@ public final class HttpTrafficLoggingFilter extends OncePerRequestFilter {
     private final HttpTrafficLoggingProperties properties;
 
     public HttpTrafficLoggingFilter(ObjectMapper objectMapper) {
-        this(objectMapper, new HttpTrafficLoggingProperties(true, true));
+        this(objectMapper, new HttpTrafficLoggingProperties(true, true, false));
     }
 
     public HttpTrafficLoggingFilter(
@@ -51,7 +51,7 @@ public final class HttpTrafficLoggingFilter extends OncePerRequestFilter {
         ObjectMapper objectMapper,
         Consumer<String> logSink
     ) {
-        this(objectMapper, logSink, new HttpTrafficLoggingProperties(true, true));
+        this(objectMapper, logSink, new HttpTrafficLoggingProperties(true, true, false));
     }
 
     HttpTrafficLoggingFilter(
@@ -98,22 +98,22 @@ public final class HttpTrafficLoggingFilter extends OncePerRequestFilter {
     ) {
         long durationMs = (System.nanoTime() - startedAt) / 1_000_000;
         String requestId = requestId(request, response);
-        String message = "http_exchange"
+        String summary = "http_exchange"
             + " requestId=" + requestId
             + " method=" + request.getMethod()
-            + " path=" + request.getRequestURI()
-            + " query=" + sanitizeQueryForLogging(request.getQueryString())
+            + " path=" + request.getRequestURI().replaceAll(
+                "(/api/v1/public/portfolios/)[^/]+", "$1" + MASKED_VALUE)
+            + " query=" + (properties.bodyEnabled()
+                ? sanitizeQueryForLogging(request.getQueryString()) : "<omitted>")
             + " status=" + response.getStatus()
-            + " durationMs=" + durationMs
-            + " requestBody=" + bodyForLogging(
-                request.getContentAsByteArray(),
-                request.getContentType()
-            )
-            + " responseBody=" + bodyForLogging(
-                response.getContentAsByteArray(),
-                response.getContentType()
-            );
-        logSink.accept(message);
+            + " durationMs=" + durationMs;
+        String requestBody = bodyForLogging(
+            request.getContentAsByteArray(), request.getContentType());
+        String responseBody = bodyForLogging(
+            response.getContentAsByteArray(), response.getContentType());
+        logSink.accept(properties.prettyJson()
+            ? summary + "\nrequestBody:\n" + requestBody + "\nresponseBody:\n" + responseBody
+            : summary + " requestBody=" + requestBody + " responseBody=" + responseBody);
     }
 
     private String requestId(
@@ -153,7 +153,9 @@ public final class HttpTrafficLoggingFilter extends OncePerRequestFilter {
                 return "<empty>";
             }
             maskNode(root);
-            return truncate(objectMapper.writeValueAsString(root));
+            return truncate(properties.prettyJson()
+                ? objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(root)
+                : objectMapper.writeValueAsString(root));
         } catch (RuntimeException exception) {
             return "<omitted invalid-json>";
         }

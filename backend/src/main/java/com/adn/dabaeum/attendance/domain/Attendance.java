@@ -34,7 +34,9 @@ public record Attendance(
         }
 
         switch (attendanceMethod) {
-            case QR -> {
+            // 다대구 출결도 학생 폰이 강사 QR(URL)을 찍어 시작한다. 본인 확인만 JWT 대신 다대구 DID 로
+            // 바뀔 뿐, "그 강의실에 있었다"는 증명은 둘 다 우리 QR 토큰이 한다.
+            case QR, QR_DADAEGU -> {
                 if (qrTokenId == null || source != AttendanceSource.APP) {
                     throw new IllegalArgumentException(
                         "QR attendance requires APP source and qrTokenId");

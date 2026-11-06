@@ -5,6 +5,6 @@ public record UserPageCriteria(
     int limit,
     UserSort sort,
     UserSortDirection direction,
-    UserStatus status
+    UserListFilter filter
 ) {
 }

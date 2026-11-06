@@ -48,6 +48,9 @@ class Ed25519JoseCredentialProofServiceTest {
         "\"credentialStatus\":{\"id\":\"https://vc.example.test/api/v1/vc/status/"
             + "CERT-LEGACY-1\",\"type\":\"DabaeumCredentialStatus\"}";
 
+    private static final String BASE_OF_FIXTURE = "https://vc.example.test";
+    private static final String NEW_BASE = "https://www.new-base.example.test";
+
     private KeyPair keyPair;
     private Ed25519JoseCredentialProofService service;
     private String validPayload;
@@ -82,6 +85,47 @@ class Ed25519JoseCredentialProofServiceTest {
             LEGACY_HEADER, legacyPayload, keyPair.getPrivate());
 
         assertThat(service.verify(legacy).canonicalJson()).isEqualTo(legacyPayload);
+    }
+
+    @Test
+    void publicBaseChangeKeepsVerifyingDocumentsSignedWithARegisteredPastBase() {
+        SignedCredentialEnvelope old = service.sign(validDocument());
+
+        assertThat(serviceAt(NEW_BASE, BASE_OF_FIXTURE).verify(old)).isEqualTo(validDocument());
+    }
+
+    @Test
+    void publicBaseChangeRejectsDocumentsFromAnUnregisteredBase() {
+        SignedCredentialEnvelope old = service.sign(validDocument());
+        Ed25519JoseCredentialProofService withoutPast = serviceAt(NEW_BASE);
+        Ed25519JoseCredentialProofService otherPast = serviceAt(NEW_BASE, "https://other.example.test");
+
+        assertThatThrownBy(() -> withoutPast.verify(old)).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> otherPast.verify(old)).isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void newDocumentsAreOnlySignedWithTheCurrentBaseEvenWhenAPastBaseIsRegistered() {
+        Ed25519JoseCredentialProofService moved = serviceAt(NEW_BASE, BASE_OF_FIXTURE);
+
+        assertThatThrownBy(() -> moved.sign(validDocument())).isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void aDocumentMixingCurrentAndPastBasesIsRejected() throws Exception {
+        // 발급자만 옛 주소이고 나머지는 새 주소인 문서. 서명이 맞아도 통과하면 안 된다.
+        String mixed = validPayload.replace(BASE_OF_FIXTURE, NEW_BASE)
+            .replace("\"issuer\":\"" + NEW_BASE, "\"issuer\":\"" + BASE_OF_FIXTURE);
+        SignedCredentialEnvelope envelope = signRaw(EXACT_HEADER, mixed, keyPair.getPrivate());
+
+        assertThatThrownBy(() -> serviceAt(NEW_BASE, BASE_OF_FIXTURE).verify(envelope))
+            .isInstanceOf(RuntimeException.class);
+    }
+
+    private Ed25519JoseCredentialProofService serviceAt(String base, String... pastBases) {
+        return new Ed25519JoseCredentialProofService(KEY_ID,
+            new DefaultCredentialUriProvider(new VcProperties(base, "v1", "development-1", List.of(pastBases))),
+            keyPair.getPrivate(), keyPair.getPublic(), new ObjectMapper());
     }
 
     @Test

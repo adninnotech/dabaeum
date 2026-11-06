@@ -5,7 +5,9 @@ public enum UserSort {
     UPDATED_AT("updatedAt"),
     NAME("name"),
     EMAIL("email"),
-    STATUS("status");
+    STATUS("status"),
+    LAST_LOGIN_AT("lastLoginAt"),
+    ENROLLMENT_COUNT("enrollmentCount");
 
     private final String apiValue;
 
@@ -23,6 +25,8 @@ public enum UserSort {
             case "name" -> NAME;
             case "email" -> EMAIL;
             case "status" -> STATUS;
+            case "lastLoginAt" -> LAST_LOGIN_AT;
+            case "enrollmentCount" -> ENROLLMENT_COUNT;
             default -> throw new IllegalArgumentException(
                 "Unsupported user sort: " + value
             );

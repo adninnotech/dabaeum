@@ -26,7 +26,7 @@ public interface CourseQueryMapper {
         @Param("instructorUserId") UUID instructorUserId
     );
 
-    List<CourseRow> selectInstitutionCourses(
+    List<CourseViewRow> selectInstitutionCourses(
         @Param("institutionId") UUID institutionId,
         @Param("status") String status,
         @Param("limit") int limit,
@@ -43,6 +43,7 @@ public interface CourseQueryMapper {
     List<InstitutionInstructorViewRow> selectInstitutionInstructors(
         @Param("institutionId") UUID institutionId,
         @Param("status") String status,
+        @Param("keyword") String keyword,
         @Param("limit") int limit,
         @Param("offset") int offset,
         @Param("sortField") String sortField,
@@ -51,6 +52,7 @@ public interface CourseQueryMapper {
 
     long countInstitutionInstructors(
         @Param("institutionId") UUID institutionId,
-        @Param("status") String status
+        @Param("status") String status,
+        @Param("keyword") String keyword
     );
 }

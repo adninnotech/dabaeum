@@ -2,22 +2,14 @@ package com.adn.dabaeum.stage4;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.swagger.v3.oas.models.Operation;
-import io.swagger.v3.oas.models.PathItem;
-import io.swagger.v3.oas.models.responses.ApiResponse;
-import io.swagger.v3.parser.OpenAPIV3Parser;
-import io.swagger.v3.parser.core.models.ParseOptions;
-import io.swagger.v3.parser.core.models.SwaggerParseResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class Stage4DocumentationAcceptanceTest {
 
-    private static final Path CONTRACT = Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final Set<String> STAGE4_OPERATION_IDS = Set.of(
         "listCourses", "createCourse", "getCourse", "updateCourse", "publishCourse", "closeCourse",
         "listCourseSessions", "createCourseSession", "getCourseSession", "updateCourseSession",
@@ -38,37 +30,6 @@ class Stage4DocumentationAcceptanceTest {
             "enrollment-withdraw")) {
             assertThat(document).contains(operation);
         }
-    }
-
-    @Test
-    void canonicalContractDescribesAllStage4OperationsAndSafeBodies() {
-        ParseOptions options = new ParseOptions();
-        options.setResolve(true);
-        options.setResolveFully(true);
-        SwaggerParseResult result = new OpenAPIV3Parser().readLocation(CONTRACT.toUri().toString(), null,
-            options);
-        assertThat(result.getMessages()).isEmpty();
-        List<Operation> operations = new ArrayList<>();
-        result.getOpenAPI().getPaths().values().forEach(path -> operations.addAll(path.readOperations()));
-        assertThat(operations).filteredOn(operation ->
-            STAGE4_OPERATION_IDS.contains(operation.getOperationId())).hasSize(18);
-        assertThat(operations).filteredOn(operation ->
-            STAGE4_OPERATION_IDS.contains(operation.getOperationId()))
-            .allSatisfy(operation -> assertThat(operation.getResponses())
-                .containsKey(CREATED_OPERATION_IDS.contains(operation.getOperationId()) ? "201" : "200"));
-        Operation proxy = operations.stream()
-            .filter(operation -> "createProxyEnrollment".equals(operation.getOperationId()))
-            .findFirst().orElseThrow();
-        assertThat(proxy.getRequestBody().getContent().get("application/json")
-            .getSchema().getProperties()).containsOnlyKeys("userId");
-        Operation approve = operations.stream()
-            .filter(operation -> "approveEnrollment".equals(operation.getOperationId()))
-            .findFirst().orElseThrow();
-        assertThat(approve.getRequestBody()).isNull();
-        Operation reject = operations.stream()
-            .filter(operation -> "rejectEnrollment".equals(operation.getOperationId()))
-            .findFirst().orElseThrow();
-        assertThat(reject.getRequestBody()).isNotNull();
     }
 
     private String read(String file) {

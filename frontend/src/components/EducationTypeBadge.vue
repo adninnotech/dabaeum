@@ -1,8 +1,9 @@
 <template>
-  <q-badge :color="badgeColor" :outline="outline">{{ displayLabel }}</q-badge>
+  <q-badge v-if="visible" :color="badgeColor" :outline="outline">{{ displayLabel }}</q-badge>
 </template>
 
 <script>
+import { shouldShowEducationTypeUI } from '@/config/features';
 import { colorForEducationType, educationTypeLabel } from '@/utils/status';
 
 export default {
@@ -18,6 +19,9 @@ export default {
     },
   },
   computed: {
+    visible() {
+      return shouldShowEducationTypeUI() && !!this.type;
+    },
     badgeColor() {
       return colorForEducationType(this.type);
     },

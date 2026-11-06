@@ -1,0 +1,138 @@
+/**
+ * 디자인 토큰 — 화면 실측값이 정본.
+ * 2026-10-12 중장년 이용자 점검: 링크·상태색이 흰 바탕(흰 글자)에서 3~4:1 이라 4.5:1 이상으로 진하게 바꿨다
+ * (#397be9→#2a5fcc, #33a674→#237a54, #f04476→#c72656, 상태 주황 #fd9001→#a65300). 별점(--db-rating)은 글자가 아니라 그대로.
+ * 디자인 시스템 문서의 미사용 값(#6E6CDF, #2563EB, 연한 배지)은 채택하지 않음.
+ */
+:root {
+  /* brand */
+  --db-primary: #264093; /* CTA·활성 스텝·로고 */
+  --db-accent: #2a5fcc; /* 링크·선택 라벨·파일 선택 버튼 */
+  --db-accent-soft: #e0e5fc; /* 활성 필터 칩 배경 */
+  --db-accent-fill: #2a5fcc; /* 흰 글자를 얹는 파란 바탕(검색 버튼·진행 단계) — 다크에선 글자용 accent 보다 어둡게 */
+  --db-avatar-bg: #e0e5fc; /* 사진 없는 프로필(이름 첫 글자) 바탕 — 회색이면 색이 빠져 보였다 */
+  --db-avatar-text: #2a5fcc;
+  --db-star: #f6c945;
+  --db-rating: #fd9001; /* 수강평 별점(채운 별) */
+
+  /* text */
+  --db-text-title: #121212;
+  --db-text-body: #393939;
+  --db-text-sub: #616268; /* 보조 글자 — #727379 는 연회색 바탕(칩·카드)에서 4.5:1 아래로 떨어졌다 */
+  --db-text-placeholder: #cacfd5;
+  --db-text-dark: #111928; /* 상세 이름·기관명 */
+
+  /* bg */
+  --db-bg-page: #fafbfe;
+  --db-bg-white: #ffffff;
+  --db-bg-section: #f3f4f6; /* hover */
+  --db-bg-subtle: #f7f8fa; /* 보조 버튼·hover(aside) */
+  --db-bg-active: #e9ecef; /* aside 활성 */
+  --db-bg-table-head: #f9fafc;
+  --db-bg-tag: #f4f4f5;
+
+  /* 색 바탕(상태 뱃지·주 버튼·푸터) 위 글자 — 테마와 상관없이 흰색.
+   * 예전엔 var(--db-bg-white) 로 적어 다크에서 글자가 어두운 카드색이 되어 묻혔다 */
+  --db-on-color: #ffffff;
+  /* 흰 글자를 얹는 아주 진한 바탕(배너 쪽수·본인확인 버튼) — 글자색 토큰을 바탕으로 써서 다크에서 밝게 뒤집혔다 */
+  --db-fill-strong: #121212;
+
+  /* border */
+  --db-border: #dfe4ea;
+  --db-border-light: #e6e6e6;
+  --db-border-rt: #dbdbdb; /* 리치텍스트 */
+  --db-border-avatar: #f1f2f6;
+
+  /* status (진한 배경 + 흰 글자) */
+  --db-status-blue: #2a5fcc; /* 진행·활성·수강중 */
+  --db-status-green: #237a54; /* 완료·승인·오프라인·답변 완료 */
+  --db-status-purple: #8a38f5; /* 하이브리드·강조 */
+  --db-status-orange: #a65300; /* 대기·모집예정 */
+  --db-status-orange-soft: #f9eed6; /* 주황 상태 틴트 — StatusBadge soft 와 같은 값 */
+  --db-status-orange-text: #9a5700; /* 흰·틴트 바탕 위 주황 글자 — #fd9001 은 대비가 약 2.2:1 이라 읽기 어렵다(4.5:1 이상) */
+  --db-status-green-text: #237a54; /* 흰·틴트 바탕 위 초록 글자 — 검정을 섞어 쓰던 값을 토큰으로(다크에선 밝게) */
+  --db-status-pink: #c72656; /* 취소·거절·마감임박·필수 별표 */
+  --db-status-pink-soft: #fde9ef; /* 실패 안내 배경 — StatusBadge soft 와 같은 틴트 */
+  --db-status-gray: #727379; /* 비활성·종료·비공개 */
+  --db-error: #f31260;
+  --db-dadaegu: #e61f2c; /* 다대구 브랜드(로그인·연결 버튼) — 두 파일에 따로 박혀 있던 값 */
+  --db-text-help: #64696b; /* 폼 도움말·보조 설명 (Figma) — 여러 파일에 직접 적혀 있던 값 */
+  --db-banner-bg: #d2e0fd; /* 홈 배너 이미지가 없을 때 바탕 */
+  /* 배너 그림 위 글자 — 그림은 다크에서도 그대로라 글자도 바꾸지 않는다(다크 블록에서 덮어쓰지 말 것) */
+  --db-banner-ink: #121212; /* 라이트의 --db-text-title 과 같은 값 */
+  --db-banner-ink-sub: #393939; /* 라이트의 --db-text-body 와 같은 값 */
+  --db-banner-panel: rgba(255, 255, 255, 0.72); /* 그림 배너 글 뒤 옅은 판 — 진한 글자(banner-ink)와 짝, 다크에서도 같은 값 */
+  /* 프로필 사진 자르기 무대 — 사진 편집 화면은 밝기 모드와 상관없이 어둡게(사진 색이 바탕에 끌려가지 않게). 다크에서도 같은 값 */
+  --db-crop-stage: #15171c;
+  --db-crop-scrim: rgba(0, 0, 0, 0.58); /* 원 밖을 덮는 어둠 */
+  --db-crop-ring: rgba(255, 255, 255, 0.92); /* 자를 원 테두리 */
+  /* 강좌 카드 사진 위 — 사진 색과 무관하게 읽히도록 다크 모드에서도 같은 값 */
+  --db-thumb-dim: rgba(0, 0, 0, 0.4); /* 모집이 끝난 강좌 사진을 덮는 어둠 */
+  --db-thumb-badge-muted: rgba(18, 18, 18, 0.72); /* 모집마감·진행중·종료 배지 바탕 */
+  --db-shadow-card-hover: 0 10px 22px rgba(20, 40, 90, 0.12); /* 강좌 카드 hover 들림 */
+  --db-shadow-badge: 0 1px 3px rgba(0, 0, 0, 0.15); /* 사진 위 흰 순위 칸 */
+  /* 통계 차트 — dataviz 검증(색각 이상 분리) 통과 팔레트. 값을 바꾸면 validate_palette 를 다시 돌린다 */
+  --db-chart-1: #2a78d6;
+  --db-chart-2: #eb6834;
+  --db-chart-3: #1baf7a;
+  --db-chart-4: #eda100; /* 1~4 순서 고정. 4개 함께 검증: 인접 CVD ΔE 9.1, 3·4번은 3:1 미만이라 값 라벨을 늘 같이 보인다 */
+  --db-chart-other: #a3a7ae; /* "기타"로 묶은 나머지 — 무채색 */
+  --db-chart-grid: #e8e9ec;
+}
+
+/* 다크 모드 — Quasar 가 body 에 body--dark 를 단다($q.dark, boot/theme.js).
+ * 이름은 그대로 두고 값만 바꾼다: --db-bg-white 는 '카드 바탕'(다크에선 어두운 면), --db-text-title 은 '가장 진한 글자'(다크에선 밝은 글자).
+ * 상태색(진한 바탕 + 흰 글자)은 다크에서도 대비가 충분해 그대로 둔다 */
+body.body--dark {
+  color-scheme: dark;
+
+  /* brand — 남색 그대로는 어두운 바탕에서 묻혀 한 단계 밝힌다(흰 글자 대비 4.5:1 이상 유지) */
+  --db-primary: #4a66c9;
+  --db-accent: #6ea2f5;
+  --db-accent-soft: #1f2b4d;
+  --db-accent-fill: #3a6fd0;
+  /* 회색 바탕은 어두운 카드와 섞여 프로필이 꺼져 보였다 — 다크에선 파란 바탕에 흰 글자 */
+  --db-avatar-bg: #3a6fd0;
+  --db-avatar-text: #ffffff;
+
+  /* text */
+  --db-text-title: #eceef3;
+  --db-text-body: #c9cdd6;
+  --db-text-sub: #9aa0ab;
+  --db-text-placeholder: #5d6370;
+  --db-text-dark: #f1f3f7;
+  --db-text-help: #a0a6ad;
+
+  /* bg */
+  --db-bg-page: #0f1216;
+  --db-bg-white: #181c22;
+  --db-bg-section: #222731;
+  --db-bg-subtle: #1d2129;
+  --db-bg-active: #2a303b;
+  --db-bg-table-head: #1d2129;
+  --db-bg-tag: #2a303b;
+  --db-shadow-card-hover: 0 10px 22px rgba(0, 0, 0, 0.45); /* 어두운 바탕에선 푸른 그림자가 안 보인다 */
+
+  /* border */
+  --db-border: #303642;
+  --db-border-light: #282d37;
+  --db-border-rt: #3a404c;
+  --db-border-avatar: #2c313b;
+
+  /* status 틴트 — 밝은 틴트는 어두운 바탕에서 형광처럼 떴다 */
+  --db-status-orange-soft: #3a2c13;
+  --db-status-orange-text: #f2b25c;
+  --db-status-green-text: #5fd39d;
+  --db-status-pink-soft: #3d1a25;
+  --db-banner-bg: #1f2b4d;
+  --db-chart-grid: #2b3039;
+
+  /* Quasar 색 이름(color="primary" 등)·다크 면 — Quasar 가 brand 값을 body 의 인라인 style 로 넣어
+     !important 없이는 덮이지 않았다(다크에서도 color="primary" 버튼만 옛 남색) */
+  --q-primary: #4a66c9 !important;
+  /* 밝은 화면용 진한 초록(#237a54)은 어두운 바탕에서 묻힌다 — 예전 값으로 */
+  --q-positive: #2e9b4f !important;
+  --q-dark: #181c22 !important;
+  --q-dark-page: #0f1216 !important;
+  --db-fill-strong: #3a414e;
+}

@@ -1,5 +1,6 @@
 package com.adn.dabaeum.fabric.application;
 
+import com.adn.dabaeum.blockchain.domain.BlockchainProvider;
 import com.adn.dabaeum.blockchain.domain.BlockchainReceipt;
 import com.adn.dabaeum.blockchain.domain.BlockchainRegistryException;
 import com.adn.dabaeum.blockchain.domain.BlockchainRegistryPort;
@@ -13,9 +14,11 @@ import com.adn.dabaeum.blockchain.domain.RegistryStatus;
 import com.adn.dabaeum.blockchain.domain.RegistryTarget;
 import com.adn.dabaeum.credential.application.CredentialHashService;
 import com.adn.dabaeum.credential.domain.Credential;
+import com.adn.dabaeum.credential.domain.CredentialDocument;
 import com.adn.dabaeum.credential.domain.CredentialHashVersion;
 import com.adn.dabaeum.credential.domain.CredentialProofService;
 import com.adn.dabaeum.credential.domain.CredentialRepository;
+import com.adn.dabaeum.credential.domain.CredentialSigningException;
 import com.adn.dabaeum.credential.domain.CredentialStatus;
 import com.adn.dabaeum.credential.domain.SignedCredentialEnvelope;
 import com.adn.dabaeum.fabric.domain.BlockchainTransaction;
@@ -28,6 +31,7 @@ import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Supplier;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -44,6 +48,10 @@ public final class DefaultCredentialFabricWorker implements CredentialFabricWork
     private final BlockchainRegistryPort registry;
     private final TransactionTemplate transactions;
     private final RegistryTarget target;
+    /** 있으면 파일 키 서명 대신 쓴다 (provider=openbao). */
+    private final CredentialIssuanceSigner issuanceSigner;
+    /** 있으면 원장 제출 직전과 발급 확정에서 서명 키를 다시 본다. */
+    private final SigningKeyFinalizeCheck finalizeCheck;
 
     /** Fabric POC 대상. 기존 호출부와 테스트를 위해 남긴다. */
     public DefaultCredentialFabricWorker(
@@ -69,17 +77,36 @@ public final class DefaultCredentialFabricWorker implements CredentialFabricWork
         PlatformTransactionManager transactionManager,
         RegistryTarget target
     ) {
+        this(transactionRepository, credentialRepository, contextProvider, proofService, hashService,
+            registry, transactionManager, target, null, null);
+    }
+
+    public DefaultCredentialFabricWorker(
+        BlockchainTransactionRepository transactionRepository,
+        CredentialRepository credentialRepository,
+        CredentialFabricIssuanceContextProvider contextProvider,
+        CredentialProofService proofService,
+        CredentialHashService hashService,
+        BlockchainRegistryPort registry,
+        PlatformTransactionManager transactionManager,
+        RegistryTarget target,
+        CredentialIssuanceSigner issuanceSigner,
+        SigningKeyFinalizeCheck finalizeCheck
+    ) {
         this.target = Objects.requireNonNull(target, "target");
         this.transactionRepository = Objects.requireNonNull(
             transactionRepository, "transactionRepository");
         this.credentialRepository = Objects.requireNonNull(
             credentialRepository, "credentialRepository");
         this.contextProvider = Objects.requireNonNull(contextProvider, "contextProvider");
-        this.proofService = Objects.requireNonNull(proofService, "proofService");
+        this.proofService = issuanceSigner == null
+            ? Objects.requireNonNull(proofService, "proofService") : proofService;
         this.hashService = Objects.requireNonNull(hashService, "hashService");
         this.registry = Objects.requireNonNull(registry, "registry");
         this.transactions = new TransactionTemplate(Objects.requireNonNull(
             transactionManager, "transactionManager"));
+        this.issuanceSigner = issuanceSigner;
+        this.finalizeCheck = finalizeCheck;
     }
 
     @Override
@@ -102,6 +129,10 @@ public final class DefaultCredentialFabricWorker implements CredentialFabricWork
         Credential credential = inTransaction(() -> credentialRepository
             .findByIdForUpdate(transaction.referenceId())
             .orElseThrow(() -> new IllegalStateException("Credential revoke target is missing")));
+        if (CompensatingRevoke.isCompensation(credential)) {
+            processCompensatingRevoke(transaction, credential, now);
+            return;
+        }
         if (credential.status() != CredentialStatus.ISSUED) {
             inTransaction(() -> {
                 transactionRepository.update(transaction.fail("CREDENTIAL_STATE_CONFLICT",
@@ -152,9 +183,15 @@ public final class DefaultCredentialFabricWorker implements CredentialFabricWork
     private void processReissue(BlockchainTransaction transaction, Instant now) {
         PreparedIssue prepared;
         Credential previous;
+        boolean possiblySubmitted;
         try {
             Credential issuing = inTransaction(() -> transitionToIssuing(
                 transaction.referenceId(), now));
+            if (issuing.status() == CredentialStatus.FAILED) {
+                closeFailedTarget(transaction, now);
+                return;
+            }
+            possiblySubmitted = issuing.vcPayload() != null;
             if (issuing.previousCredentialId() == null) {
                 throw new IllegalStateException("Reissue target has no previous Credential");
             }
@@ -169,9 +206,15 @@ public final class DefaultCredentialFabricWorker implements CredentialFabricWork
         } catch (CredentialHashMismatchException exception) {
             failPreparation(transaction, "CREDENTIAL_HASH_MISMATCH", "Credential hash mismatch", now);
             return;
+        } catch (CredentialSigningException exception) {
+            handleSigningFailure(transaction, exception, now);
+            return;
         } catch (RuntimeException exception) {
             failPreparation(transaction, "CREDENTIAL_PROOF_GENERATION_FAILED",
                 "Credential proof generation failed", now);
+            return;
+        }
+        if (rejectedBeforeSubmission(transaction, prepared.credential(), possiblySubmitted, now)) {
             return;
         }
         BlockchainReceipt receipt;
@@ -194,6 +237,11 @@ public final class DefaultCredentialFabricWorker implements CredentialFabricWork
                 .orElseThrow(() -> new IllegalStateException("Reissue target is missing"));
             if (old.status() == CredentialStatus.ISSUED
                 && current.status() == CredentialStatus.ISSUING) {
+                SigningKeyFinalizeCheck.Outcome outcome = finalizeOutcome(current.id());
+                if (outcome != SigningKeyFinalizeCheck.Outcome.ALLOW) {
+                    rejectAtFinalize(current, transaction, receipt, outcome, now);
+                    return null;
+                }
                 credentialRepository.update(old.markSuperseded(now));
                 credentialRepository.update(current.markIssued(prepared.payload(), prepared.vcHash(),
                     prepared.context().issuerIdentifier(), prepared.context().subjectIdentifier(),
@@ -342,28 +390,40 @@ public final class DefaultCredentialFabricWorker implements CredentialFabricWork
         String ledgerTransactionId = LedgerTransactionIds.latest(registry, reference).orElse(null);
         if (ledgerTransactionId == null) {
             return new BlockchainReceipt(
-                target.provider(),
+                BlockchainProvider.FABRIC_POC,
                 LedgerTransactionIds.unresolved(transaction.id()), null, null, null, true,
                 LedgerTransactionIds.UNRESOLVED_CODE);
         }
         return new BlockchainReceipt(
-            target.provider(),
+            BlockchainProvider.FABRIC_POC,
             ledgerTransactionId, null, null, null, true, LedgerTransactionIds.RECONCILED_CODE);
     }
 
     private void processIssue(BlockchainTransaction transaction, Instant now) {
         PreparedIssue prepared;
+        boolean possiblySubmitted;
         try {
             Credential issuing = inTransaction(() -> transitionToIssuing(
                 transaction.referenceId(), now));
+            if (issuing.status() == CredentialStatus.FAILED) {
+                closeFailedTarget(transaction, now);
+                return;
+            }
+            possiblySubmitted = issuing.vcPayload() != null;
             requireMatchingNetwork(transaction, issuing);
             prepared = prepareIssue(issuing, now);
         } catch (CredentialHashMismatchException exception) {
             failPreparation(transaction, "CREDENTIAL_HASH_MISMATCH", "Credential hash mismatch", now);
             return;
+        } catch (CredentialSigningException exception) {
+            handleSigningFailure(transaction, exception, now);
+            return;
         } catch (RuntimeException exception) {
             failPreparation(transaction, "CREDENTIAL_PROOF_GENERATION_FAILED",
                 "Credential proof generation failed", now);
+            return;
+        }
+        if (rejectedBeforeSubmission(transaction, prepared.credential(), possiblySubmitted, now)) {
             return;
         }
 
@@ -382,6 +442,11 @@ public final class DefaultCredentialFabricWorker implements CredentialFabricWork
             Credential current = credentialRepository.findByIdForUpdate(prepared.credential().id())
                 .orElseThrow(() -> new IllegalStateException("Credential anchor target is missing"));
             if (current.status() == CredentialStatus.ISSUING) {
+                SigningKeyFinalizeCheck.Outcome outcome = finalizeOutcome(current.id());
+                if (outcome != SigningKeyFinalizeCheck.Outcome.ALLOW) {
+                    rejectAtFinalize(current, transaction, receipt, outcome, now);
+                    return null;
+                }
                 credentialRepository.update(current.markIssued(
                     prepared.payload(), prepared.vcHash(),
                     prepared.context().issuerIdentifier(), prepared.context().subjectIdentifier(),
@@ -398,7 +463,7 @@ public final class DefaultCredentialFabricWorker implements CredentialFabricWork
         });
     }
 
-    private Credential transitionToIssuing(java.util.UUID credentialId, Instant now) {
+    private Credential transitionToIssuing(UUID credentialId, Instant now) {
         return inTransaction(() -> {
             Credential credential = credentialRepository.findByIdForUpdate(credentialId)
                 .orElseThrow(() -> new IllegalStateException("Credential anchor target is missing"));
@@ -416,9 +481,22 @@ public final class DefaultCredentialFabricWorker implements CredentialFabricWork
             && issuing.issuerIdentifier() != null && issuing.subjectIdentifier() != null
             && issuing.issuedAt() != null) {
             context = new CredentialFabricIssuanceContext(
-                new com.adn.dabaeum.credential.domain.CredentialDocument("{}"),
+                new CredentialDocument("{}"),
                 issuing.issuerIdentifier(), issuing.subjectIdentifier(), issuing.issuedAt());
             envelope = existingOrSign(issuing);
+        } else if (issuanceSigner != null) {
+            UUID credentialId = issuing.id();
+            boolean legacy = isLegacy(issuing);
+            CredentialIssuanceSigner.Signed signed = issuanceSigner.sign(credentialId,
+                () -> contextProvider.resolve(credentialId, now),
+                signedEnvelope -> legacy
+                    ? hashService.sha256(signedEnvelope)
+                    : hashService.sha256CompactJws(signedEnvelope.compactJws()),
+                now);
+            issuing = signed.credential();
+            context = new CredentialFabricIssuanceContext(new CredentialDocument("{}"),
+                issuing.issuerIdentifier(), issuing.subjectIdentifier(), issuing.issuedAt());
+            envelope = signed.envelope();
         } else {
             context = contextProvider.resolve(issuing.id(), now);
             envelope = proofService.sign(context.document());
@@ -497,6 +575,165 @@ public final class DefaultCredentialFabricWorker implements CredentialFabricWork
             markCredentialFailed(current, code, now);
             transactionRepository.update(transaction.fail(
                 code, "Blockchain commit was not confirmed", now));
+            return null;
+        });
+    }
+
+    /** 확정에서 거부된 수료증을 오래된 앵커·재발급 재시도가 다시 서명·제출하지 않는다 (§8.1 보정). */
+    private void closeFailedTarget(BlockchainTransaction transaction, Instant now) {
+        inTransaction(() -> {
+            transactionRepository.update(transaction.fail("CREDENTIAL_STATE_CONFLICT",
+                "Credential already failed", now));
+            return null;
+        });
+    }
+
+    private void handleSigningFailure(
+        BlockchainTransaction transaction,
+        CredentialSigningException exception,
+        Instant now
+    ) {
+        switch (exception.disposition()) {
+            case RETRY -> retryPreparation(transaction, exception.code(), now);
+            case FAIL -> failPreparation(transaction, exception.code(), "Credential signing failed", now);
+            case STALE -> {
+                // 다른 시도가 이 행을 가져갔다. 처리 중 트랜잭션은 그쪽이나 Reconciler 가 닫는다.
+            }
+        }
+    }
+
+    /** §15.3 OpenBao 일시 장애: 수료증은 ISSUING 그대로, 트랜잭션은 지수 백오프. 한도를 넘으면 둘 다 실패. */
+    private void retryPreparation(BlockchainTransaction transaction, String code, Instant now) {
+        Instant retryAt = now.plusSeconds(30L * (1L << Math.min(transaction.retryCount(), 4)));
+        BlockchainTransaction next = transaction.retry(code, "Credential signing is unavailable", retryAt);
+        inTransaction(() -> {
+            if (next.status() == BlockchainTransactionStatus.FAILED) {
+                credentialRepository.findByIdForUpdate(transaction.referenceId())
+                    .ifPresent(current -> markCredentialFailed(current, code, now));
+            }
+            transactionRepository.update(next);
+            return null;
+        });
+    }
+
+    /**
+     * 서명 뒤 원장 제출 전에 키가 유출·정지됐으면 원장에 올리지 않는다 (계획 3 설계서와 다른 점 1). 이번 시도 전에
+     * 봉투가 이미 저장돼 있었으면 이전 시도가 원장에 올렸을 수 있으므로 확정 거부와 같은 코드로 닫고 R 보정을 남긴다.
+     */
+    private boolean rejectedBeforeSubmission(
+        BlockchainTransaction transaction,
+        Credential credential,
+        boolean possiblySubmitted,
+        Instant now
+    ) {
+        if (finalizeCheck == null) {
+            return false;
+        }
+        SigningKeyFinalizeCheck.Outcome outcome;
+        try {
+            outcome = inTransaction(() -> finalizeCheck.check(credential.id()));
+        } catch (RuntimeException exception) {
+            if (possiblySubmitted) {
+                // 이전 시도가 원장에 올렸을 수 있다. 키 거부가 아닌 검사 오류로 보정 없이 실패시키지 않고 재시도한다.
+                retryPreparation(transaction, "CREDENTIAL_PROOF_GENERATION_FAILED", now);
+            } else {
+                failPreparation(transaction, "CREDENTIAL_PROOF_GENERATION_FAILED",
+                    "Credential proof generation failed", now);
+            }
+            return true;
+        }
+        if (outcome == SigningKeyFinalizeCheck.Outcome.ALLOW) {
+            return false;
+        }
+        if (possiblySubmitted) {
+            rejectPossiblySubmitted(transaction, credential.id(), outcome, now);
+        } else {
+            failPreparation(transaction, SigningKeyFinalizeCheck.beforeSubmissionCode(outcome),
+                "Signing key is no longer usable", now);
+        }
+        return true;
+    }
+
+    /** 이전 시도가 원장에 올렸을 수 있다. 다시 올리지 않고 수료증을 확정 거부 코드로 닫고 R 보정을 한 번 남긴다. */
+    private void rejectPossiblySubmitted(
+        BlockchainTransaction transaction,
+        UUID credentialId,
+        SigningKeyFinalizeCheck.Outcome outcome,
+        Instant now
+    ) {
+        String code = SigningKeyFinalizeCheck.finalizeCode(outcome);
+        String message = "Signing key was withdrawn after a possible ledger submission";
+        inTransaction(() -> {
+            Credential current = credentialRepository.findByIdForUpdate(credentialId)
+                .orElseThrow(() -> new IllegalStateException("Credential anchor target is missing"));
+            if (current.status() == CredentialStatus.ISSUING) {
+                credentialRepository.update(current.markFailed(code, message, now));
+                CompensatingRevoke.insertOnce(transactionRepository, transaction, code, now);
+            }
+            transactionRepository.update(transaction.fail(code, message, now));
+            return null;
+        });
+    }
+
+    /** 확정 트랜잭션 안에서 부른다. 버전 행 FOR SHARE 잠금이 이 트랜잭션 커밋까지 간다 (§8.1 10단계). */
+    private SigningKeyFinalizeCheck.Outcome finalizeOutcome(UUID credentialId) {
+        return finalizeCheck == null ? SigningKeyFinalizeCheck.Outcome.ALLOW : finalizeCheck.check(credentialId);
+    }
+
+    /** 원장 기록은 실제로 성공했으므로 앵커는 확정한다. 수료증만 FAILED 로 두고 R 보정을 영속화한다. */
+    private void rejectAtFinalize(
+        Credential current,
+        BlockchainTransaction transaction,
+        BlockchainReceipt receipt,
+        SigningKeyFinalizeCheck.Outcome outcome,
+        Instant now
+    ) {
+        String code = SigningKeyFinalizeCheck.finalizeCode(outcome);
+        credentialRepository.update(current.markFailed(
+            code, "Signing key was withdrawn before issuance was finalized", now));
+        transactionRepository.update(transaction.confirm(
+            receipt.transactionId(), receipt.resultCode(), receipt.blockHeight(), now));
+        CompensatingRevoke.insertOnce(transactionRepository, transaction, code, now);
+    }
+
+    /**
+     * 확정 거부 뒤 원장 A 를 R 로 되돌린다. FAILED 수료증 행에는 해시가 없으므로 원장의 해시로 갱신하고, 수료증
+     * 상태는 바꾸지 않는다.
+     */
+    private void processCompensatingRevoke(
+        BlockchainTransaction transaction,
+        Credential credential,
+        Instant now
+    ) {
+        BlockchainReceipt receipt;
+        try {
+            requireMatchingNetwork(transaction, credential);
+            CredentialRegistryReference reference = reference(credential);
+            CredentialRegistryState ledger = registry.getCredentialState(reference);
+            if (!reference.chainKey().equals(ledger.chainKey())) {
+                throw new BlockchainRegistryException("BLOCKCHAIN_LEDGER_CONFLICT");
+            }
+            if (ledger.status() == RegistryStatus.REVOKED) {
+                receipt = reconciledReceipt(transaction, reference);
+            } else if (ledger.status() == RegistryStatus.ACTIVE) {
+                receipt = registry.updateCredentialState(new CredentialRegistryUpdate(
+                    reference, REGISTRY_SCHEMA_VERSION, RegistryStatus.REVOKED,
+                    ledger.vcHash(), hashVersion(credential), transaction.requestedAt()));
+            } else {
+                throw new BlockchainRegistryException("BLOCKCHAIN_LEDGER_CONFLICT");
+            }
+        } catch (BlockchainRegistryException exception) {
+            handleRegistryFailure(credential, transaction, exception, now);
+            return;
+        }
+        if (!receipt.confirmed()) {
+            // 보정은 원장을 되돌리는 마지막 수단이라 한 번의 미확정 응답으로 닫지 않는다. 다음 시도가 원장을 다시 읽는다.
+            handleRegistryFailure(credential, transaction, new BlockchainRegistryException("BLOCKCHAIN_COMMIT_INVALID"), now);
+            return;
+        }
+        inTransaction(() -> {
+            transactionRepository.update(transaction.confirm(
+                receipt.transactionId(), receipt.resultCode(), receipt.blockHeight(), now));
             return null;
         });
     }

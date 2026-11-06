@@ -48,6 +48,14 @@ class ApiExceptionHandlerTest {
     }
 
     @Test
+    void mapsMultipartSizeLimitToFileSizeExceededInsteadOf500() throws Exception {
+        mockMvc.perform(post("/probe/too-large").with(user("test-user")))
+            .andExpect(status().isUnprocessableEntity())
+            .andExpect(jsonPath("$.code").value("FILE_SIZE_EXCEEDED"))
+            .andExpect(jsonPath("$.details[0]").value("file"));
+    }
+
+    @Test
     void mapsMalformedJsonToBadRequestWithoutRawExceptionDetails() throws Exception {
         mockMvc.perform(post("/probe/validation")
                 .with(user("test-user"))
@@ -83,6 +91,12 @@ class ApiExceptionHandlerTest {
                 ApiErrorCode.INSTITUTION_NOT_FOUND,
                 "Institution not found"
             );
+        }
+
+        /** 실제로는 Tomcat 이 multipart 를 읽다가 spring.servlet.multipart.max-file-size(10MB) 를 넘기면 던진다. */
+        @PostMapping("/probe/too-large")
+        ResponseEntity<Void> tooLarge() {
+            throw new org.springframework.web.multipart.MaxUploadSizeExceededException(10L * 1024 * 1024);
         }
 
         @PostMapping("/probe/validation")

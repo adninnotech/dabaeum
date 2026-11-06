@@ -1,9 +1,13 @@
 package com.adn.dabaeum.enrollment.api;
 
+import com.adn.dabaeum.accesslog.domain.AccessLogAction;
+import com.adn.dabaeum.accesslog.web.PersonalDataAccess;
 import com.adn.dabaeum.common.api.ApiResponse;
 import com.adn.dabaeum.common.security.CurrentUserProvider;
 import com.adn.dabaeum.common.web.RequestIdFilter;
+import com.adn.dabaeum.enrollment.application.BulkDecisionResult;
 import com.adn.dabaeum.enrollment.application.EnrollmentApplicationService;
+import com.adn.dabaeum.enrollment.application.EnrollmentBulkDecisionService;
 import com.adn.dabaeum.enrollment.application.EnrollmentPage;
 import com.adn.dabaeum.enrollment.domain.Enrollment;
 import jakarta.servlet.http.HttpServletRequest;
@@ -24,12 +28,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class EnrollmentController {
 
     private final EnrollmentApplicationService service;
+    private final EnrollmentBulkDecisionService bulkDecisionService;
     private final EnrollmentApiMapper mapper;
     private final CurrentUserProvider currentUserProvider;
 
     public EnrollmentController(EnrollmentApplicationService service,
+        EnrollmentBulkDecisionService bulkDecisionService,
         EnrollmentApiMapper mapper, CurrentUserProvider currentUserProvider) {
         this.service = service;
+        this.bulkDecisionService = bulkDecisionService;
         this.mapper = mapper;
         this.currentUserProvider = currentUserProvider;
     }
@@ -47,6 +54,7 @@ public class EnrollmentController {
     }
 
     @PostMapping("/courses/{courseId}/proxy-enrollments")
+    @PersonalDataAccess(action = AccessLogAction.UPDATE, targetField = "userId")
     public ResponseEntity<ApiResponse<EnrollmentResponse>> createProxy(
         @PathVariable UUID courseId,
         @Valid @RequestBody ProxyEnrollmentCreateRequest request,
@@ -59,6 +67,7 @@ public class EnrollmentController {
     }
 
     @GetMapping("/courses/{courseId}/enrollments")
+    @PersonalDataAccess(action = AccessLogAction.READ, targetField = "userId")
     public EnrollmentPageResponse list(
         @PathVariable UUID courseId,
         @RequestParam(defaultValue = "0") int page,
@@ -72,6 +81,7 @@ public class EnrollmentController {
     }
 
     @GetMapping("/enrollments/{enrollmentId}")
+    @PersonalDataAccess(action = AccessLogAction.READ, targetField = "userId")
     public ApiResponse<EnrollmentResponse> get(
         @PathVariable UUID enrollmentId,
         HttpServletRequest request
@@ -101,6 +111,18 @@ public class EnrollmentController {
             service.reject(mapper.toRejectCommand(enrollmentId, rejection),
                 currentUserProvider.requireContext()),
             requestId(request));
+    }
+
+    /** 부분 성공을 허용하므로 200 으로 내보내고 성공·실패를 본문에 담는다. */
+    @PostMapping("/enrollments/bulk-decision")
+    public ApiResponse<BulkDecisionResult> bulkDecide(
+        @Valid @RequestBody EnrollmentBulkDecisionRequest request,
+        HttpServletRequest servletRequest
+    ) {
+        return mapper.toApiResponse(
+            bulkDecisionService.bulkDecide(mapper.toBulkDecisionCommand(request),
+                currentUserProvider.requireContext()),
+            requestId(servletRequest));
     }
 
     @PostMapping("/enrollments/{enrollmentId}/cancel")

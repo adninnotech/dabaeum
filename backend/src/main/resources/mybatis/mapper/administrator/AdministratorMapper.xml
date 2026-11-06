@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.adn.dabaeum.administrator.infrastructure.mybatis.AdministratorMapper">
+
+    <resultMap id="administratorRowResultMap"
+               type="com.adn.dabaeum.administrator.infrastructure.mybatis.AdministratorRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="email" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="last_login_at" javaType="java.time.Instant"/>
+            <arg column="locked_until" javaType="java.time.Instant"/>
+            <arg column="password_changed_at" javaType="java.time.Instant"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <!-- 잠금은 지금 유효할 때만 돌려준다. LOCAL 비밀번호가 없으면 변경 시각은 null. -->
+    <sql id="columns">
+        u.id, u.name, u.email, u.status, u.last_login_at,
+        CASE WHEN u.locked_until &gt; #{now} THEN u.locked_until END AS locked_until,
+        i.password_changed_at, u.created_at
+    </sql>
+
+    <sql id="administratorFrom">
+          FROM tb_users u
+          LEFT JOIN tb_user_identities i
+            ON i.user_id = u.id
+           AND i.provider = 'LOCAL'
+           AND i.password_hash IS NOT NULL
+         WHERE EXISTS (
+                SELECT 1 FROM tb_user_roles r
+                 WHERE r.user_id = u.id
+                <choose>
+                    <when test="criteria.role != null">AND r.role = #{criteria.role}</when>
+                    <otherwise>AND r.role IN ('PLATFORM_ADMIN', 'INSTITUTION_ADMIN')</otherwise>
+                </choose>
+         )
+        <if test="criteria.status != null">
+           AND u.status = #{criteria.status}
+        </if>
+        <if test="criteria.keyword != null">
+           AND (
+                LOWER(u.name) LIKE '%' || #{criteria.keyword} || '%' ESCAPE '\'
+                OR LOWER(u.email) LIKE '%' || #{criteria.keyword} || '%' ESCAPE '\'
+           )
+        </if>
+    </sql>
+
+    <select id="search" resultMap="administratorRowResultMap">
+        <bind name="now" value="criteria.now"/>
+        SELECT <include refid="columns"/>
+        <include refid="administratorFrom"/>
+         ORDER BY u.created_at DESC, u.id ASC
+         LIMIT #{criteria.limit} OFFSET #{criteria.offset}
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*)
+        <include refid="administratorFrom"/>
+    </select>
+
+    <select id="selectById" resultMap="administratorRowResultMap">
+        SELECT <include refid="columns"/>
+          FROM tb_users u
+          LEFT JOIN tb_user_identities i
+            ON i.user_id = u.id
+           AND i.provider = 'LOCAL'
+           AND i.password_hash IS NOT NULL
+         WHERE u.id = #{userId}
+    </select>
+
+</mapper>

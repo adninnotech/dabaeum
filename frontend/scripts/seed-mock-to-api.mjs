@@ -4,11 +4,11 @@
  * 사용: node scripts/seed-mock-to-api.mjs
  *
  * 환경변수(선택):
- *   API_BASE=http://<api-host>:8080/api/v1
- *   API_TOKEN=<bearer-token>
+ *   API_BASE=http://<API_SERVER>:8080/api/v1
+ *   API_TOKEN=<YOUR_TOKEN>
  */
 
-const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8080/api/v1';
+const API_BASE = process.env.API_BASE || 'http://localhost:8080/api/v1';
 const API_TOKEN = process.env.API_TOKEN || '';
 
 const institutionSeed = {

@@ -32,7 +32,8 @@ public record AuthTokenResponse(
                     role.institutionId()
                 ))
                 .toList(),
-            result.expiresAt()
+            result.expiresAt(),
+            result.passwordExpired()
         );
         return new ApiResponse<>(
             new AuthTokenResponse(

@@ -2,6 +2,7 @@ package com.adn.dabaeum.enrollment.api;
 
 import com.adn.dabaeum.course.domain.CourseStatus;
 import com.adn.dabaeum.enrollment.domain.EnrollmentStatus;
+import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -15,6 +16,7 @@ public record MyEnrollmentResponse(
     String courseTitle,
     String courseCode,
     CourseStatus courseStatus,
-    String institutionName
+    String cancellationReason,
+    @JsonUnwrapped CourseCardFields card
 ) {
 }

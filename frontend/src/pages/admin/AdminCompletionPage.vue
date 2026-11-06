@@ -1,17 +1,25 @@
 <template>
-  <q-page padding>
-    <div class="app-page-header row items-center justify-between q-mb-lg">
-      <div>
-        <div class="app-page-header__title text-h5 text-weight-bold">이수 처리</div>
-        <div class="app-page-header__subtitle text-grey-7">과정 → 수강신청 선택 · evaluate · confirm · credential 발급</div>
-      </div>
-      <q-btn outline color="primary" icon="refresh" label="새로고침" :loading="loading" @click="reloadAll" />
-    </div>
+  <!-- 다른 관리자 화면과 같은 여백 — 위가 좁고 폰 좌우가 8px 이었다 -->
+  <q-page class="completion-page">
+    <AppPageHeader
+      :title="consoleScope === 'institution' ? '수료증 발급' : '이수 처리'"
+      :subtitle="consoleScope === 'institution' ? '출석 평가·이수 확정 뒤 수료증(VC)을 발급합니다. 강사가 확정한 건은 바로 발급할 수 있습니다.' : ''"
+      show-refresh
+      :loading="coursesLoading"
+      @refresh="reloadAll"
+    />
 
-    <AppErrorBanner :message="errorMessage" />
+    <AppInstitutionMissingBanner
+      :show="consoleScope === 'institution' && showInstitutionMissingBanner"
+    />
+    <AppErrorBanner :message="errorMessage">
+      <template #action>
+        <q-btn flat dense no-caps color="negative" label="다시 시도" @click="reloadAll" />
+      </template>
+    </AppErrorBanner>
 
     <div class="row q-col-gutter-md q-mb-md">
-      <div class="col-12 col-md-5">
+      <div class="col-12 col-md-6">
         <q-select
           :model-value="selectedCourseId"
           outlined
@@ -19,147 +27,93 @@
           emit-value
           map-options
           :options="courseOptions"
-          label="과정 선택"
+          label="강의 선택"
           :loading="coursesLoading"
+          :disable="rosterBusy"
           @update:model-value="onCourseChange"
         />
-      </div>
-      <div class="col-12 col-md-5">
-        <q-select
-          :model-value="selectedEnrollmentId"
-          outlined
-          dense
-          emit-value
-          map-options
-          :options="enrollmentOptions"
-          label="수강신청 선택"
-          :disable="!selectedCourseId"
-          :loading="enrollmentsLoading"
-          @update:model-value="onEnrollmentChange"
-        />
-      </div>
-      <div class="col-12 col-md-2 flex items-center">
-        <q-btn
-          color="primary"
-          unelevated
-          class="full-width"
-          label="이수 조회"
-          :disable="!selectedEnrollmentId"
-          :loading="loading"
-          @click="loadCompletion"
-        />
+        <!-- 처리 중엔 강의를 바꿀 수 없다 — 꺼진 이유를 글자로 -->
+        <div v-if="rosterBusy" class="field-hint">처리가 끝나면 강의를 바꿀 수 있습니다.</div>
+        <div v-else-if="!coursesLoading && !coursesError && !courseOptions.length" class="field-hint">
+          등록된 강의가 없습니다.
+        </div>
+        <div v-else-if="coursesCapped" class="field-hint">최근 강의 {{ COURSE_PAGE_SIZE }}개만 고를 수 있습니다.</div>
       </div>
     </div>
 
-    <q-card flat bordered>
-      <q-card-section class="row items-center justify-between">
-        <div class="text-subtitle1 text-weight-bold">이수 정보</div>
-        <div class="row q-gutter-sm">
-          <q-btn
-            color="primary"
-            unelevated
-            label="평가"
-            :disable="!selectedEnrollmentId"
-            :loading="actionLoading === 'evaluate'"
-            @click="doEvaluate"
-          />
-          <q-btn
-            color="positive"
-            unelevated
-            label="확정"
-            :disable="!selectedEnrollmentId"
-            :loading="actionLoading === 'confirm'"
-            @click="doConfirm"
-          />
-          <q-btn
-            color="secondary"
-            unelevated
-            label="VC 발급"
-            :disable="!completionId"
-            :loading="actionLoading === 'credential'"
-            @click="doIssueCredential"
-          />
-        </div>
-      </q-card-section>
-      <q-separator />
-      <q-card-section v-if="!completion && !loading" class="text-grey-7">
-        수강신청을 선택한 뒤 이수 조회를 실행하세요.
-      </q-card-section>
-      <q-markup-table v-else flat bordered>
-        <tbody>
-          <tr v-for="row in detailRows" :key="row.label">
-            <td class="text-grey-7" style="width: 180px">{{ row.label }}</td>
-            <td>
-              <q-badge v-if="row.label === 'status'" :color="statusColor[row.value] || 'grey'">{{ row.value }}</q-badge>
-              <span v-else>{{ row.value }}</span>
-            </td>
-          </tr>
-        </tbody>
-      </q-markup-table>
-      <q-inner-loading :showing="loading" />
-    </q-card>
+    <CompletionRoster
+      ref="roster"
+      :course-id="selectedCourseId"
+      :course-title="selectedCourseTitle"
+      :criteria-text="selectedCriteria"
+      can-issue
+      :can-revert="canRevert"
+      @busy-change="rosterBusy = $event"
+      @error="errorMessage = $event"
+    />
   </q-page>
 </template>
 
 <script>
-import { formatDateTimeKst } from '@/utils/datetime';
+import { completionCriteriaText, filterCompletionCourses, pickCompletionCourseId } from '@/utils/completion-course';
+import { formatCourseOption } from '@/utils/status';
 import AppErrorBanner from '@/components/AppErrorBanner.vue';
-import { statusColor } from '@/utils/status';
-import { listCourses } from '@/services/course-api';
-import { enrichEnrollmentsWithUsers, listCourseEnrollments } from '@/services/enrollment-api';
-import { confirmCompletion, evaluateCompletion, getCompletion } from '@/services/completion-api';
-import { issueCredential } from '@/services/credential-api';
+import AppInstitutionMissingBanner from '@/components/AppInstitutionMissingBanner.vue';
+import AppPageHeader from '@/components/AppPageHeader.vue';
+import CompletionRoster from '@/components/completion/CompletionRoster.vue';
+import instructorConsoleCourses from '@/mixins/instructor-console-courses';
+
+const COURSE_PAGE_SIZE = 50;
 
 export default {
-  components: { AppErrorBanner },
   name: 'AdminCompletionPage',
+  components: { AppErrorBanner, AppInstitutionMissingBanner, AppPageHeader, CompletionRoster },
+  // 관리자·기관 콘솔이 같이 쓴다 — 과정 목록 범위는 라우트 meta.consoleScope.
+  // 역할 나눔: 강사는 출석 평가·이수 확정, 기관은 확정된 수강생에게 수료증(VC) 발급, 플랫폼 관리자는 전부
+  mixins: [instructorConsoleCourses],
   data() {
     return {
-      statusColor,
       courses: [],
-      enrollments: [],
       selectedCourseId: null,
-      selectedEnrollmentId: null,
-      completion: null,
       coursesLoading: false,
-      enrollmentsLoading: false,
-      loading: false,
-      actionLoading: null,
+      rosterBusy: false,
       errorMessage: '',
+      coursesError: false,
+      coursesCapped: false,
+      COURSE_PAGE_SIZE,
     };
   },
   computed: {
+    /** 확정 취소(POST …/completion/revert)는 플랫폼 관리자만 — 기관 관리자에겐 버튼을 그리지 않는다 */
+    canRevert() {
+      return this.consoleAsAdmin;
+    },
     courseOptions() {
-      return this.courses.map((c) => ({
-        label: `${c.courseCode || ''} ${c.title || c.id}`.trim(),
-        value: c.id,
-      }));
+      return this.courses.map((c) => ({ label: formatCourseOption(c), value: c.id }));
     },
-    enrollmentOptions() {
-      return this.enrollments.map((e) => ({
-        label: `${e.applicantLabel || e.userName || e.userId || e.id} · ${e.status || ''}`.trim(),
-        value: e.id,
-      }));
+    selectedCriteria() {
+      return completionCriteriaText(this.courses.find((course) => course.id === this.selectedCourseId));
     },
-    completionId() {
-      return this.completion?.id || this.completion?.completionId || null;
+    selectedCourseTitle() {
+      return this.courses.find((course) => course.id === this.selectedCourseId)?.title || '';
     },
-    detailRows() {
-      const c = this.completion;
-      if (!c) return [];
-      const rate = c.attendanceRate;
-      const rateText =
-        rate == null ? '-' : typeof rate === 'number' && rate <= 1 ? `${Math.round(rate * 100)}%` : `${rate}%`;
-      return [
-        { label: 'completionId', value: this.completionId || '-' },
-        { label: 'enrollmentId', value: c.enrollmentId || this.selectedEnrollmentId || '-' },
-        { label: 'status', value: c.status || '-' },
-        { label: 'attendanceRate', value: rateText },
-        { label: 'completedMinutes', value: c.completedMinutes ?? '-' },
-        { label: 'evaluatedAt', value: formatDateTimeKst(c.evaluatedAt) },
-        { label: 'completedAt', value: formatDateTimeKst(c.completedAt) },
-        { label: 'confirmedAt', value: formatDateTimeKst(c.confirmedAt) },
-      ];
+  },
+  watch: {
+    // 기관 콘솔: 기관 선택기로 기관을 바꾸면 그 기관 과정으로 다시 읽는다
+    institutionId(next, prev) {
+      if (this.consoleScope !== 'institution' || next === prev) return;
+      this.selectedCourseId = null;
+      this.loadCourses();
+    },
+    // 같은 화면에서 다른 과정 링크로 들어오면(?courseId 만 바뀜) 그 과정으로 맞춘다
+    '$route.query.courseId'(courseId) {
+      if (
+        courseId &&
+        courseId !== this.selectedCourseId &&
+        this.courses.some((c) => c.id === courseId)
+      ) {
+        this.selectedCourseId = courseId;
+      }
     },
   },
   mounted() {
@@ -167,106 +121,57 @@ export default {
   },
   methods: {
     async reloadAll() {
+      const before = this.selectedCourseId;
       await this.loadCourses();
-      if (this.selectedCourseId) await this.loadEnrollments(this.selectedCourseId);
-      if (this.selectedEnrollmentId) await this.loadCompletion();
+      // 과정이 그대로면 명단은 저절로 다시 읽히지 않는다 — 직접 다시 읽는다
+      if (before && before === this.selectedCourseId) this.$refs.roster?.reload();
     },
     async loadCourses() {
       this.coursesLoading = true;
       this.errorMessage = '';
+      this.coursesError = false;
       try {
-        const result = await listCourses({ page: 0, size: 50, sort: 'createdAt,desc' });
-        this.courses = Array.isArray(result.data) ? result.data : [];
-        if (!this.selectedCourseId && this.courses.length) {
-          await this.onCourseChange(this.courses[0].id);
-        }
+        const result = await this.fetchConsoleCourses({ page: 0, size: COURSE_PAGE_SIZE });
+        // 작성 중·취소 강의는 이수할 수강생이 없다 — 목록에서 뺀다
+        this.courses = filterCompletionCourses(Array.isArray(result.data) ? result.data : []);
+        this.coursesCapped = (result.page?.totalElements || 0) > COURSE_PAGE_SIZE;
+        const stillListed = this.courses.some((course) => course.id === this.selectedCourseId);
+        // 메뉴·강의 상세에서 ?courseId 로 넘어오면 그 과정을 연다(예전엔 첫 과정으로 초기화됐다)
+        // 처음엔 할 일이 있을 법한 강의부터(수업이 끝났는데 종료 전 → 진행 중) — 최근에 만든 임시저장 강의가 먼저 열렸다
+        if (!stillListed) this.selectedCourseId = pickCompletionCourseId(this.courses, this.$route.query.courseId);
       } catch (error) {
-        this.errorMessage = error.message || '과정 목록 조회 실패';
+        this.errorMessage = error.message || '강의 목록을 불러오지 못했습니다.';
+        this.coursesError = true;
         this.courses = [];
+        this.selectedCourseId = null;
       } finally {
         this.coursesLoading = false;
       }
     },
-    async onCourseChange(courseId) {
-      this.selectedCourseId = courseId;
-      this.selectedEnrollmentId = null;
-      this.enrollments = [];
-      this.completion = null;
-      await this.loadEnrollments(courseId);
-    },
-    async loadEnrollments(courseId) {
-      if (!courseId) return;
-      this.enrollmentsLoading = true;
-      try {
-        const result = await listCourseEnrollments(courseId, { page: 0, size: 100 });
-        this.enrollments = await enrichEnrollmentsWithUsers(Array.isArray(result.data) ? result.data : []);
-        if (this.enrollments.length) {
-          await this.onEnrollmentChange(this.enrollments[0].id);
-        }
-      } catch (error) {
-        this.$q.notify({ type: 'negative', message: error.message || '수강신청 목록 조회 실패', position: 'top' });
-        this.enrollments = [];
-      } finally {
-        this.enrollmentsLoading = false;
-      }
-    },
-    async onEnrollmentChange(enrollmentId) {
-      this.selectedEnrollmentId = enrollmentId;
-      this.completion = null;
-      if (enrollmentId) await this.loadCompletion();
-    },
-    async loadCompletion() {
-      if (!this.selectedEnrollmentId) return;
-      this.loading = true;
+    onCourseChange(courseId) {
       this.errorMessage = '';
-      try {
-        this.completion = await getCompletion(this.selectedEnrollmentId);
-      } catch (error) {
-        this.completion = null;
-        this.errorMessage = error.message || '이수 조회 실패';
-      } finally {
-        this.loading = false;
-      }
-    },
-    async doEvaluate() {
-      this.actionLoading = 'evaluate';
-      try {
-        this.completion = await evaluateCompletion(this.selectedEnrollmentId);
-        this.$q.notify({ type: 'positive', message: '이수 평가가 완료되었습니다.', position: 'top' });
-      } catch (error) {
-        this.$q.notify({ type: 'negative', message: error.message, position: 'top' });
-      } finally {
-        this.actionLoading = null;
-      }
-    },
-    async doConfirm() {
-      this.actionLoading = 'confirm';
-      try {
-        this.completion = await confirmCompletion(this.selectedEnrollmentId);
-        this.$q.notify({ type: 'positive', message: '이수가 확정되었습니다.', position: 'top' });
-      } catch (error) {
-        this.$q.notify({ type: 'negative', message: error.message, position: 'top' });
-      } finally {
-        this.actionLoading = null;
-      }
-    },
-    async doIssueCredential() {
-      if (!this.completionId) {
-        this.$q.notify({ type: 'warning', message: 'completionId가 없습니다. 이수 확정 후 다시 시도하세요.', position: 'top' });
-        return;
-      }
-      this.actionLoading = 'credential';
-      try {
-        await issueCredential(this.completionId, {
-          validUntil: '2029-12-31T23:59:59+09:00',
-        });
-        this.$q.notify({ type: 'positive', message: 'VC 발급 요청이 완료되었습니다.', position: 'top' });
-      } catch (error) {
-        this.$q.notify({ type: 'negative', message: error.message, position: 'top' });
-      } finally {
-        this.actionLoading = null;
-      }
+      this.selectedCourseId = courseId;
+      this.syncCourseQuery(courseId);
     },
   },
 };
 </script>
+
+<style scoped>
+.completion-page {
+  padding: 48px 40px 32px;
+}
+
+@media (max-width: 1023px) {
+  .completion-page {
+    padding: 24px 16px;
+  }
+}
+
+.field-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--db-text-sub);
+  word-break: keep-all;
+}
+</style>

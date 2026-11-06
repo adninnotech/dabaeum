@@ -14,6 +14,7 @@ import com.adn.dabaeum.blockchain.domain.CredentialRegistryReissue;
 import com.adn.dabaeum.blockchain.domain.CredentialRegistryState;
 import com.adn.dabaeum.blockchain.domain.CredentialRegistryUpdate;
 import com.adn.dabaeum.blockchain.domain.RegistryStatus;
+import com.adn.dabaeum.blockchain.domain.RegistryTarget;
 import com.adn.dabaeum.credential.domain.Credential;
 import com.adn.dabaeum.credential.domain.CredentialRepository;
 import com.adn.dabaeum.credential.domain.CredentialStatus;
@@ -22,6 +23,9 @@ import com.adn.dabaeum.fabric.domain.BlockchainTransactionRepository;
 import com.adn.dabaeum.fabric.domain.BlockchainTransactionStatus;
 import com.adn.dabaeum.fabric.domain.BlockchainTransactionType;
 import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -208,6 +212,115 @@ class CredentialFabricReconcilerTest {
         }
     }
 
+    @Test
+    void staleIssueSignedWithACompromisedKeyFailsTheCredentialAndQueuesCompensation() {
+        Credential credential = currentCredential("CURRENTKEY000001", CredentialStatus.ISSUING, null);
+        BlockchainTransaction transaction = transaction(
+            credential, "FABRIC_POC", BlockchainTransactionType.VC_ANCHOR, 0);
+        InMemoryTransactions transactions = new InMemoryTransactions(transaction);
+        InMemoryCredentials credentials = new InMemoryCredentials(credential);
+        RecordingRegistry registry = new RecordingRegistry();
+        registry.put(credential, RegistryStatus.ACTIVE);
+
+        reconciler(transactions, credentials, registry, SigningKeyFinalizeCheck.Outcome.COMPROMISED)
+            .reconcileBatch(10, NOW);
+
+        assertThat(credentials.current.status()).isEqualTo(CredentialStatus.FAILED);
+        assertThat(credentials.current.failureCode()).isEqualTo(SigningKeyFinalizeCheck.COMPROMISED_AT_FINALIZE);
+        assertThat(transactions.current.status()).isEqualTo(BlockchainTransactionStatus.CONFIRMED);
+        assertThat(transactions.inserted).singleElement().satisfies(revoke -> {
+            assertThat(revoke.transactionType()).isEqualTo(BlockchainTransactionType.VC_REVOKE);
+            assertThat(revoke.idempotencyKey()).isEqualTo("compensate-revoke-" + credential.id());
+        });
+    }
+
+    @Test
+    void staleReissueRejectedAtFinalizeFailsOnlyTheReplacement() {
+        Credential previous = currentCredential("CURRENTOLDKEY001", CredentialStatus.ISSUED, null);
+        Credential replacement = currentCredential("CURRENTNEWKEY001", CredentialStatus.ISSUING, previous.id());
+        InMemoryTransactions transactions = new InMemoryTransactions(
+            transaction(replacement, "FABRIC_POC", BlockchainTransactionType.VC_REISSUE, 0));
+        InMemoryCredentials credentials = new InMemoryCredentials(previous, replacement);
+        RecordingRegistry registry = new RecordingRegistry();
+        registry.put(previous, RegistryStatus.SUPERSEDED);
+        registry.put(replacement, RegistryStatus.ACTIVE);
+
+        reconciler(transactions, credentials, registry, SigningKeyFinalizeCheck.Outcome.INACTIVE)
+            .reconcileBatch(10, NOW);
+
+        assertThat(credentials.findById(previous.id()).orElseThrow().status()).isEqualTo(CredentialStatus.ISSUED);
+        Credential failed = credentials.findById(replacement.id()).orElseThrow();
+        assertThat(failed.status()).isEqualTo(CredentialStatus.FAILED);
+        assertThat(failed.failureCode()).isEqualTo(SigningKeyFinalizeCheck.INACTIVE_AT_FINALIZE);
+        assertThat(transactions.inserted).hasSize(1);
+    }
+
+    @Test
+    void staleCompensatingRevokeIsConfirmedOnceTheLedgerIsRevoked() {
+        Credential failed = failedCurrentCredential("CURRENTKEY000003");
+        InMemoryTransactions transactions = new InMemoryTransactions(
+            transaction(failed, "FABRIC_POC", BlockchainTransactionType.VC_REVOKE, 0));
+        InMemoryCredentials credentials = new InMemoryCredentials(failed);
+        RecordingRegistry registry = new RecordingRegistry();
+        registry.put(failed, RegistryStatus.REVOKED, HASH);
+
+        reconciler(transactions, credentials, registry).reconcileBatch(10, NOW);
+
+        assertThat(transactions.current.status()).isEqualTo(BlockchainTransactionStatus.CONFIRMED);
+        assertThat(credentials.current.status()).isEqualTo(CredentialStatus.FAILED);
+    }
+
+    @Test
+    void staleCompensatingRevokeWithTheLedgerStillActiveIsRetriedInsteadOfFailed() {
+        Credential failed = failedCurrentCredential("CURRENTKEY000004");
+        InMemoryTransactions transactions = new InMemoryTransactions(
+            transaction(failed, "FABRIC_POC", BlockchainTransactionType.VC_REVOKE, 0));
+        RecordingRegistry registry = new RecordingRegistry();
+        registry.put(failed, RegistryStatus.ACTIVE, HASH);
+
+        reconciler(transactions, new InMemoryCredentials(failed), registry).reconcileBatch(10, NOW);
+
+        assertThat(transactions.current.status()).isEqualTo(BlockchainTransactionStatus.PENDING);
+        assertThat(transactions.current.retryCount()).isEqualTo(1);
+    }
+
+    @Test
+    void staleCompensatingRevokeWithALedgerReadFailureIsRetriedInsteadOfFailed() {
+        Credential failed = failedCurrentCredential("CURRENTKEY000005");
+        InMemoryTransactions transactions = new InMemoryTransactions(
+            transaction(failed, "FABRIC_POC", BlockchainTransactionType.VC_REVOKE, 0));
+        InMemoryCredentials credentials = new InMemoryCredentials(failed);
+        RecordingRegistry registry = new RecordingRegistry();
+        registry.failureCode = "BLOCKCHAIN_RESPONSE_INVALID";
+
+        reconciler(transactions, credentials, registry).reconcileBatch(10, NOW);
+
+        assertThat(transactions.current.status()).isEqualTo(BlockchainTransactionStatus.PENDING);
+        assertThat(transactions.current.retryCount()).isEqualTo(1);
+        assertThat(credentials.current.status()).isEqualTo(CredentialStatus.FAILED);
+    }
+
+    private static DefaultCredentialFabricReconciler reconciler(
+        InMemoryTransactions transactions,
+        InMemoryCredentials credentials,
+        RecordingRegistry registry,
+        SigningKeyFinalizeCheck.Outcome... outcomes
+    ) {
+        Deque<SigningKeyFinalizeCheck.Outcome> script = new ArrayDeque<>(List.of(outcomes));
+        return new DefaultCredentialFabricReconciler(transactions, credentials, registry, null,
+            RegistryTarget.FABRIC_POC,
+            credentialId -> script.isEmpty() ? SigningKeyFinalizeCheck.Outcome.ALLOW : script.poll());
+    }
+
+    private static Credential failedCurrentCredential(String chainKey) {
+        return new Credential(
+            UUID.randomUUID(), UUID.randomUUID(), null, "CERT-" + chainKey, 1, null, null,
+            "LIFELONG_EDUCATION_COMPLETION", CredentialStatus.FAILED, null, null, null, null,
+            chainKey, "COMPACT_JWS_SHA256_V1", null, null, null,
+            SigningKeyFinalizeCheck.COMPROMISED_AT_FINALIZE, "failed",
+            NOW.minusSeconds(180), NOW.minusSeconds(120));
+    }
+
     private static Credential legacyCredential(
         String credentialNo, CredentialStatus status, UUID previousId
     ) {
@@ -263,6 +376,12 @@ class CredentialFabricReconcilerTest {
                 BlockchainProvider.FABRIC_POC));
         }
 
+        private void put(Credential credential, RegistryStatus status, String vcHash) {
+            CredentialRegistryReference reference = reference(credential);
+            states.put(reference.chainKey(), new CredentialRegistryState(
+                reference.chainKey(), 1, status, vcHash, NOW, BlockchainProvider.FABRIC_POC));
+        }
+
         @Override public CredentialRegistryState getCredentialState(
             CredentialRegistryReference reference
         ) {
@@ -298,6 +417,7 @@ class CredentialFabricReconcilerTest {
     private static final class InMemoryTransactions implements BlockchainTransactionRepository {
         private BlockchainTransaction current;
         private List<String> claimedNetworks = List.of();
+        private final List<BlockchainTransaction> inserted = new ArrayList<>();
 
         private InMemoryTransactions(BlockchainTransaction current) {
             this.current = current;
@@ -320,8 +440,11 @@ class CredentialFabricReconcilerTest {
         }
         @Override public Optional<BlockchainTransaction> findByIdempotencyKey(
             String network, String key
-        ) { return Optional.of(current); }
-        @Override public void insert(BlockchainTransaction value) { current = value; }
+        ) {
+            return inserted.stream().filter(value -> value.network().equals(network)
+                && value.idempotencyKey().equals(key)).findFirst();
+        }
+        @Override public void insert(BlockchainTransaction value) { inserted.add(value); }
         @Override public void update(BlockchainTransaction value) { current = value; }
     }
 

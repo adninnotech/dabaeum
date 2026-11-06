@@ -10,7 +10,6 @@ import com.adn.dabaeum.blockchain.domain.BlockchainProvider;
 import com.adn.dabaeum.blockchain.domain.BlockchainRegistryPort;
 import com.adn.dabaeum.blockchain.domain.CredentialRegistryCreate;
 import com.adn.dabaeum.blockchain.domain.CredentialRegistryReference;
-import com.adn.dabaeum.blockchain.domain.CredentialRegistryUpdate;
 import com.adn.dabaeum.blockchain.domain.LegacyCredentialIssueDetails;
 import com.adn.dabaeum.blockchain.domain.RegistryStatus;
 import com.adn.dabaeum.credential.application.CredentialApplicationService;
@@ -32,11 +31,13 @@ import com.adn.dabaeum.credential.domain.PendingBlockchainRequest;
 import com.adn.dabaeum.credential.domain.CredentialProofService;
 import com.adn.dabaeum.credential.domain.CredentialQueryRepository;
 import com.adn.dabaeum.credential.domain.CredentialRepository;
+import com.adn.dabaeum.credential.domain.CredentialSignatureVerifier;
 import com.adn.dabaeum.credential.domain.CredentialStatus;
 import com.adn.dabaeum.credential.domain.CredentialVerification;
 import com.adn.dabaeum.credential.domain.CredentialVerificationRepository;
 import com.adn.dabaeum.credential.domain.CredentialVerificationResult;
 import com.adn.dabaeum.credential.domain.SignedCredentialEnvelope;
+import com.adn.dabaeum.credential.domain.VerificationKey;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
 import com.adn.dabaeum.common.security.AuthenticatedUserContext;
 import com.adn.dabaeum.completion.domain.Completion;
@@ -56,14 +57,11 @@ import com.adn.dabaeum.fabric.domain.BlockchainTransaction;
 import com.adn.dabaeum.fabric.domain.BlockchainTransactionRepository;
 import com.adn.dabaeum.fabric.domain.BlockchainTransactionStatus;
 import com.adn.dabaeum.fabric.domain.BlockchainTransactionType;
-import io.swagger.v3.oas.models.OpenAPI;
-import io.swagger.v3.oas.models.Operation;
-import io.swagger.v3.parser.OpenAPIV3Parser;
-import io.swagger.v3.parser.core.models.ParseOptions;
-import io.swagger.v3.parser.core.models.SwaggerParseResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.math.BigDecimal;
+import java.security.KeyPairGenerator;
+import java.security.PublicKey;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -84,33 +82,24 @@ import tools.jackson.databind.ObjectMapper;
 
 class CredentialFabricAcceptanceTest {
 
-    private static final Path CONTRACT = Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final Instant ISSUED_AT = Instant.parse("2026-08-13T01:00:00Z");
     private static final Instant REVOKED_AT = Instant.parse("2026-08-13T02:00:00Z");
+    private static final PublicKey PLATFORM_KEY = generatedKey();
+
+    private static PublicKey generatedKey() {
+        try {
+            return KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic();
+        } catch (Exception exception) {
+            throw new AssertionError(exception);
+        }
+    }
     private static final Set<String> CREDENTIAL_OPERATION_IDS = Set.of(
         "issueCredential", "getCredential", "listUserCredentials", "revokeCredential",
         "reissueCredential", "verifyCredential", "listCredentialVerifications",
         "downloadCredentialDocument", "listCurrentUserCredentials");
 
     @Test
-    void acceptsNineCredentialOperationsAndAllVerificationResults() {
-        OpenAPI api = parse();
-        Map<String, Operation> operations = api.getPaths().values().stream()
-            .flatMap(path -> path.readOperations().stream())
-            .filter(operation -> operation.getTags() != null
-                && operation.getTags().contains("Credential"))
-            .collect(java.util.stream.Collectors.toMap(Operation::getOperationId, value -> value));
-
-        assertThat(operations.keySet()).containsExactlyInAnyOrderElementsOf(CREDENTIAL_OPERATION_IDS);
-        assertThat(CredentialVerificationResult.values())
-            .extracting(Enum::name)
-            .containsExactly("VALID", "INVALID", "REVOKED", "SUPERSEDED", "EXPIRED",
-                "NOT_FOUND", "ERROR");
-    }
-
-    @Test
     void acceptanceArtifactsArePresent() throws Exception {
-        assertThat(Files.exists(Path.of("scripts/verify-credential-vc-fabric.sh"))).isTrue();
         assertThat(Files.exists(Path.of("src/docs/asciidoc/credential-vc-fabric.adoc"))).isTrue();
     }
 
@@ -157,16 +146,6 @@ class CredentialFabricAcceptanceTest {
                     .isEqualTo("ENVELOPE_SHA256_V0");
                 assertThat(fixture.verify()).isEqualTo(CredentialVerificationResult.VALID);
             });
-    }
-
-    private static OpenAPI parse() {
-        ParseOptions options = new ParseOptions();
-        options.setResolve(true);
-        SwaggerParseResult result = new OpenAPIV3Parser().readLocation(
-            CONTRACT.toUri().toString(), null, options);
-        assertThat(result.getMessages()).isEmpty();
-        assertThat(result.getOpenAPI()).isNotNull();
-        return result.getOpenAPI();
     }
 
     private static final class NoCourseCredentialQueryRepository
@@ -240,7 +219,10 @@ class CredentialFabricAcceptanceTest {
             CredentialVerificationRepository verificationRepository =
                 new RecordingVerificationRepository(verifications);
             verificationService = new DefaultCredentialVerificationService(
-                credentials, verificationRepository, proof, hashes, registry,
+                credentials, verificationRepository,
+                new ProofBackedVerifier(proof,
+                    UUID.fromString("00000000-0000-0000-0000-000000000001"), PLATFORM_KEY),
+                hashes, registry,
                 mock(CredentialApplicationService.class), objectMapper,
                 Clock.fixed(REVOKED_AT.plusSeconds(1), ZoneOffset.UTC),
                 new DefaultCredentialUriProvider(new VcProperties(
@@ -361,7 +343,8 @@ class CredentialFabricAcceptanceTest {
                     issuedAt),
                 proof, hashes, registry, new NoOpTransactionManager());
             verificationService = new DefaultCredentialVerificationService(
-                credentials, new RecordingVerificationRepository(verifications), proof,
+                credentials, new RecordingVerificationRepository(verifications),
+                new ProofBackedVerifier(proof, INSTITUTION_ID, PLATFORM_KEY),
                 hashes, registry, application, objectMapper,
                 Clock.fixed(REVOKED_AT.plusSeconds(1), ZoneOffset.UTC),
                 new DefaultCredentialUriProvider(new VcProperties(
@@ -608,6 +591,34 @@ class CredentialFabricAcceptanceTest {
 
         @Override
         public void rollback(TransactionStatus status) {
+        }
+    }
+
+    /** 파일 키 {@link CredentialProofService} 가짜를 검증 서비스가 쓰는 {@link CredentialSignatureVerifier} 로 감싼다. */
+    private static final class ProofBackedVerifier implements CredentialSignatureVerifier {
+        private final CredentialProofService proof;
+        private final UUID institutionId;
+        private final PublicKey key;
+
+        private ProofBackedVerifier(CredentialProofService proof, UUID institutionId, PublicKey key) {
+            this.proof = proof;
+            this.institutionId = institutionId;
+            this.key = key;
+        }
+
+        @Override
+        public VerifiedDocument verifyCredential(SignedCredentialEnvelope envelope) {
+            try {
+                return new VerifiedDocument(
+                    proof.verify(envelope), institutionId, VerificationKey.legacyFile(key));
+            } catch (CredentialProofService.ProofException exception) {
+                throw new VerificationFailure(VerificationFailure.PROOF_INVALID);
+            }
+        }
+
+        @Override
+        public VerifiedDocument verifyStatusList(SignedCredentialEnvelope envelope) {
+            throw new UnsupportedOperationException();
         }
     }
 

@@ -10,6 +10,7 @@ public record UpdateCourseSessionCommand(
     CourseSessionUpdateField<Instant> startsAt,
     CourseSessionUpdateField<Instant> endsAt,
     CourseSessionUpdateField<String> location,
+    CourseSessionUpdateField<String> topic,
     CourseSessionUpdateField<Instant> attendanceOpensAt,
     CourseSessionUpdateField<Instant> attendanceClosesAt,
     CourseSessionUpdateField<CourseSessionStatus> status
@@ -17,7 +18,8 @@ public record UpdateCourseSessionCommand(
 
     public int presentFieldCount() {
         return count(sessionNo) + count(startsAt) + count(endsAt) + count(location)
-            + count(attendanceOpensAt) + count(attendanceClosesAt) + count(status);
+            + count(topic) + count(attendanceOpensAt) + count(attendanceClosesAt)
+            + count(status);
     }
 
     private int count(CourseSessionUpdateField<?> field) {

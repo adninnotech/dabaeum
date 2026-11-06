@@ -1,0 +1,1 @@
+{"state":"OOPS","rcode":{"bcode":"B0594","ecode":"","gcode":""},"msg":"Mitum API에서 정의되지 않은 에러가 발생했습니다. Mitum API 메시지를 확인하세요. - not found - storage data for key TB1DFHZXO2T2DZKR in contract account 0xb2D1789106616aCfC9179006cC3C17FB8A119C0cfca: mongo: no documents in result","data":"","cid":"2e658128930685d824d20b41813b331bb10703d22c20570b278fa36833548327"}

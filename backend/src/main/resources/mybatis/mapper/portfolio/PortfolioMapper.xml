@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- 설계서 §6. 새 데이터 없이 수료·수료증·배지를 모아 읽는다. 공유 링크는 토큰 해시로만 찾는다. -->
+<mapper namespace="com.adn.dabaeum.portfolio.infrastructure.mybatis.PortfolioMapper">
+
+    <resultMap id="owner" type="com.adn.dabaeum.portfolio.domain.PortfolioRecords$Owner">
+        <constructor>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="completion" type="com.adn.dabaeum.portfolio.domain.PortfolioRecords$CompletionItem">
+        <constructor>
+            <idArg column="completion_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="course_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="institution_name" javaType="java.lang.String"/>
+            <arg column="completed_at" javaType="java.time.Instant"/>
+            <arg column="classification_code" javaType="java.lang.String"/>
+            <arg column="credential_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="credential" type="com.adn.dabaeum.portfolio.domain.PortfolioRecords$CredentialItem">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="credential_no" javaType="java.lang.String"/>
+            <arg column="course_title" javaType="java.lang.String"/>
+            <arg column="institution_name" javaType="java.lang.String"/>
+            <arg column="completed_at" javaType="java.time.Instant"/>
+            <arg column="issued_at" javaType="java.time.Instant"/>
+            <arg column="status" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="badge" type="com.adn.dabaeum.portfolio.domain.PortfolioRecords$BadgeItem">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="definition_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="definition_code" javaType="java.lang.String"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="image_file_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="issued_at" javaType="java.time.Instant"/>
+            <arg column="tier_level" javaType="java.lang.Integer"/>
+            <arg column="tier_name" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="share" type="com.adn.dabaeum.portfolio.infrastructure.mybatis.PortfolioShareRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="user_id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="credential_ids_csv" javaType="java.lang.String"/>
+            <arg column="badge_ids_csv" javaType="java.lang.String"/>
+            <arg column="expires_at" javaType="java.time.Instant"/>
+            <arg column="revoked_at" javaType="java.time.Instant"/>
+            <arg column="view_count" javaType="_int"/>
+            <arg column="last_viewed_at" javaType="java.time.Instant"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <select id="selectOwner" resultMap="owner">
+        SELECT name, created_at FROM tb_users WHERE id = #{userId}
+    </select>
+
+    <select id="selectCompletions" resultMap="completion">
+        SELECT cp.id AS completion_id, c.id AS course_id, c.title, i.name AS institution_name, cp.completed_at,
+               c.classification_code,
+               (SELECT cr.id
+                  FROM tb_credential_groups g
+                  JOIN tb_credentials cr ON cr.credential_group_id = g.id
+                 WHERE g.completion_id = cp.id AND cr.status = 'ISSUED'
+                 ORDER BY cr.version_no DESC
+                 LIMIT 1) AS credential_id
+          FROM tb_completions cp
+          JOIN tb_enrollments e ON e.id = cp.enrollment_id
+          JOIN tb_courses c ON c.id = e.course_id
+          LEFT JOIN tb_institutions i ON i.id = c.institution_id
+         WHERE e.user_id = #{userId}
+           AND cp.status = 'COMPLETED'
+         ORDER BY cp.completed_at DESC NULLS LAST, cp.id
+    </select>
+
+    <select id="selectLearningMinutes" resultType="long">
+        SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (s.ends_at - s.starts_at)) / 60), 0)::bigint
+          FROM tb_course_sessions s
+         WHERE s.status &lt;&gt; 'CANCELLED'
+           AND s.course_id IN (
+               SELECT e.course_id
+                 FROM tb_completions cp
+                 JOIN tb_enrollments e ON e.id = cp.enrollment_id
+                WHERE e.user_id = #{userId} AND cp.status = 'COMPLETED'
+           )
+    </select>
+
+    <sql id="credentialScope">
+          FROM tb_credentials cr
+          JOIN tb_credential_groups g ON g.id = cr.credential_group_id
+          JOIN tb_completions cp ON cp.id = g.completion_id
+          JOIN tb_enrollments e ON e.id = cp.enrollment_id
+          JOIN tb_courses c ON c.id = e.course_id
+          LEFT JOIN tb_institutions i ON i.id = c.institution_id
+         WHERE e.user_id = #{userId}
+           AND cr.status = 'ISSUED'
+    </sql>
+
+    <select id="selectCredentials" resultMap="credential">
+        SELECT cr.id, cr.credential_no, c.title AS course_title, i.name AS institution_name, cp.completed_at,
+               cr.issued_at, cr.status
+        <include refid="credentialScope"/>
+         ORDER BY cr.issued_at DESC NULLS LAST, cr.id
+    </select>
+
+    <select id="selectBadges" resultMap="badge">
+        SELECT b.id, b.definition_id, d.code AS definition_code, COALESCE(d.name, b.badge_name) AS name,
+               COALESCE(CAST(tier ->> 'imageFileId' AS uuid), d.image_file_id) AS image_file_id, b.issued_at,
+               b.tier_level, tier ->> 'name' AS tier_name
+          FROM tb_learning_badges b
+          LEFT JOIN tb_badge_definitions d ON d.id = b.definition_id
+          LEFT JOIN LATERAL (
+              SELECT level
+                FROM jsonb_array_elements(CASE WHEN d.rule_type = 'TIERED' THEN d.rule_params -> 'levels' END) level
+               WHERE CAST(level ->> 'level' AS integer) = b.tier_level
+          ) t(tier) ON TRUE
+         WHERE b.user_id = #{userId}
+           AND b.status = 'ISSUED'
+         ORDER BY b.issued_at DESC NULLS LAST, b.id
+    </select>
+
+    <insert id="insertShare">
+        INSERT INTO tb_portfolio_shares (
+            id, user_id, token_hash, included_credential_ids, included_badge_ids, expires_at, created_at
+        ) VALUES (
+            #{id}, #{userId}, #{tokenHash},
+            CAST(#{credentialIds, jdbcType=ARRAY, typeHandler=org.apache.ibatis.type.ArrayTypeHandler} AS uuid[]),
+            CAST(#{badgeIds, jdbcType=ARRAY, typeHandler=org.apache.ibatis.type.ArrayTypeHandler} AS uuid[]),
+            #{expiresAt}, #{createdAt}
+        )
+    </insert>
+
+    <sql id="shareColumns">
+        id, user_id, array_to_string(included_credential_ids, ',') AS credential_ids_csv,
+        array_to_string(included_badge_ids, ',') AS badge_ids_csv,
+        expires_at, revoked_at, view_count, last_viewed_at, created_at
+    </sql>
+
+    <select id="selectShares" resultMap="share">
+        SELECT <include refid="shareColumns"/>
+          FROM tb_portfolio_shares
+         WHERE user_id = #{userId}
+         ORDER BY created_at DESC, id
+    </select>
+
+    <update id="revokeShare">
+        UPDATE tb_portfolio_shares
+           SET revoked_at = #{at}
+         WHERE id = #{id} AND user_id = #{userId} AND revoked_at IS NULL
+    </update>
+
+    <!-- 살아 있는 공유만 조회 수를 올리고 돌려준다. 한 문장이라 동시 조회도 빠짐없이 센다. -->
+    <select id="openShare" resultMap="share" flushCache="true" useCache="false">
+        UPDATE tb_portfolio_shares
+           SET view_count = view_count + 1,
+               last_viewed_at = #{at}
+         WHERE token_hash = #{tokenHash}
+           AND revoked_at IS NULL
+           AND expires_at &gt; #{at}
+        RETURNING <include refid="shareColumns"/>
+    </select>
+
+    <delete id="deleteSharesEndedBefore">
+        DELETE FROM tb_portfolio_shares
+         WHERE (revoked_at IS NOT NULL AND revoked_at &lt; #{threshold})
+            OR expires_at &lt; #{threshold}
+    </delete>
+
+</mapper>

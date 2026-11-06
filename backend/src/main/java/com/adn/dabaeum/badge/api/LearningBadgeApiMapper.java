@@ -3,7 +3,11 @@ package com.adn.dabaeum.badge.api;
 import com.adn.dabaeum.badge.application.IssueLearningBadgeCommand;
 import com.adn.dabaeum.badge.application.LearningBadgePage;
 import com.adn.dabaeum.badge.application.ListUserBadgesQuery;
+import com.adn.dabaeum.badge.domain.BadgeCriteria;
+import com.adn.dabaeum.classification.application.CourseClassificationService;
+import com.adn.dabaeum.badge.domain.BadgeRule;
 import com.adn.dabaeum.badge.domain.LearningBadge;
+import com.adn.dabaeum.badge.domain.LearningBadgeEvent;
 import com.adn.dabaeum.common.api.ApiErrorCode;
 import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.api.ApiMeta;
@@ -14,9 +18,12 @@ import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -28,9 +35,14 @@ public class LearningBadgeApiMapper {
         "updatedAt,asc", "updatedAt,desc");
 
     private final Clock clock;
+    private final String issuerName;
+    private final ObjectProvider<CourseClassificationService> classifications;
 
-    public LearningBadgeApiMapper(Clock clock) {
+    public LearningBadgeApiMapper(Clock clock, @Value("${dabaeum.badge.issuer-name:다배움}") String issuerName,
+        ObjectProvider<CourseClassificationService> classifications) {
         this.clock = clock;
+        this.issuerName = issuerName;
+        this.classifications = classifications;
     }
 
     public IssueLearningBadgeCommand toIssueCommand(
@@ -39,23 +51,11 @@ public class LearningBadgeApiMapper {
         String idempotencyKey,
         AuthenticatedUserContext actor
     ) {
-        if (request == null) {
-            throw validation(List.of("badgeType", "badgeName"));
-        }
-        String badgeType = trimmedOrNull(request.badgeType());
-        String badgeName = trimmedOrNull(request.badgeName());
-        List<String> invalid = new java.util.ArrayList<>();
-        if (badgeType == null || badgeType.length() > 50) {
-            invalid.add("badgeType");
-        }
-        if (badgeName == null || badgeName.length() > 200) {
-            invalid.add("badgeName");
-        }
-        if (!invalid.isEmpty()) {
-            throw validation(invalid);
+        if (request == null || request.definitionId() == null) {
+            throw validation(List.of("definitionId"));
         }
         return new IssueLearningBadgeCommand(
-            credentialId, badgeType, badgeName, request.courseId(),
+            credentialId, request.definitionId(), request.courseId(),
             idempotencyKey, actor, clock.instant());
     }
 
@@ -85,10 +85,32 @@ public class LearningBadgeApiMapper {
     }
 
     public LearningBadgeResponse toResponse(LearningBadge badge) {
+        LearningBadge.Details details = badge.details();
+        BadgeRule rule = details == null ? null : details.rule();
+        Integer tierLevel = details == null ? null : details.tierLevel();
+        Optional<BadgeRule.TierLevel> tier = rule instanceof BadgeRule.Tiered tiered && tierLevel != null
+            ? tiered.level(tierLevel) : Optional.empty();
+        UUID image = tier.map(BadgeRule.TierLevel::imageFileId).orElse(null);
+        LearningBadgeEvent last = details == null ? null : details.lastEvent();
         return new LearningBadgeResponse(
             badge.id(), badge.userId(), badge.courseId(), badge.credentialId(),
             badge.badgeType(), badge.badgeName(), badge.status(), badge.nftTokenId(),
-            badge.issuedAt(), badge.revokedAt(), badge.createdAt(), badge.updatedAt());
+            badge.issuedAt(), badge.revokedAt(), badge.createdAt(), badge.updatedAt(),
+            badge.definitionId(), badge.definitionCode(),
+            BadgeDefinitionResponse.imageUrl(image != null ? image : badge.imageFileId()),
+            issuerName,
+            details == null ? null : details.recipientName(),
+            tierLevel,
+            tier.map(BadgeRule.TierLevel::name).orElse(null),
+            BadgeCriteria.describe(rule, this::classificationPath),
+            details == null ? null : details.expiresAt(),
+            last == null ? null
+                : new LearningBadgeResponse.LastEvent(last.type().name(), last.reason(), last.occurredAt()));
+    }
+
+    private List<String> classificationPath(String code) {
+        CourseClassificationService service = classifications.getIfAvailable();
+        return service == null ? List.of() : service.pathOf(code);
     }
 
     public LearningBadgePageResponse toPageResponse(
@@ -109,7 +131,7 @@ public class LearningBadgeApiMapper {
 
     private ApiException validation(List<String> fields) {
         return new ApiException(
-            HttpStatus.UNPROCESSABLE_ENTITY,
+            HttpStatus.UNPROCESSABLE_CONTENT,
             ApiErrorCode.VALIDATION_FAILED,
             "Request validation failed",
             fields);

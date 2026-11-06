@@ -5,6 +5,7 @@ import static java.nio.file.attribute.PosixFilePermission.OWNER_READ;
 import static java.nio.file.attribute.PosixFilePermission.OWNER_WRITE;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyFactory;
@@ -26,8 +27,11 @@ public class CredentialKeyMaterialLoader {
         try {
             requireRegularFile(privateKeyPath);
             requireRegularFile(publicKeyPath);
-            if (!Files.getPosixFilePermissions(privateKeyPath, NOFOLLOW_LINKS)
-                .equals(Set.of(OWNER_READ, OWNER_WRITE))) {
+            // POSIX 파일시스템에서는 개인키 모드가 정확히 600 이어야 한다. Windows 처럼 POSIX 속성이
+            // 없는 파일시스템(테스트베드 PC)에서는 모드 개념이 없어 이 검사만 건너뛴다.
+            if (posixPermissionsSupported()
+                && !Files.getPosixFilePermissions(privateKeyPath, NOFOLLOW_LINKS)
+                    .equals(Set.of(OWNER_READ, OWNER_WRITE))) {
                 throw new IllegalArgumentException("private key permissions are invalid");
             }
 
@@ -51,6 +55,10 @@ public class CredentialKeyMaterialLoader {
         } catch (Exception exception) {
             throw new IllegalStateException("Credential proof public key is invalid");
         }
+    }
+
+    static boolean posixPermissionsSupported() {
+        return FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
     }
 
     private void requireRegularFile(Path path) {

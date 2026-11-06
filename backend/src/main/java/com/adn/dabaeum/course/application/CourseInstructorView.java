@@ -12,6 +12,9 @@ public record CourseInstructorView(
     String instructorEmail,
     CourseInstructorRole role,
     Instant assignedAt,
-    Instant createdAt
+    Instant createdAt,
+    String introduction,
+    String career,
+    UUID profileImageId
 ) {
 }

@@ -3,10 +3,12 @@ package com.adn.dabaeum.course.api;
 import com.adn.dabaeum.common.api.ApiErrorCode;
 import com.adn.dabaeum.common.api.ApiException;
 import com.adn.dabaeum.common.api.ApiMeta;
+import com.adn.dabaeum.common.api.KeywordQuery;
 import com.adn.dabaeum.common.api.PageMeta;
 import com.adn.dabaeum.course.application.InstitutionInstructorPage;
 import com.adn.dabaeum.course.application.InstructorCoursePage;
 import com.adn.dabaeum.course.domain.CourseStatus;
+import com.adn.dabaeum.course.domain.CourseView;
 import com.adn.dabaeum.course.domain.InstitutionInstructorView;
 import com.adn.dabaeum.course.domain.InstructorCourseStats;
 import com.adn.dabaeum.course.domain.InstructorCourseView;
@@ -41,7 +43,8 @@ public class CourseQueryApiMapper {
     public record CoursePageQuery(int page, int size, String sort, CourseStatus status) {
     }
 
-    public record InstructorPageQuery(int page, int size, String sort, String status) {
+    public record InstructorPageQuery(
+        int page, int size, String sort, String status, String keyword) {
     }
 
     public CoursePageQuery toCoursePageQuery(
@@ -60,7 +63,7 @@ public class CourseQueryApiMapper {
     }
 
     public InstructorPageQuery toInstructorPageQuery(
-        int page, int size, String sort, String status
+        int page, int size, String sort, String status, String q
     ) {
         validatePaging(page, size, sort, INSTRUCTOR_SORTS);
         String parsedStatus = null;
@@ -71,7 +74,8 @@ public class CourseQueryApiMapper {
             }
             parsedStatus = trimmed;
         }
-        return new InstructorPageQuery(page, size, sort.trim(), parsedStatus);
+        return new InstructorPageQuery(
+            page, size, sort.trim(), parsedStatus, KeywordQuery.normalize(q));
     }
 
     public InstructorCoursePageResponse toInstructorCoursePageResponse(
@@ -85,7 +89,8 @@ public class CourseQueryApiMapper {
 
     public InstructorCourseStatsResponse toStatsResponse(InstructorCourseStats stats) {
         return new InstructorCourseStatsResponse(
-            stats.total(), stats.recruiting(), stats.inProgress(), stats.completed());
+            stats.total(), stats.recruiting(), stats.inProgress(), stats.completed(),
+            stats.studentCount(), stats.inquiryCount());
     }
 
     public InstitutionInstructorPageResponse toInstitutionInstructorPageResponse(
@@ -102,16 +107,19 @@ public class CourseQueryApiMapper {
     }
 
     private InstructorCourseResponse toResponse(InstructorCourseView view) {
+        // enrolledCount 는 @JsonUnwrapped 로 펼쳐지는 CourseResponse 가 싣는다.
         return new InstructorCourseResponse(
-            courseApiMapper.toResponse(view.course()),
-            view.instructorRole(),
-            view.enrolledCount());
+            courseApiMapper.toResponse(new CourseView(
+                view.course(), view.enrolledCount(),
+                view.institutionName(), view.mainInstructorName())),
+            view.instructorRole());
     }
 
     private InstitutionInstructorResponse toResponse(InstitutionInstructorView view) {
         return new InstitutionInstructorResponse(
             view.userId(), view.name(), view.email(), view.phone(), view.status(),
-            view.joinedAt(), view.courseCount(), view.memo());
+            view.joinedAt(), view.courseCount(), view.memo(), view.lastLoginAt(),
+            view.birthDate());
     }
 
     private void validatePaging(int page, int size, String sort, Set<String> allowedSorts) {

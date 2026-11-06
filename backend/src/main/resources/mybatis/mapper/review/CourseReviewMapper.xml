@@ -23,6 +23,42 @@
             <arg column="created_at" javaType="java.time.Instant"/>
             <arg column="course_title" javaType="java.lang.String"/>
             <arg column="user_name" javaType="java.lang.String"/>
+            <arg column="institution_name" javaType="java.lang.String"/>
+            <arg column="card_instructor_name" javaType="java.lang.String"/>
+            <arg column="card_classification_code" javaType="java.lang.String"/>
+            <arg column="card_education_type" javaType="java.lang.String"/>
+            <arg column="card_session_count" javaType="java.lang.Integer"/>
+            <arg column="card_tags" javaType="java.lang.String"/>
+            <arg column="card_tuition_type" javaType="java.lang.String"/>
+            <arg column="card_tuition_amount" javaType="java.math.BigDecimal"/>
+            <arg column="card_thumbnail_file_id" javaType="java.util.UUID"
+                typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="cardViewColumns">
+        <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.institutionNameColumn"/>,
+        c.classification_code AS card_classification_code, c.education_type AS card_education_type,
+        <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.cardColumns"/>
+    </sql>
+
+    <sql id="cardViewJoins">
+        <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.institutionJoin"/>
+        <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.cardJoins"/>
+    </sql>
+
+    <resultMap
+        id="reviewSummaryRowResultMap"
+        type="com.adn.dabaeum.review.infrastructure.mybatis.ReviewSummaryRow">
+
+        <constructor>
+            <arg column="total_count" javaType="java.lang.Long"/>
+            <arg column="average_rating" javaType="java.math.BigDecimal"/>
+            <arg column="count5" javaType="java.lang.Long"/>
+            <arg column="count4" javaType="java.lang.Long"/>
+            <arg column="count3" javaType="java.lang.Long"/>
+            <arg column="count2" javaType="java.lang.Long"/>
+            <arg column="count1" javaType="java.lang.Long"/>
         </constructor>
     </resultMap>
 
@@ -59,27 +95,34 @@
 
     <select id="selectByUserId" resultMap="courseReviewViewRowResultMap">
         SELECT r.id, r.user_id, r.course_id, r.rating, r.content, r.created_at,
-               c.title AS course_title, u.name AS user_name
+               c.title AS course_title, u.name AS user_name,
+               <include refid="cardViewColumns"/>
           FROM tb_course_reviews r
           JOIN tb_courses c ON c.id = r.course_id
           JOIN tb_users u ON u.id = r.user_id
+          <include refid="cardViewJoins"/>
          WHERE r.user_id = #{userId}
+        <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.keywordFilter"/>
         ORDER BY r.created_at DESC, r.id ASC
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
     <select id="countByUserId" resultType="long">
         SELECT COUNT(*)
-        FROM tb_course_reviews
-        WHERE user_id = #{userId}
+        FROM tb_course_reviews r
+        JOIN tb_courses c ON c.id = r.course_id
+        WHERE r.user_id = #{userId}
+        <include refid="com.adn.dabaeum.course.infrastructure.mybatis.CourseCardSql.keywordFilter"/>
     </select>
 
     <select id="selectByCourseId" resultMap="courseReviewViewRowResultMap">
         SELECT r.id, r.user_id, r.course_id, r.rating, r.content, r.created_at,
-               c.title AS course_title, u.name AS user_name
+               c.title AS course_title, u.name AS user_name,
+               <include refid="cardViewColumns"/>
           FROM tb_course_reviews r
           JOIN tb_courses c ON c.id = r.course_id
           JOIN tb_users u ON u.id = r.user_id
+          <include refid="cardViewJoins"/>
          WHERE r.course_id = #{courseId}
         ORDER BY r.created_at DESC, r.id ASC
         LIMIT #{limit} OFFSET #{offset}
@@ -89,6 +132,42 @@
         SELECT COUNT(*)
         FROM tb_course_reviews
         WHERE course_id = #{courseId}
+    </select>
+
+    <select id="summarizeByCourseId" resultMap="reviewSummaryRowResultMap">
+        SELECT COUNT(*)                           AS total_count,
+               AVG(rating)                        AS average_rating,
+               COUNT(*) FILTER (WHERE rating = 5)  AS count5,
+               COUNT(*) FILTER (WHERE rating = 4)  AS count4,
+               COUNT(*) FILTER (WHERE rating = 3)  AS count3,
+               COUNT(*) FILTER (WHERE rating = 2)  AS count2,
+               COUNT(*) FILTER (WHERE rating = 1)  AS count1
+          FROM tb_course_reviews
+         WHERE course_id = #{courseId}
+    </select>
+
+    <select id="summarizeByUserId" resultMap="reviewSummaryRowResultMap">
+        SELECT COUNT(*)                           AS total_count,
+               AVG(rating)                        AS average_rating,
+               COUNT(*) FILTER (WHERE rating = 5)  AS count5,
+               COUNT(*) FILTER (WHERE rating = 4)  AS count4,
+               COUNT(*) FILTER (WHERE rating = 3)  AS count3,
+               COUNT(*) FILTER (WHERE rating = 2)  AS count2,
+               COUNT(*) FILTER (WHERE rating = 1)  AS count1
+          FROM tb_course_reviews
+         WHERE user_id = #{userId}
+    </select>
+
+    <select id="countWritable" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_completions cp
+          JOIN tb_enrollments e ON e.id = cp.enrollment_id
+         WHERE e.user_id = #{userId}
+           AND cp.status = 'COMPLETED'
+           AND cp.confirmed_at IS NOT NULL
+           AND NOT EXISTS (
+               SELECT 1 FROM tb_course_reviews r
+                WHERE r.user_id = e.user_id AND r.course_id = e.course_id)
     </select>
 
 </mapper>

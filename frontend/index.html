@@ -5,18 +5,21 @@
 
     <meta charset="utf-8" />
     <meta name="description" content="<%= productDescription %>" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="<%= productName %>" />
+    <meta property="og:description" content="<%= productDescription %>" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="msapplication-tap-highlight" content="no" />
     <meta
       name="viewport"
-      content="user-scalable=no, initial-scale=1, maximum-scale=1, minimum-scale=1, width=device-width<% if (ctx.mode.cordova || ctx.mode.capacitor) { %>, viewport-fit=cover<% } %>"
+      content="initial-scale=1, width=device-width<% if (ctx.mode.cordova || ctx.mode.capacitor) { %>, viewport-fit=cover<% } %>"
     />
-    <meta name="theme-color" content="#1a479f" />
+    <meta name="theme-color" content="#264093" />
 
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <link
       rel="stylesheet"
-      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
     />
 
     <link rel="icon" type="image/svg+xml" href="<%= process.env.BASE_URL %>icons/favicon.svg" />
@@ -53,7 +56,7 @@
     <link
       rel="mask-icon"
       href="<%= process.env.BASE_URL %>icons/safari-pinned-tab.svg"
-      color="#1a479f"
+      color="#264093"
     />
   </head>
   <body>

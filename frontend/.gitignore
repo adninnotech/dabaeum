@@ -28,8 +28,17 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# 에디터 설정
-.vscode/
+# 에디터·도구 로컬 설정
+.claude/
+.mcp.json
+.idea/
 
-# yarn 설치 상태 캐시 — 재생성된다
-.yarn/
+# dev 서버 배포 스크립트 — 서버 주소·경로가 들어 있어 커밋하지 않는다
+/scripts/deploy-dev.sh
+
+# Playwright 결과물
+/test-results
+/playwright-report
+
+# 로컬 스킬 설치 잠금 파일
+/skills-lock.json

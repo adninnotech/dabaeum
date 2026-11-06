@@ -1,0 +1,1 @@
+{"state":"OOPS","rcode":{"bcode":"B0503","ecode":"","gcode":""},"msg":"Operation 정상처리 여부 확인에 실패했습니다. Operation Function(getOperation)에서 fact hash로 결과를 확인하세요. Timeout(20000) Hash(G3vcNhTzHwBa6iKhZ2ucPkocdQsGuaJQH9LuGCaSJqK6)","data":"","cid":"x"}

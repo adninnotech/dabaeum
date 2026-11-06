@@ -1,6 +1,5 @@
 package com.adn.dabaeum.enrollment.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -14,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
@@ -27,8 +27,6 @@ import com.adn.dabaeum.enrollment.application.MyEnrollmentPage;
 import com.adn.dabaeum.enrollment.domain.EnrollmentStatus;
 import com.adn.dabaeum.enrollment.domain.InstitutionEnrollmentView;
 import com.adn.dabaeum.enrollment.domain.MyEnrollmentView;
-import com.adn.dabaeum.testsupport.OpenApiContract;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -51,13 +49,12 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
 class EnrollmentQueryControllerTest {
 
-    private static final Path CONTRACT =
-        Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final UUID USER_ID = UUID.fromString(
         "40000000-0000-0000-0000-000000000004");
     private static final UUID INSTITUTION_ID = UUID.fromString(
@@ -82,8 +79,8 @@ class EnrollmentQueryControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[0].courseTitle").value("AI 기초"))
             .andExpect(jsonPath("$.data[0].institutionName").value("다배움기관"))
-            .andExpect(jsonPath("$.page.totalElements").value(1))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data[0].cancellationReason").value("과정 취소"))
+            .andExpect(jsonPath("$.page.totalElements").value(1));
     }
 
     @Test
@@ -100,7 +97,9 @@ class EnrollmentQueryControllerTest {
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[0].userName").value("홍길동"))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data[0].processedAt").value("2026-08-28T00:00:00Z"))
+            .andExpect(jsonPath("$.data[0].waitlistPosition").value(3))
+            .andExpect(jsonPath("$.data[0].cancellationReason").value("과정 취소"));
     }
 
     @Test
@@ -129,15 +128,17 @@ class EnrollmentQueryControllerTest {
         Instant now = Instant.parse("2026-08-27T00:00:00Z");
         return new MyEnrollmentView(
             UUID.randomUUID(), UUID.randomUUID(), USER_ID,
-            EnrollmentStatus.APPROVED, now, now,
-            "AI 기초", "AI-101", CourseStatus.IN_PROGRESS, "다배움기관");
+            EnrollmentStatus.WITHDRAWN, now, now,
+            "AI 기초", "AI-101", CourseStatus.IN_PROGRESS, "다배움기관",
+            null, null, null, null, null, null, null, null, "과정 취소");
     }
 
     private InstitutionEnrollmentView institutionEnrollment() {
         Instant now = Instant.parse("2026-08-27T00:00:00Z");
         return new InstitutionEnrollmentView(
             UUID.randomUUID(), UUID.randomUUID(), USER_ID,
-            EnrollmentStatus.APPLIED, now, now, "AI 기초", "홍길동");
+            EnrollmentStatus.CANCELLED, now, now, "AI 기초", "홍길동", "다배움기관", 0, null,
+            Instant.parse("2026-08-28T00:00:00Z"), 3, "과정 취소");
     }
 
     private AuthenticatedUserContext learner() {

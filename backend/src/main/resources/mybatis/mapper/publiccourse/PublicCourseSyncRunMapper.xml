@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- 공공데이터 강좌 수집 실행 이력 (설계서 docs/specs/public-lifelong-courses.md §3.5, §4.2). -->
+<mapper namespace="com.adn.dabaeum.publiccourse.infrastructure.mybatis.PublicCourseSyncRunMapper">
+
+    <resultMap id="run" type="com.adn.dabaeum.publiccourse.infrastructure.mybatis.PublicCourseSyncRunMapper$RunRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="trigger_type" javaType="java.lang.String"/>
+            <arg column="requested_by" javaType="java.util.UUID" typeHandler="org.apache.ibatis.type.ObjectTypeHandler"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="started_at" javaType="java.time.Instant"/>
+            <arg column="finished_at" javaType="java.time.Instant"/>
+            <arg column="fetched" javaType="_int"/>
+            <arg column="inserted" javaType="_int"/>
+            <arg column="updated" javaType="_int"/>
+            <arg column="unchanged" javaType="_int"/>
+            <arg column="deactivated" javaType="_int"/>
+            <arg column="skipped" javaType="_int"/>
+            <arg column="parse_failures" javaType="_int"/>
+            <arg column="key_collisions" javaType="_int"/>
+            <arg column="institution_results" javaType="java.lang.String"/>
+            <arg column="error_code" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="runColumns">
+        id, trigger_type, requested_by, status, started_at, finished_at, fetched, inserted, updated, unchanged,
+        deactivated, skipped, parse_failures, key_collisions, institution_results::text AS institution_results,
+        error_code
+    </sql>
+
+    <insert id="insert">
+        INSERT INTO tb_public_course_sync_runs (
+            id, trigger_type, requested_by, status, started_at, finished_at, fetched, inserted, updated, unchanged,
+            deactivated, skipped, parse_failures, key_collisions, institution_results, error_code)
+        VALUES (
+            #{id}, #{triggerType}, #{requestedBy, jdbcType=OTHER}, #{status}, #{startedAt},
+            #{finishedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE}, #{fetched}, #{inserted}, #{updated}, #{unchanged},
+            #{deactivated}, #{skipped}, #{parseFailures}, #{keyCollisions}, CAST(#{institutionResults} AS jsonb),
+            #{errorCode})
+    </insert>
+
+    <update id="update">
+        UPDATE tb_public_course_sync_runs
+           SET status = #{status}, finished_at = #{finishedAt, jdbcType=TIMESTAMP_WITH_TIMEZONE},
+               fetched = #{fetched}, inserted = #{inserted}, updated = #{updated}, unchanged = #{unchanged},
+               deactivated = #{deactivated}, skipped = #{skipped}, parse_failures = #{parseFailures},
+               key_collisions = #{keyCollisions}, institution_results = CAST(#{institutionResults} AS jsonb),
+               error_code = #{errorCode}
+         WHERE id = #{id}
+    </update>
+
+    <select id="selectById" resultMap="run">
+        SELECT <include refid="runColumns"/> FROM tb_public_course_sync_runs WHERE id = #{id}
+    </select>
+
+    <select id="selectPage" resultMap="run">
+        SELECT <include refid="runColumns"/>
+          FROM tb_public_course_sync_runs
+         ORDER BY started_at DESC, id ASC
+         LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*) FROM tb_public_course_sync_runs
+    </select>
+
+    <update id="closeStaleRunning">
+        UPDATE tb_public_course_sync_runs
+           SET status = 'FAILED', finished_at = #{at}, error_code = 'INTERRUPTED'
+         WHERE status = 'RUNNING' AND started_at &lt; #{startedBefore}
+    </update>
+</mapper>

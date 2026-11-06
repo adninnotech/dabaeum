@@ -1,31 +1,30 @@
 <template>
   <q-page padding>
-    <div class="app-page-header q-mb-lg">
-      <div class="app-page-header__title text-h5 text-weight-bold">문의 관리</div>
-      <div class="app-page-header__subtitle text-grey-7">강의에 접수된 학습자 문의입니다.</div>
-    </div>
-    <q-list bordered separator class="bg-white">
-      <q-item v-for="item in rows" :key="item.id">
-        <q-item-section>
-          <q-item-label class="text-weight-bold">{{ item.title }}</q-item-label>
-          <q-item-label caption>{{ item.courseTitle }} · {{ $formatDateTimeKst(item.createdAt) }}</q-item-label>
-        </q-item-section>
-        <q-item-section side>
-          <q-badge color="orange">{{ item.status }}</q-badge>
-          <q-btn flat dense color="primary" label="답변" />
-        </q-item-section>
-      </q-item>
-    </q-list>
+    <AppPageHeader
+      title="문의 관리"
+      show-refresh
+      :loading="loading"
+      @refresh="$refs.list.load()"
+    />
+    <ConsoleInquiryList ref="list" :fetch-page="fetchPage" @loading="loading = $event" />
   </q-page>
 </template>
 
 <script>
-import { MOCK_INQUIRIES } from '@/data/ui-mock.js';
+import AppPageHeader from '@/components/AppPageHeader.vue';
+import ConsoleInquiryList from '@/components/console/ConsoleInquiryList.vue';
+import { listInstructorInquiries } from '@/services/inquiry-api';
 
 export default {
   name: 'InstructorInquiriesPage',
+  components: { AppPageHeader, ConsoleInquiryList },
   data() {
-    return { rows: MOCK_INQUIRIES };
+    return { loading: false };
+  },
+  methods: {
+    fetchPage({ page, size }) {
+      return listInstructorInquiries({ page, size, sort: 'createdAt,desc' });
+    },
   },
 };
 </script>

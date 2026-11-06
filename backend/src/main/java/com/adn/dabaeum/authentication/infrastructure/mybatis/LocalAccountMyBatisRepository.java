@@ -2,6 +2,7 @@ package com.adn.dabaeum.authentication.infrastructure.mybatis;
 
 import com.adn.dabaeum.authentication.domain.LocalAccountCredential;
 import com.adn.dabaeum.authentication.domain.LocalAccountRepository;
+import com.adn.dabaeum.authentication.domain.PasswordAge;
 import java.util.Optional;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
@@ -39,6 +40,17 @@ public class LocalAccountMyBatisRepository implements LocalAccountRepository {
     ) {
         return Optional.ofNullable(mapper.selectByNormalizedEmail(normalizedEmail))
             .map(this::toDomain);
+    }
+
+    @Override
+    public Optional<PasswordAge> findPasswordAge(java.util.UUID userId) {
+        return Optional.ofNullable(mapper.selectPasswordAge(userId))
+            .map(row -> new PasswordAge(row.passwordChangedAt()));
+    }
+
+    @Override
+    public boolean markPasswordTemporary(java.util.UUID userId) {
+        return mapper.markPasswordTemporary(userId) == 1;
     }
 
     private LocalAccountRow toRow(LocalAccountCredential credential) {

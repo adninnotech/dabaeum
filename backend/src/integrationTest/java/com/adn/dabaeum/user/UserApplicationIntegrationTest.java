@@ -13,14 +13,13 @@ import com.adn.dabaeum.user.application.UpdateUserCommand;
 import com.adn.dabaeum.user.application.UserApplicationService;
 import com.adn.dabaeum.user.application.UserPage;
 import com.adn.dabaeum.user.application.UserUpdateField;
+import com.adn.dabaeum.user.application.UserView;
 import com.adn.dabaeum.user.domain.User;
 import com.adn.dabaeum.user.domain.UserRepository;
 import com.adn.dabaeum.user.domain.UserStatus;
 import java.time.LocalDate;
 import java.util.Comparator;
-import java.util.EnumMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,34 +42,36 @@ class UserApplicationIntegrationTest extends RemotePostgresIntegrationTestSuppor
             UserStatus.SUSPENDED
         ));
 
-        assertThat(repository.findById(created.id())).contains(created);
+        assertThat(repository.findById(created.id())).get()
+            .usingRecursiveComparison()
+            .isEqualTo(created);
     }
 
     @Test
     void listsStatusesFiltersSortsAndPagesThroughApplicationService() {
-        Map<UserStatus, Long> beforeByStatus = new EnumMap<>(UserStatus.class);
-        for (UserStatus status : UserStatus.values()) {
-            beforeByStatus.put(status, repository.count(status));
-        }
-        long beforeAll = repository.count(null);
-
+        // 개발 DB 에는 사용자가 수천 명이라 앞 100명에 방금 만든 사용자가 든다는 보장이 없다.
+        // 이름에 태그(소문자: 검색어는 소문자로 정규화돼 들어온다)를 넣고 그 태그로 검색한다.
+        String tag = "task6-" + UUID.randomUUID();
         List<User> created = List.of(
-            create("Task6-A-" + UUID.randomUUID(), UserStatus.ACTIVE),
-            create("Task6-B-" + UUID.randomUUID(), UserStatus.DORMANT),
-            create("Task6-C-" + UUID.randomUUID(), UserStatus.SUSPENDED),
-            create("Task6-D-" + UUID.randomUUID(), UserStatus.WITHDRAWN)
+            create(tag + "-A", UserStatus.ACTIVE),
+            create(tag + "-B", UserStatus.DORMANT),
+            create(tag + "-C", UserStatus.SUSPENDED),
+            create(tag + "-D", UserStatus.WITHDRAWN)
         );
 
         UserPage all = service.list(new ListUsersQuery(
             0,
             100,
             "name,asc",
-            null
+            null,
+            tag,
+            null, null, null, null, null, null
         ));
-        assertThat(all.totalElements()).isEqualTo(beforeAll + 4);
+        assertThat(all.totalElements()).isEqualTo(4);
         assertThat(all.data())
-            .isSortedAccordingTo(Comparator.comparing(User::name))
-            .extracting(User::id)
+            .isSortedAccordingTo(
+                Comparator.comparing((UserView view) -> view.user().name()))
+            .extracting((UserView view) -> view.user().id())
             .containsAll(created.stream().map(User::id).toList());
 
         for (UserStatus status : UserStatus.values()) {
@@ -82,26 +83,30 @@ class UserApplicationIntegrationTest extends RemotePostgresIntegrationTestSuppor
                 0,
                 100,
                 "status,asc",
-                status
+                status,
+                tag,
+                null, null, null, null, null, null
             ));
-            assertThat(filtered.totalElements())
-                .isEqualTo(beforeByStatus.get(status) + 1);
+            assertThat(filtered.totalElements()).isEqualTo(1);
             assertThat(filtered.data())
-                .extracting(User::id)
-                .contains(expected.id());
+                .extracting((UserView view) -> view.user().id())
+                .containsExactly(expected.id());
         }
 
-        UserPage firstActive = service.list(new ListUsersQuery(
+        UserPage firstPage = service.list(new ListUsersQuery(
             0,
             1,
             "name,asc",
-            UserStatus.ACTIVE
+            null,
+            tag,
+            null, null, null, null, null, null
         ));
-        assertThat(firstActive.size()).isEqualTo(1);
-        assertThat(firstActive.totalElements())
-            .isEqualTo(beforeByStatus.get(UserStatus.ACTIVE) + 1);
-        assertThat(firstActive.totalPages())
-            .isEqualTo(beforeByStatus.get(UserStatus.ACTIVE).intValue() + 1);
+        assertThat(firstPage.size()).isEqualTo(1);
+        assertThat(firstPage.data())
+            .extracting((UserView view) -> view.user().id())
+            .containsExactly(created.get(0).id());
+        assertThat(firstPage.totalElements()).isEqualTo(4);
+        assertThat(firstPage.totalPages()).isEqualTo(4);
     }
 
     @Test

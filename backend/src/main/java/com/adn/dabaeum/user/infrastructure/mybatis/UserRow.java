@@ -16,6 +16,11 @@ public record UserRow(
     Instant updatedAt,
     String career,
     String introduction,
-    UUID profileImageId
+    UUID profileImageId,
+    String gender,
+    Instant lastLoginAt,
+    Boolean emailNotificationEnabled,
+    Boolean smsNotificationEnabled,
+    String adminMemo
 ) {
 }

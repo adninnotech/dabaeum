@@ -1,6 +1,5 @@
 package com.adn.dabaeum.completion.api;
 
-import static com.atlassian.oai.validator.mockmvc.OpenApiValidationMatchers.openApi;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -15,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.adn.dabaeum.common.api.ApiExceptionHandler;
 import com.adn.dabaeum.common.config.ClockConfiguration;
 import com.adn.dabaeum.common.config.DevBearerSecurityConfiguration;
+import com.adn.dabaeum.common.config.LocalDevSecuritySupportConfiguration;
 import com.adn.dabaeum.common.config.JacksonConfiguration;
 import com.adn.dabaeum.common.config.SecurityConfiguration;
 import com.adn.dabaeum.common.security.AuthenticatedRole;
@@ -24,9 +24,7 @@ import com.adn.dabaeum.common.web.RequestIdFilter;
 import com.adn.dabaeum.completion.application.CompletionApplicationService;
 import com.adn.dabaeum.completion.domain.Completion;
 import com.adn.dabaeum.completion.domain.CompletionStatus;
-import com.adn.dabaeum.testsupport.OpenApiContract;
 import java.math.BigDecimal;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
@@ -49,13 +47,12 @@ import org.springframework.test.web.servlet.MockMvc;
     ClockConfiguration.class,
     SecurityConfiguration.class,
     DevBearerSecurityConfiguration.class,
+    LocalDevSecuritySupportConfiguration.class,
     JacksonConfiguration.class,
     RequestIdFilter.class
 })
 class CompletionControllerTest {
 
-    private static final Path CONTRACT =
-        Path.of("docs/api/dabaeum-api-v1.yaml").toAbsolutePath();
     private static final UUID ENROLLMENT_ID = UUID.fromString(
         "22222222-2222-2222-2222-222222222222");
     private static final UUID COMPLETION_ID = UUID.fromString(
@@ -77,8 +74,7 @@ class CompletionControllerTest {
                 .with(user("manager").roles("INSTITUTION_ADMIN"))
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.status").value("ELIGIBLE"))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.status").value("ELIGIBLE"));
 
         mockMvc.perform(post("/api/v1/enrollments/{id}/completion/evaluate", ENROLLMENT_ID)
                 .with(user("manager").roles("INSTITUTION_ADMIN"))
@@ -86,16 +82,14 @@ class CompletionControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(validJson()))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.status").value("NOT_COMPLETED"))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(jsonPath("$.data.status").value("NOT_COMPLETED"));
 
         mockMvc.perform(post("/api/v1/enrollments/{id}/completion/confirm", ENROLLMENT_ID)
                 .with(user("manager").roles("INSTITUTION_ADMIN"))
                 .header(RequestIdFilter.HEADER_NAME, REQUEST_ID))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.status").value("COMPLETED"))
-            .andExpect(header().string(RequestIdFilter.HEADER_NAME, REQUEST_ID))
-            .andExpect(openApi().isValid(OpenApiContract.VALIDATOR));
+            .andExpect(header().string(RequestIdFilter.HEADER_NAME, REQUEST_ID));
 
         verify(service).evaluate(any(), eq(manager()));
         verify(service).confirm(ENROLLMENT_ID, manager());

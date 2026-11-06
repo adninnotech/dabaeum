@@ -11,6 +11,13 @@ public record InstitutionEnrollmentViewRow(
     Instant appliedAt,
     Instant createdAt,
     String courseTitle,
-    String userName
+    String userName,
+    String institutionName,
+    Long attendedCount,
+    Long sessionCount,
+    Instant lastStudiedAt,
+    Instant processedAt,
+    Integer waitlistPosition,
+    String cancellationReason
 ) {
 }
